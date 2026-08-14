@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "continuous-cca-nmpc"
+version = "0.1.0"
+description = "Control-centered simulation and validation contracts for Continuous CCA-NMPC"
+requires-python = ">=3.11"
+dependencies = [
+  "jsonschema[format]>=4.23",
+  "matplotlib>=3.9",
+  "numpy>=2.0",
+  "Pillow>=11.0",
+  "scipy>=1.14",
+]
+
+[project.optional-dependencies]
+ml = [
+  "torch>=2.6",
+  "ultralytics>=8.4",
+]
+validation = [
+  "PyYAML>=6.0",
+]
+hardware = [
+  "pyserial>=3.5",
+  "python-can>=4.4",
+]
+test = [
+  "pytest>=8.0",
+  "PyYAML>=6.0",
+  "torch>=2.6",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python/tests"]
+pythonpath = ["src", "scripts/python"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

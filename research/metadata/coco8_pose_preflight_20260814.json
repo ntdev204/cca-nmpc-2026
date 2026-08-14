@@ -1,0 +1,59 @@
+{
+  "schema": "cca-pr10-web-cohort-preflight-v1",
+  "checked_at_utc": "2026-08-14T05:17:34Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "tool": {
+    "path": "scripts/python/tools/validate_web_cohort.py",
+    "sha256": "9a1282eb48b194d89815e7c6e1e6c7daa89e4f89de4dd44821a7b64c44d61e23"
+  },
+  "manifest": {
+    "path": "data/raw/coco8-pose-20260814/coco8-pose-manifest.json",
+    "sha256": "83ff6363e54c3c84bbf377b6d908d6eaf2599c9951f23c906dbd55c9aa3098cf",
+    "asset_count": 4,
+    "approved_count": 0,
+    "split_counts": {
+      "calibration": 0,
+      "test_id": 4,
+      "test_ood": 0
+    }
+  },
+  "annotations": {
+    "path": "data/raw/coco8-pose-20260814/coco8-pose-bbox-annotations.json",
+    "sha256": "a70b2bc2cb0d779ccb9810c87cc78861995b96821e3f0ffa451485ab69169cf7",
+    "record_count": 4,
+    "blinded_to_predictions": true,
+    "annotator_id": "coco8-pose-provider",
+    "independent_annotation": {
+      "independent_annotation_present": false,
+      "adjudication_present": false,
+      "independent_annotation_valid": false,
+      "adjudication_valid": false,
+      "gate": false,
+      "primary_record_count": 4
+    }
+  },
+  "checks": {
+    "json_schema": true,
+    "media_hash_size_decode_dimensions": true,
+    "annotation_binding_and_bbox_bounds": true,
+    "independent_annotation_and_adjudication": false,
+    "unique_asset_and_sha256": true,
+    "source_group_split_disjoint": true,
+    "real_non_ai_media": true,
+    "rights_and_privacy_fields": true
+  },
+  "errors": [],
+  "admission_reasons": [
+    "all calibration/test records remain approved=false",
+    "independent second annotator and blinded adjudication record are absent or incomplete",
+    "pretraining-overlap review is not recorded for the detector",
+    "cohort expansion and held-out OOD audit remain open"
+  ],
+  "next_actions": [
+    "obtain an independent bbox annotation and blinded adjudication record",
+    "record detector pretraining-overlap review",
+    "expand and lock calibration/test_id/test_ood cohort before model selection"
+  ]
+}

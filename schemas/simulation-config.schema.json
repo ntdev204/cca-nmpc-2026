@@ -1,0 +1,436 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "simulation-config.schema.json",
+  "title": "CCA-NMPC simulation configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "simulation_id",
+    "study_phase",
+    "status",
+    "frozen_at",
+    "focused_audit",
+    "protocol_freeze",
+    "controller_contract",
+    "risk_allocation_contract",
+    "context_contract",
+    "primary_comparison",
+    "scenario_matrix",
+    "robustness",
+    "randomization",
+    "evaluation_config",
+    "environment_manifest",
+    "output_run_manifest_root"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.2.0"},
+    "simulation_id": {"type": ["string", "null"], "pattern": "^sim-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "study_phase": {"enum": ["development", "pilot", "confirmatory"]},
+    "status": {"enum": ["planned", "frozen", "running", "completed", "invalidated"]},
+    "frozen_at": {"type": ["string", "null"], "format": "date-time"},
+    "focused_audit": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]},
+    "protocol_freeze": {"oneOf": [{"$ref": "#/$defs/protocol_freeze"}, {"type": "null"}]},
+    "controller_contract": {"$ref": "#/$defs/controller_contract"},
+    "risk_allocation_contract": {"$ref": "#/$defs/risk_allocation_contract"},
+    "context_contract": {"$ref": "#/$defs/context_contract"},
+    "primary_comparison": {"$ref": "#/$defs/primary_comparison"},
+    "scenario_matrix": {"$ref": "#/$defs/scenario_matrix"},
+    "robustness": {"$ref": "#/$defs/robustness"},
+    "randomization": {"$ref": "#/$defs/randomization"},
+    "evaluation_config": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]},
+    "environment_manifest": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]},
+    "output_run_manifest_root": {
+      "type": ["string", "null"],
+      "allOf": [{"$ref": "#/$defs/nullable_relative_path"}]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "study_phase": {"const": "confirmatory"},
+          "status": {"enum": ["frozen", "running", "completed"]}
+        },
+        "required": ["study_phase", "status"]
+      },
+      "then": {
+        "properties": {
+          "simulation_id": {"type": "string"},
+          "frozen_at": {"type": "string", "format": "date-time"},
+          "focused_audit": {"$ref": "#/$defs/file_ref"},
+          "protocol_freeze": {"$ref": "#/$defs/protocol_freeze"},
+          "evaluation_config": {"$ref": "#/$defs/file_ref"},
+          "environment_manifest": {"$ref": "#/$defs/file_ref"},
+          "output_run_manifest_root": {"$ref": "#/$defs/relative_path"},
+          "controller_contract": {
+            "properties": {
+              "actuation": {"const": "body_velocity"},
+              "state_definition": {"const": "[x,y,theta,vx,vy,omega]"},
+              "prediction_horizon": {"type": "integer", "minimum": 1},
+              "control_horizon": {"type": "integer", "minimum": 1},
+              "sample_period_seconds": {"type": "number", "exclusiveMinimum": 0},
+              "solver": {"type": "string", "minLength": 1},
+              "deadline_seconds": {"type": "number", "exclusiveMinimum": 0},
+              "fallback_policy": {"type": "string", "minLength": 1}
+            }
+          },
+          "risk_allocation_contract": {
+            "properties": {
+              "total_budget": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+              "event_floor": {"type": "number", "minimum": 0, "exclusiveMaximum": 1},
+              "context_sensitivity_beta": {"type": "number", "minimum": 0},
+              "physical_clearance": {
+                "properties": {"value": {"type": "number", "exclusiveMinimum": 0}}
+              },
+              "comparator_equation_manifest": {"$ref": "#/$defs/file_ref"},
+              "calibration_artifact_id": {
+                "type": "string",
+                "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+              }
+            }
+          },
+          "context_contract": {
+            "properties": {
+              "checkpoint_artifact_id": {
+                "type": "string",
+                "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              "observation_steps": {"type": "integer", "minimum": 1},
+              "output_fields": {"minItems": 3},
+              "direction_classes": {"minItems": 4},
+              "coordinate_frame": {"type": "string", "minLength": 1},
+              "uncertainty_interface": {"type": "string", "minLength": 1}
+            }
+          },
+          "scenario_matrix": {
+            "properties": {
+              "geometries": {"minItems": 1},
+              "context_events": {"minItems": 1},
+              "initial_conditions": {"minItems": 1},
+              "trials_per_cell": {"type": "integer", "minimum": 1}
+            }
+          },
+          "randomization": {
+            "properties": {"seed_manifest": {"$ref": "#/$defs/file_ref"}}
+          },
+          "primary_comparison": {
+            "properties": {
+              "strategies": {
+                "items": {
+                  "properties": {"equation_record": {"$ref": "#/$defs/file_ref"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "semver": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "nullable_relative_path": {
+      "if": {"type": "string"},
+      "then": {"$ref": "#/$defs/relative_path"},
+      "else": {"type": "null"}
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "protocol_freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "protocol_ids", "revision", "freeze_record", "frozen_by", "frozen_at"],
+      "properties": {
+        "status": {"const": "FROZEN"},
+        "protocol_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^PR[0-9]{2}$"}
+        },
+        "revision": {"$ref": "#/$defs/semver"},
+        "freeze_record": {"$ref": "#/$defs/file_ref"},
+        "frozen_by": {"type": "string", "minLength": 1},
+        "frozen_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "controller_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "actuation",
+        "state_definition",
+        "prediction_horizon",
+        "control_horizon",
+        "sample_period_seconds",
+        "solver",
+        "deadline_seconds",
+        "fallback_policy"
+      ],
+      "properties": {
+        "family": {"const": "cca_nmpc"},
+        "actuation": {"enum": ["body_velocity", null]},
+        "state_definition": {"enum": ["[x,y,theta,vx,vy,omega]", null]},
+        "prediction_horizon": {"type": ["integer", "null"], "minimum": 1},
+        "control_horizon": {"type": ["integer", "null"], "minimum": 1},
+        "sample_period_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "solver": {"type": ["string", "null"]},
+        "deadline_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "fallback_policy": {"type": ["string", "null"]}
+      }
+    },
+    "physical_clearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "unit", "fixed_across_primary_strategies"],
+      "properties": {
+        "value": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "unit": {"const": "m"},
+        "fixed_across_primary_strategies": {"const": true}
+      }
+    },
+    "risk_allocation_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_equation_id",
+        "target_equation_version",
+        "active_event_unit",
+        "total_budget",
+        "event_floor",
+        "context_sensitivity_beta",
+        "physical_clearance",
+        "comparator_equation_manifest",
+        "primary_invariant_id",
+        "primary_invariant_version",
+        "context_fixed_within_each_solve",
+        "direction_fixed_within_each_solve",
+        "confidence_fixed_within_each_solve",
+        "chance_relaxation_allowed",
+        "probability_claim_requires_zero_relaxation",
+        "calibration_artifact_id"
+      ],
+      "properties": {
+        "target_equation_id": {"const": "cca_fixed_budget_softmax"},
+        "target_equation_version": {"$ref": "#/$defs/semver"},
+        "active_event_unit": {"const": "context_event"},
+        "total_budget": {"type": ["number", "null"], "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+        "event_floor": {"type": ["number", "null"], "minimum": 0, "exclusiveMaximum": 1},
+        "context_sensitivity_beta": {"type": ["number", "null"], "minimum": 0},
+        "physical_clearance": {"$ref": "#/$defs/physical_clearance"},
+        "comparator_equation_manifest": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]},
+        "primary_invariant_id": {"const": "matched_context_budget_contrast"},
+        "primary_invariant_version": {"$ref": "#/$defs/semver"},
+        "context_fixed_within_each_solve": {"const": true},
+        "direction_fixed_within_each_solve": {"const": true},
+        "confidence_fixed_within_each_solve": {"const": true},
+        "chance_relaxation_allowed": {"const": false},
+        "probability_claim_requires_zero_relaxation": {"const": true},
+        "calibration_artifact_id": {
+          "type": ["string", "null"],
+          "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        }
+      }
+    },
+    "context_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "checkpoint_artifact_id",
+        "observation_steps",
+        "output_fields",
+        "direction_classes",
+        "coordinate_frame",
+        "uncertainty_interface"
+      ],
+      "properties": {
+        "family": {"const": "context_lstm"},
+        "checkpoint_artifact_id": {
+          "type": ["string", "null"],
+          "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "observation_steps": {"type": ["integer", "null"], "minimum": 1},
+        "output_fields": {
+          "type": "array",
+          "const": ["position", "speed", "direction"]
+        },
+        "direction_classes": {
+          "type": "array",
+          "const": ["left", "right", "forward", "backward"]
+        },
+        "coordinate_frame": {"type": ["string", "null"]},
+        "uncertainty_interface": {"type": ["string", "null"]}
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "equation_id",
+        "equation_version",
+        "equation_record",
+        "risk_budget_applicable",
+        "uses_common_total_budget",
+        "uses_common_physical_clearance"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "plain_mpc",
+            "nmpc",
+            "dwa",
+            "mppi",
+            "cca_nmpc"
+          ]
+        },
+        "role": {"enum": ["baseline", "target"]},
+        "equation_id": {"type": "string", "minLength": 1},
+        "equation_version": {"$ref": "#/$defs/semver"},
+        "equation_record": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]},
+        "risk_budget_applicable": {"type": "boolean"},
+        "uses_common_total_budget": {"type": "boolean"},
+        "uses_common_physical_clearance": {"const": true}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"id": {"const": "cca_nmpc"}}, "required": ["id"]},
+          "then": {
+            "properties": {
+              "role": {"const": "target"},
+              "risk_budget_applicable": {"const": true},
+              "uses_common_total_budget": {"const": true}
+            }
+          },
+          "else": {
+            "properties": {
+              "role": {"const": "baseline"},
+              "risk_budget_applicable": {"const": false},
+              "uses_common_total_budget": {"const": false}
+            }
+          }
+        }
+      ]
+    },
+    "matched_invariants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dynamics",
+        "constraints",
+        "reference",
+        "solver_backend",
+        "solver_tolerances",
+        "tuning_budget",
+        "scenario_seed_package",
+        "sample_period_and_horizon",
+        "physical_clearance",
+        "total_budget_when_applicable"
+      ],
+      "properties": {
+        "dynamics": {"const": true},
+        "constraints": {"const": true},
+        "reference": {"const": true},
+        "solver_backend": {"const": true},
+        "solver_tolerances": {"const": true},
+        "tuning_budget": {"const": true},
+        "scenario_seed_package": {"const": true},
+        "sample_period_and_horizon": {"const": true},
+        "physical_clearance": {"const": true},
+        "total_budget_when_applicable": {"const": true}
+      }
+    },
+    "primary_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategies", "matched_invariants", "ablations"],
+      "properties": {
+        "strategies": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {"$ref": "#/$defs/strategy"},
+          "allOf": [
+            {"contains": {"properties": {"id": {"const": "plain_mpc"}}, "required": ["id"]}, "minContains": 1},
+            {"contains": {"properties": {"id": {"const": "nmpc"}}, "required": ["id"]}, "minContains": 1},
+            {"contains": {"properties": {"id": {"const": "dwa"}}, "required": ["id"]}, "minContains": 1},
+            {"contains": {"properties": {"id": {"const": "mppi"}}, "required": ["id"]}, "minContains": 1},
+            {"contains": {"properties": {"id": {"const": "cca_nmpc"}}, "required": ["id"]}, "minContains": 1}
+          ]
+        },
+        "matched_invariants": {"$ref": "#/$defs/matched_invariants"},
+        "ablations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "scenario_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "geometries",
+        "context_events",
+        "context_levels",
+        "sensor_noise_levels",
+        "context_error_levels",
+        "initial_conditions",
+        "trials_per_cell"
+      ],
+      "properties": {
+        "geometries": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "context_events": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "context_levels": {"type": "array", "uniqueItems": true, "items": {"type": ["string", "number"]}},
+        "sensor_noise_levels": {"type": "array", "uniqueItems": true, "items": {"type": ["string", "number"]}},
+        "context_error_levels": {"type": "array", "uniqueItems": true, "items": {"type": ["string", "number"]}},
+        "initial_conditions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "trials_per_cell": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "robustness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter_perturbations", "occlusion_conditions", "timing_jitter_conditions", "infeasibility_conditions"],
+      "properties": {
+        "parameter_perturbations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "occlusion_conditions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "timing_jitter_conditions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "infeasibility_conditions": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "randomization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paired_random_seeds", "common_random_numbers", "execution_order_randomized", "seed_manifest"],
+      "properties": {
+        "paired_random_seeds": {"const": true},
+        "common_random_numbers": {"const": true},
+        "execution_order_randomized": {"const": true},
+        "seed_manifest": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]}
+      }
+    }
+  }
+}

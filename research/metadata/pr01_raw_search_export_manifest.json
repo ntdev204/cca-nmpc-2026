@@ -1,0 +1,670 @@
+{
+  "schema_version": "1.1.0",
+  "manifest_id": "pr01-raw-search-exports-v2",
+  "protocol_id": "PR01",
+  "status": "ARCHIVED",
+  "created_at_utc": "2026-08-01T16:52:25Z",
+  "completed_at_utc": null,
+  "search_manifest": {
+    "path": "research/metadata/pr01_search_manifest.json",
+    "sha256": "03ACA13B9437EA00F430E573FF088355BFC25301A180984319690607A9F544B9"
+  },
+  "executions": [
+    {
+      "execution_id": "search-crossref-context-human-nmpc-initial",
+      "round_id": "initial",
+      "database_id": "crossref",
+      "query_id": "qry-crossref-context-human-nmpc",
+      "executed_at_utc": "2026-08-01T17:12:57Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query.bibliographic=nonlinear model predictive control context aware human aware robot mobile mecanum&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+        "search_fields": [
+          "query.bibliographic"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "date:2010-01-01..2026-08-01",
+          "language-and-document-type:eligibility-screening"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "ranked-cap",
+          "cap_records_per_query": 1000,
+          "page_size": 1000,
+          "ordering": "score:desc",
+          "pagination_method": "none",
+          "reported_total_semantics": "source-reported-unverified",
+          "completion_rule": "cap-reached-or-source-exhausted",
+          "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+        }
+      },
+      "retrieved_record_count": 1000,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 541016,
+        "termination_reason": "ranked-cap-reached",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 6826102,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/crossref/qry-crossref-context-human-nmpc/part-001.json",
+            "sha256": "C69D13CE66584865C8EED064D5F42D46D65BBB4CFFD7DE5CCD62EC93BBB966F2"
+          },
+          "pagination": null
+        }
+      ]
+    },
+    {
+      "execution_id": "search-crossref-chance-risk-human-initial",
+      "round_id": "initial",
+      "database_id": "crossref",
+      "query_id": "qry-crossref-chance-risk-human",
+      "executed_at_utc": "2026-08-01T17:13:03Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query.bibliographic=chance constrained risk allocation probabilistic uncertainty model predictive control human pedestrian trajectory&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+        "search_fields": [
+          "query.bibliographic"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "date:2010-01-01..2026-08-01",
+          "language-and-document-type:eligibility-screening"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "ranked-cap",
+          "cap_records_per_query": 1000,
+          "page_size": 1000,
+          "ordering": "score:desc",
+          "pagination_method": "none",
+          "reported_total_semantics": "source-reported-unverified",
+          "completion_rule": "cap-reached-or-source-exhausted",
+          "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+        }
+      },
+      "retrieved_record_count": 1000,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 412242,
+        "termination_reason": "ranked-cap-reached",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 7383550,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/crossref/qry-crossref-chance-risk-human/part-001.json",
+            "sha256": "F9EBB5E52C2FB1558E69ADA95F5CC5FE1CAEC41B39219B45416E8C9A64786FDC"
+          },
+          "pagination": null
+        }
+      ]
+    },
+    {
+      "execution_id": "search-crossref-adaptive-risk-initial",
+      "round_id": "initial",
+      "database_id": "crossref",
+      "query_id": "qry-crossref-adaptive-risk",
+      "executed_at_utc": "2026-08-01T17:13:08Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query.bibliographic=adaptive risk allocation context feasibility learned model predictive control CVaR barrier function&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+        "search_fields": [
+          "query.bibliographic"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "date:2010-01-01..2026-08-01",
+          "language-and-document-type:eligibility-screening"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "ranked-cap",
+          "cap_records_per_query": 1000,
+          "page_size": 1000,
+          "ordering": "score:desc",
+          "pagination_method": "none",
+          "reported_total_semantics": "source-reported-unverified",
+          "completion_rule": "cap-reached-or-source-exhausted",
+          "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+        }
+      },
+      "retrieved_record_count": 1000,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 403472,
+        "termination_reason": "ranked-cap-reached",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 6968876,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/crossref/qry-crossref-adaptive-risk/part-001.json",
+            "sha256": "AFC637D0521A26E634E98691DB081A2430826D25F934E1CC15E1B65D43273324"
+          },
+          "pagination": null
+        }
+      ]
+    },
+    {
+      "execution_id": "search-crossref-elastic-chance-initial",
+      "round_id": "initial",
+      "database_id": "crossref",
+      "query_id": "qry-crossref-elastic-chance",
+      "executed_at_utc": "2026-08-01T17:13:13Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query.bibliographic=elastic chance constraint adaptive probability level online risk value perception aware model predictive control feasibility stability closed loop&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+        "search_fields": [
+          "query.bibliographic"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "date:2010-01-01..2026-08-01",
+          "language-and-document-type:eligibility-screening"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "ranked-cap",
+          "cap_records_per_query": 1000,
+          "page_size": 1000,
+          "ordering": "score:desc",
+          "pagination_method": "none",
+          "reported_total_semantics": "source-reported-unverified",
+          "completion_rule": "cap-reached-or-source-exhausted",
+          "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+        }
+      },
+      "retrieved_record_count": 1000,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 67069,
+        "termination_reason": "ranked-cap-reached",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 6938749,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/crossref/qry-crossref-elastic-chance/part-001.json",
+            "sha256": "77FDCA57823D9C1322A09EAB64F64DA9E329F836B02998DACC965C4D6E71E9AB"
+          },
+          "pagination": null
+        }
+      ]
+    },
+    {
+      "execution_id": "search-crossref-lstm-trajectory-initial",
+      "round_id": "initial",
+      "database_id": "crossref",
+      "query_id": "qry-crossref-lstm-trajectory",
+      "executed_at_utc": "2026-08-01T17:13:18Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query.bibliographic=LSTM recurrent neural network pedestrian human trajectory prediction uncertainty calibration covariance multimodal&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+        "search_fields": [
+          "query.bibliographic"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "date:2010-01-01..2026-08-01",
+          "language-and-document-type:eligibility-screening"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "ranked-cap",
+          "cap_records_per_query": 1000,
+          "page_size": 1000,
+          "ordering": "score:desc",
+          "pagination_method": "none",
+          "reported_total_semantics": "source-reported-unverified",
+          "completion_rule": "cap-reached-or-source-exhausted",
+          "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+        }
+      },
+      "retrieved_record_count": 1000,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 365117,
+        "termination_reason": "ranked-cap-reached",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 8476860,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/crossref/qry-crossref-lstm-trajectory/part-001.json",
+            "sha256": "A9C73F79C1A155FD83A18E246CFE0E88D56F80D048138BA1F3165CC81810579A"
+          },
+          "pagination": null
+        }
+      ]
+    },
+    {
+      "execution_id": "search-crossref-mecanum-dynamics-initial",
+      "round_id": "initial",
+      "database_id": "crossref",
+      "query_id": "qry-crossref-mecanum-dynamics",
+      "executed_at_utc": "2026-08-01T17:13:23Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query.bibliographic=mecanum omnidirectional torque dynamics nonlinear model predictive control&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+        "search_fields": [
+          "query.bibliographic"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "date:2010-01-01..2026-08-01",
+          "language-and-document-type:eligibility-screening"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "ranked-cap",
+          "cap_records_per_query": 1000,
+          "page_size": 1000,
+          "ordering": "score:desc",
+          "pagination_method": "none",
+          "reported_total_semantics": "source-reported-unverified",
+          "completion_rule": "cap-reached-or-source-exhausted",
+          "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+        }
+      },
+      "retrieved_record_count": 1000,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 5070702,
+        "termination_reason": "ranked-cap-reached",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 7166120,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/crossref/qry-crossref-mecanum-dynamics/part-001.json",
+            "sha256": "04DC249CDAE86124E17A6DEC5576717796844F6D4FE569435B0BD08BC971E5A3"
+          },
+          "pagination": null
+        }
+      ]
+    },
+    {
+      "execution_id": "search-semantic-scholar-context-human-nmpc-initial",
+      "round_id": "initial",
+      "database_id": "semantic-scholar",
+      "query_id": "qry-semantic-scholar-context-human-nmpc",
+      "executed_at_utc": "2026-08-01T17:13:28Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query=((\"nonlinear model predictive control\" | NMPC | \"model predictive control\") + (\"context aware\" | \"continuous context\" | \"human aware\" | social) + (robot | robots | mobile | mecanum))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+        "search_fields": [
+          "title",
+          "abstract"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "publicationDateOrYear:2010-01-01..2026-08-01",
+          "publicationTypes:JournalArticle,Conference,Review",
+          "language:English-at-screening",
+          "sort:paperId:asc"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "all-results-pagination",
+          "page_size": 1000,
+          "ordering": "paperId:asc",
+          "pagination_method": "continuation-token",
+          "reported_total_semantics": "estimated",
+          "completion_rule": "terminal-pagination-state",
+          "platform_record_limit": 10000000,
+          "overflow_action": "fail-and-amend",
+          "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+        }
+      },
+      "retrieved_record_count": 60,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 60,
+        "termination_reason": "pagination-exhausted",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 60,
+          "byte_size": 154718,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-context-human-nmpc/part-001.json",
+            "sha256": "001AE5C098A19FC44AD869AE2DEDB043181EB7231FB5E1E1FC122C8EDF9A6379"
+          },
+          "pagination": {
+            "request_token": null,
+            "response_next_token": null
+          }
+        }
+      ]
+    },
+    {
+      "execution_id": "search-semantic-scholar-chance-risk-human-initial",
+      "round_id": "initial",
+      "database_id": "semantic-scholar",
+      "query_id": "qry-semantic-scholar-chance-risk-human",
+      "executed_at_utc": "2026-08-01T17:13:30Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query=((\"chance constrained\" | \"chance constraint\" | \"chance constraints\" | \"risk allocation\" | probabilistic | uncertainty) + (NMPC | \"model predictive control\") + (human | pedestrian | trajectory))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+        "search_fields": [
+          "title",
+          "abstract"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "publicationDateOrYear:2010-01-01..2026-08-01",
+          "publicationTypes:JournalArticle,Conference,Review",
+          "language:English-at-screening",
+          "sort:paperId:asc"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "all-results-pagination",
+          "page_size": 1000,
+          "ordering": "paperId:asc",
+          "pagination_method": "continuation-token",
+          "reported_total_semantics": "estimated",
+          "completion_rule": "terminal-pagination-state",
+          "platform_record_limit": 10000000,
+          "overflow_action": "fail-and-amend",
+          "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+        }
+      },
+      "retrieved_record_count": 1008,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 1008,
+        "termination_reason": "pagination-exhausted",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 1000,
+          "byte_size": 2373588,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-chance-risk-human/part-001.json",
+            "sha256": "3E1EE1E2AFB01248F2BA1EFA2C2869CE59625465E39FA62D79ABB749FC4EBF54"
+          },
+          "pagination": {
+            "request_token": null,
+            "response_next_token": "PCOKWVSKJJGM4TWNJNI3EUSQJIWVNUSRKBFEYK2JFUBHFI4V2KJA3EUSRTJMYTCSCLGQ2LETZWJ5HDEMBUWFGTOTFTGJELGNBTGU3TMMRSGZGTCMSVRGWAIBO4KD2"
+          }
+        },
+        {
+          "part_index": 2,
+          "record_count": 8,
+          "byte_size": 17720,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-chance-risk-human/part-002.json",
+            "sha256": "57515112638512DF22A603596C9A2167D603855A820672602326A0EF5DF60B2C"
+          },
+          "pagination": {
+            "request_token": "PCOKWVSKJJGM4TWNJNI3EUSQJIWVNUSRKBFEYK2JFUBHFI4V2KJA3EUSRTJMYTCSCLGQ2LETZWJ5HDEMBUWFGTOTFTGJELGNBTGU3TMMRSGZGTCMSVRGWAIBO4KD2",
+            "response_next_token": null
+          }
+        }
+      ]
+    },
+    {
+      "execution_id": "search-semantic-scholar-adaptive-risk-initial",
+      "round_id": "initial",
+      "database_id": "semantic-scholar",
+      "query_id": "qry-semantic-scholar-adaptive-risk",
+      "executed_at_utc": "2026-08-01T17:13:33Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query=((\"adaptive risk\" | \"risk adaptation\" | \"risk allocation\") + (context | threat | feasibility | learned) + (\"model predictive control\" | NMPC | CVaR | \"barrier function\"))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+        "search_fields": [
+          "title",
+          "abstract"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "publicationDateOrYear:2010-01-01..2026-08-01",
+          "publicationTypes:JournalArticle,Conference,Review",
+          "language:English-at-screening",
+          "sort:paperId:asc"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "all-results-pagination",
+          "page_size": 1000,
+          "ordering": "paperId:asc",
+          "pagination_method": "continuation-token",
+          "reported_total_semantics": "estimated",
+          "completion_rule": "terminal-pagination-state",
+          "platform_record_limit": 10000000,
+          "overflow_action": "fail-and-amend",
+          "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+        }
+      },
+      "retrieved_record_count": 8,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 8,
+        "termination_reason": "pagination-exhausted",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 8,
+          "byte_size": 21854,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-adaptive-risk/part-001.json",
+            "sha256": "B7921D9921D282169828C1EB0E802B9AC706C090A5CA74C0A471D28056D84592"
+          },
+          "pagination": {
+            "request_token": null,
+            "response_next_token": null
+          }
+        }
+      ]
+    },
+    {
+      "execution_id": "search-semantic-scholar-elastic-chance-initial",
+      "round_id": "initial",
+      "database_id": "semantic-scholar",
+      "query_id": "qry-semantic-scholar-elastic-chance",
+      "executed_at_utc": "2026-08-01T17:13:36Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query=((\"elastic chance constraint\" | \"adaptive probability level\" | \"online risk value\" | \"perception aware chance constrained\") + (\"model predictive control\" | SMPC) + (feasibility | stability | \"closed loop\"))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+        "search_fields": [
+          "title",
+          "abstract"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "publicationDateOrYear:2010-01-01..2026-08-01",
+          "publicationTypes:JournalArticle,Conference,Review",
+          "language:English-at-screening",
+          "sort:paperId:asc"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "all-results-pagination",
+          "page_size": 1000,
+          "ordering": "paperId:asc",
+          "pagination_method": "continuation-token",
+          "reported_total_semantics": "estimated",
+          "completion_rule": "terminal-pagination-state",
+          "platform_record_limit": 10000000,
+          "overflow_action": "fail-and-amend",
+          "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+        }
+      },
+      "retrieved_record_count": 2,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 2,
+        "termination_reason": "pagination-exhausted",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 2,
+          "byte_size": 4274,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-elastic-chance/part-001.json",
+            "sha256": "84374CB4BBF11A9C4FDF2D2ECC01537B301C4299DADF88DFA1D1D57EB041DFBF"
+          },
+          "pagination": {
+            "request_token": null,
+            "response_next_token": null
+          }
+        }
+      ]
+    },
+    {
+      "execution_id": "search-semantic-scholar-lstm-trajectory-initial",
+      "round_id": "initial",
+      "database_id": "semantic-scholar",
+      "query_id": "qry-semantic-scholar-lstm-trajectory",
+      "executed_at_utc": "2026-08-01T17:13:38Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query=((LSTM | \"recurrent neural network\") + (pedestrian | human) + (\"trajectory prediction\" | \"motion prediction\") + (uncertainty | calibration | covariance | multimodal))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+        "search_fields": [
+          "title",
+          "abstract"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "publicationDateOrYear:2010-01-01..2026-08-01",
+          "publicationTypes:JournalArticle,Conference,Review",
+          "language:English-at-screening",
+          "sort:paperId:asc"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "all-results-pagination",
+          "page_size": 1000,
+          "ordering": "paperId:asc",
+          "pagination_method": "continuation-token",
+          "reported_total_semantics": "estimated",
+          "completion_rule": "terminal-pagination-state",
+          "platform_record_limit": 10000000,
+          "overflow_action": "fail-and-amend",
+          "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+        }
+      },
+      "retrieved_record_count": 62,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 62,
+        "termination_reason": "pagination-exhausted",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 62,
+          "byte_size": 153707,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-lstm-trajectory/part-001.json",
+            "sha256": "D4F1E39E81F6BC36AC70D2F2219D2844E9495174660BD2A89BB442C135765616"
+          },
+          "pagination": {
+            "request_token": null,
+            "response_next_token": null
+          }
+        }
+      ]
+    },
+    {
+      "execution_id": "search-semantic-scholar-mecanum-dynamics-initial",
+      "round_id": "initial",
+      "database_id": "semantic-scholar",
+      "query_id": "qry-semantic-scholar-mecanum-dynamics",
+      "executed_at_utc": "2026-08-01T17:13:41Z",
+      "executed_by": "pr01-runner",
+      "query_snapshot": {
+        "exact_query": "query=((mecanum | omnidirectional) + (torque | dynamic | dynamics) + (NMPC | \"model predictive control\"))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+        "search_fields": [
+          "title",
+          "abstract"
+        ],
+        "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+        "platform_filters": [
+          "publicationDateOrYear:2010-01-01..2026-08-01",
+          "publicationTypes:JournalArticle,Conference,Review",
+          "language:English-at-screening",
+          "sort:paperId:asc"
+        ],
+        "export_format": "json",
+        "retrieval_policy": {
+          "mode": "all-results-pagination",
+          "page_size": 1000,
+          "ordering": "paperId:asc",
+          "pagination_method": "continuation-token",
+          "reported_total_semantics": "estimated",
+          "completion_rule": "terminal-pagination-state",
+          "platform_record_limit": 10000000,
+          "overflow_action": "fail-and-amend",
+          "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+        }
+      },
+      "retrieved_record_count": 57,
+      "retrieval_outcome": {
+        "status": "POLICY-SATISFIED",
+        "source_reported_hit_count": 57,
+        "termination_reason": "pagination-exhausted",
+        "incompleteness_reason": null
+      },
+      "parts": [
+        {
+          "part_index": 1,
+          "record_count": 57,
+          "byte_size": 135548,
+          "format": "json",
+          "file": {
+            "path": "references/literature/raw/semantic-scholar/qry-semantic-scholar-mecanum-dynamics/part-001.json",
+            "sha256": "A028360D7C63C9292087841CDCD7F667A1A8275FE1E7288977EAE5FF4FA9F2D4"
+          },
+          "pagination": {
+            "request_token": null,
+            "response_next_token": null
+          }
+        }
+      ]
+    }
+  ]
+}

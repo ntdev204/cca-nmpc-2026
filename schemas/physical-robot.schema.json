@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "physical-robot.schema.json",
+  "title": "Measured physical mini-Mecanum robot specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "robot_model",
+    "measured_at_utc",
+    "measured_by",
+    "method",
+    "wheel_radius_m",
+    "half_length_m",
+    "half_width_m",
+    "footprint_radius_m",
+    "wheel_signs",
+    "notes"
+  ],
+  "properties": {
+    "schema": {"const": "cca-physical-robot-v1"},
+    "status": {"enum": ["pending_measurement", "measured", "invalidated"]},
+    "robot_model": {"const": "mini_mec_robot"},
+    "measured_at_utc": {"type": ["string", "null"], "format": "date-time"},
+    "measured_by": {"type": ["string", "null"]},
+    "method": {"type": ["string", "null"]},
+    "wheel_radius_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "half_length_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "half_width_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "footprint_radius_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "sensor_mounts": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "lidar_height_m",
+        "camera_height_m",
+        "lidar_front_edge_distance_m",
+        "camera_front_edge_distance_m",
+        "lidar_position_x_m",
+        "camera_position_x_m",
+        "camera_pitch_deg",
+        "camera_pitch_rad",
+        "pitch_direction"
+      ],
+      "properties": {
+        "lidar_height_m": {"type": "number", "exclusiveMinimum": 0},
+        "camera_height_m": {"type": "number", "exclusiveMinimum": 0},
+        "lidar_front_edge_distance_m": {"type": "number", "minimum": 0},
+        "camera_front_edge_distance_m": {"type": "number", "minimum": 0},
+        "lidar_position_x_m": {"type": "number"},
+        "camera_position_x_m": {"type": "number"},
+        "camera_pitch_deg": {"type": "number", "minimum": -90, "maximum": 90},
+        "camera_pitch_rad": {"type": "number", "minimum": -1.570796326794897, "maximum": 1.570796326794897},
+        "pitch_direction": {"enum": ["downward", "upward", "level"]}
+      }
+    },
+    "wheel_signs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fl", "fr", "rl", "rr"],
+      "properties": {
+        "fl": {"enum": [-1, 1]},
+        "fr": {"enum": [-1, 1]},
+        "rl": {"enum": [-1, 1]},
+        "rr": {"enum": [-1, 1]}
+      }
+    },
+    "notes": {"type": ["string", "null"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "measured"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "measured_at_utc": {"type": "string", "format": "date-time"},
+          "measured_by": {"type": "string", "minLength": 1},
+          "method": {"type": "string", "minLength": 1},
+          "wheel_radius_m": {"type": "number", "exclusiveMinimum": 0},
+          "half_length_m": {"type": "number", "exclusiveMinimum": 0},
+          "half_width_m": {"type": "number", "exclusiveMinimum": 0},
+          "footprint_radius_m": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    }
+  ]
+}

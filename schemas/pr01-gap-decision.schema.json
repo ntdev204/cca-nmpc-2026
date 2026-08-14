@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pr01-gap-decision.schema.json",
+  "title": "PR01 research-gap decision record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "status",
+    "decision",
+    "evidence",
+    "review"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.2.0"},
+    "protocol_id": {"const": "PR01"},
+    "status": {"enum": ["IN-PROGRESS", "VERIFIED", "ARCHIVED"]},
+    "decision": {
+      "type": ["string", "null"],
+      "enum": [null, "GO-ALGORITHM", "PIVOT-EMPIRICAL", "STOP"]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_source",
+        "search_manifest",
+        "raw_search_export_manifest",
+        "screening_ledger",
+        "zotero_export",
+        "zotero_receipt",
+        "nearest_work_matrix",
+        "backward_forward_snowball_log",
+        "correction_retraction_check"
+      ],
+      "properties": {
+        "protocol_source": {"$ref": "#/$defs/file_ref_or_null"},
+        "search_manifest": {"$ref": "#/$defs/file_ref_or_null"},
+        "raw_search_export_manifest": {"$ref": "#/$defs/file_ref_or_null"},
+        "screening_ledger": {"$ref": "#/$defs/file_ref_or_null"},
+        "zotero_export": {"$ref": "#/$defs/file_ref_or_null"},
+        "zotero_receipt": {"$ref": "#/$defs/file_ref_or_null"},
+        "nearest_work_matrix": {"$ref": "#/$defs/file_ref_or_null"},
+        "backward_forward_snowball_log": {"$ref": "#/$defs/file_ref_or_null"},
+        "correction_retraction_check": {"$ref": "#/$defs/file_ref_or_null"}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_id", "reviewer_role", "reviewed_at", "rationale"],
+      "properties": {
+        "reviewer_id": {"type": ["string", "null"], "minLength": 1},
+        "reviewer_role": {
+          "type": ["string", "null"],
+          "enum": [null, "scientific", "principal_investigator"]
+        },
+        "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
+        "rationale": {"type": ["string", "null"], "minLength": 1}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "VERIFIED"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "decision": {"enum": ["GO-ALGORITHM", "PIVOT-EMPIRICAL", "STOP"]},
+          "evidence": {
+            "properties": {
+              "protocol_source": {"$ref": "#/$defs/file_ref"},
+              "search_manifest": {"$ref": "#/$defs/file_ref"},
+              "raw_search_export_manifest": {"$ref": "#/$defs/file_ref"},
+              "screening_ledger": {"$ref": "#/$defs/file_ref"},
+              "zotero_export": {"$ref": "#/$defs/file_ref"},
+              "zotero_receipt": {"$ref": "#/$defs/file_ref"},
+              "nearest_work_matrix": {"$ref": "#/$defs/file_ref"},
+              "backward_forward_snowball_log": {"$ref": "#/$defs/file_ref"},
+              "correction_retraction_check": {"$ref": "#/$defs/file_ref"}
+            }
+          },
+          "review": {
+            "properties": {
+              "reviewer_id": {"type": "string", "minLength": 1},
+              "reviewer_role": {"enum": ["scientific", "principal_investigator"]},
+              "reviewed_at": {"type": "string", "format": "date-time"},
+              "rationale": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "file_ref_or_null": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/file_ref"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "release-manifest.schema.json",
+  "title": "CCA-NMPC evidence release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "release_version",
+    "release_tag",
+    "state",
+    "profile",
+    "created_at",
+    "created_by",
+    "code_revision",
+    "dirty_worktree",
+    "protocol_freeze_manifest",
+    "protocols",
+    "claim_evidence_matrix",
+    "registries",
+    "inventory",
+    "run_accounting",
+    "manuscript",
+    "zotero",
+    "obsidian",
+    "tool_sync",
+    "checksums",
+    "independent_verification",
+    "q1_review",
+    "known_limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1.0"},
+    "release_id": {
+      "type": "string",
+      "pattern": "^release-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "release_version": {"$ref": "#/$defs/semver"},
+    "release_tag": {"type": "string", "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"},
+    "state": {"enum": ["RC", "SUBMISSION-FROZEN", "PUBLIC", "SUPERSEDED"]},
+    "profile": {"enum": ["comprehensive_q1", "amended_scope"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "created_by": {"type": "string", "minLength": 1},
+    "code_revision": {"type": "string", "pattern": "^[A-Fa-f0-9]{40,64}$"},
+    "dirty_worktree": {"type": "boolean"},
+    "protocol_freeze_manifest": {"$ref": "#/$defs/file_ref"},
+    "protocols": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/protocol_record"}
+    },
+    "claim_evidence_matrix": {"$ref": "#/$defs/file_ref"},
+    "registries": {"$ref": "#/$defs/registries"},
+    "inventory": {"$ref": "#/$defs/inventory"},
+    "run_accounting": {"$ref": "#/$defs/run_accounting"},
+    "manuscript": {"$ref": "#/$defs/manuscript"},
+    "zotero": {"$ref": "#/$defs/zotero"},
+    "obsidian": {"$ref": "#/$defs/obsidian"},
+    "tool_sync": {"$ref": "#/$defs/tool_sync"},
+    "checksums": {"$ref": "#/$defs/file_ref"},
+    "independent_verification": {"$ref": "#/$defs/verification"},
+    "q1_review": {"$ref": "#/$defs/q1_review"},
+    "known_limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "public_archive": {"$ref": "#/$defs/public_archive"},
+    "superseded_by": {
+      "type": "string",
+      "pattern": "^release-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"profile": {"const": "comprehensive_q1"}},
+        "required": ["profile"]
+      },
+      "then": {
+        "properties": {
+          "protocols": {
+            "minItems": 10,
+            "maxItems": 10,
+            "allOf": [
+              {"contains": {"properties": {"protocol_id": {"const": "PR00"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR02"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR10"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR11"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR12"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR20"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR21"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR30"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR40"}}, "required": ["protocol_id"]}, "minContains": 1},
+              {"contains": {"properties": {"protocol_id": {"const": "PR50"}}, "required": ["protocol_id"]}, "minContains": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"state": {"enum": ["SUBMISSION-FROZEN", "PUBLIC"]}},
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "dirty_worktree": {"const": false},
+          "protocols": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/protocol_record"},
+                {"properties": {"status": {"const": "VERIFIED"}}}
+              ]
+            }
+          },
+          "tool_sync": {"properties": {"verified": {"const": true}}},
+          "independent_verification": {
+            "properties": {"status": {"const": "pass"}}
+          },
+          "q1_review": {
+            "properties": {
+              "status": {"const": "completed"},
+              "verdict": {"const": "Accept"},
+              "blocker_count": {"const": 0}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "PUBLIC"}}, "required": ["state"]},
+      "then": {"required": ["public_archive"]}
+    },
+    {
+      "if": {"properties": {"state": {"const": "SUPERSEDED"}}, "required": ["state"]},
+      "then": {"required": ["superseded_by"]}
+    }
+  ],
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "registry_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "schema_version"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"$ref": "#/$defs/semver"}
+      }
+    },
+    "registries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["datasets", "models", "experiments", "artifacts"],
+      "properties": {
+        "datasets": {"$ref": "#/$defs/registry_ref"},
+        "models": {"$ref": "#/$defs/registry_ref"},
+        "experiments": {"$ref": "#/$defs/registry_ref"},
+        "artifacts": {"$ref": "#/$defs/registry_ref"}
+      }
+    },
+    "protocol_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_id", "version", "status", "sha256"],
+      "properties": {
+        "protocol_id": {
+          "type": "string",
+          "pattern": "^PR(?:00|01|02|10|11|12|20|21|30|40|50)$"
+        },
+        "version": {"$ref": "#/$defs/semver"},
+        "status": {"enum": ["FROZEN", "EXECUTED", "VERIFIED", "RELEASED"]},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "id_array_ds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^ds-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+    },
+    "id_array_model": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^model-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+    },
+    "id_array_exp": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^exp-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+    },
+    "id_array_run": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^run-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+    },
+    "id_array_art": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset_ids", "model_ids", "experiment_ids", "run_ids", "artifact_ids"],
+      "properties": {
+        "dataset_ids": {"$ref": "#/$defs/id_array_ds"},
+        "model_ids": {"$ref": "#/$defs/id_array_model"},
+        "experiment_ids": {"$ref": "#/$defs/id_array_exp"},
+        "run_ids": {"$ref": "#/$defs/id_array_run"},
+        "artifact_ids": {"$ref": "#/$defs/id_array_art"}
+      }
+    },
+    "run_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "observed", "completed", "failed", "invalidated", "excluded", "exclusions"],
+      "properties": {
+        "expected": {"type": "integer", "minimum": 0},
+        "observed": {"type": "integer", "minimum": 0},
+        "completed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "invalidated": {"type": "integer", "minimum": 0},
+        "excluded": {"type": "integer", "minimum": 0},
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["run_id", "reason", "decision_record"],
+            "properties": {
+              "run_id": {"type": "string", "pattern": "^run-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+              "reason": {"type": "string", "minLength": 1},
+              "decision_record": {"$ref": "#/$defs/file_ref"}
+            }
+          }
+        }
+      }
+    },
+    "manuscript": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "project_id", "revision_id", "source_sha256", "pdf_sha256", "frozen_at"],
+      "properties": {
+        "platform": {"const": "Overleaf"},
+        "project_id": {"type": "string", "minLength": 1},
+        "revision_id": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "pdf_sha256": {"$ref": "#/$defs/sha256"},
+        "frozen_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "zotero": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collection_key", "item_count", "bibtex_export", "metadata_audit"],
+      "properties": {
+        "collection_key": {"type": "string", "minLength": 1},
+        "item_count": {"type": "integer", "minimum": 1},
+        "bibtex_export": {"$ref": "#/$defs/file_ref"},
+        "metadata_audit": {"$ref": "#/$defs/file_ref"}
+      }
+    },
+    "obsidian": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot", "private_or_pii_content_removed"],
+      "properties": {
+        "snapshot": {"$ref": "#/$defs/file_ref"},
+        "private_or_pii_content_removed": {"const": true}
+      }
+    },
+    "tool_sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report", "synchronized_at", "verified"],
+      "properties": {
+        "report": {"$ref": "#/$defs/file_ref"},
+        "synchronized_at": {"type": "string", "format": "date-time"},
+        "verified": {"type": "boolean"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["pending", "pass", "fail"]},
+        "verifier_id": {"type": "string", "minLength": 1},
+        "verified_at": {"type": "string", "format": "date-time"},
+        "report": {"$ref": "#/$defs/file_ref"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["pass", "fail"]}}, "required": ["status"]},
+          "then": {"required": ["verifier_id", "verified_at", "report"]}
+        }
+      ]
+    },
+    "q1_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "skill"],
+      "properties": {
+        "status": {"enum": ["pending", "completed"]},
+        "skill": {"const": "q1-reviewer-ee"},
+        "verdict": {"enum": ["Reject", "Weak Accept", "Accept"]},
+        "panel_size": {"type": "integer", "minimum": 5},
+        "blocker_count": {"type": "integer", "minimum": 0},
+        "reviewed_overleaf_revision_id": {"type": "string", "minLength": 1},
+        "reviewed_pdf_sha256": {"$ref": "#/$defs/sha256"},
+        "report": {"$ref": "#/$defs/file_ref"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "completed"}}, "required": ["status"]},
+          "then": {
+            "required": [
+              "verdict",
+              "panel_size",
+              "blocker_count",
+              "reviewed_overleaf_revision_id",
+              "reviewed_pdf_sha256",
+              "report"
+            ]
+          }
+        }
+      ]
+    },
+    "public_archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "published_at"],
+      "properties": {
+        "url": {"type": "string", "format": "uri", "pattern": "^https?://"},
+        "doi": {"type": "string", "pattern": "^10\\.[0-9]{4,9}/\\S+$"},
+        "published_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

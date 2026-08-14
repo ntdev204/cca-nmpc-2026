@@ -1,0 +1,124 @@
+{
+  "schema": "cca-pr30-hardware-entry-preflight-v1",
+  "checked_at_utc": "2026-08-14T06:31:45Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "checks": {
+    "command_header": true,
+    "command_payload": true,
+    "status": true,
+    "applied": true,
+    "wheels_abc": true,
+    "wheel_d": true,
+    "body_velocity_mode_declared": true,
+    "position_state_scope_declared": true,
+    "legacy_torque_mode_not_claimed": true,
+    "commissioning_lock_zero": true,
+    "direct_csv_json_mapping": true,
+    "python_can_decoder_present": true,
+    "cpp_can_codec_present": true,
+    "cpp_can_c_abi_present": true,
+    "python_cpp_can_selector_present": true,
+    "stm32_serial_bridge_present": true,
+    "stm_bridge_frame_contract_referenced": true,
+    "stm_bridge_frame_constants_present": true,
+    "cpp_stm_transport_present": true,
+    "mini_mec_urdf_present": true,
+    "record_actuation_gate_present": true,
+    "motion_safety_record_gate_present": true,
+    "direct_stm_recorder_present": true,
+    "single_hardware_entrypoint_present": true,
+    "no_device_preflight_present": true,
+    "complete_urdf_inventory_present": true,
+    "sensor_contract_inventory_present": true,
+    "component_inventory_present": true,
+    "footprint_contract_present": true,
+    "runtime_urdf_geometry_metadata_present": true,
+    "runtime_urdf_source_hash_validation_present": true,
+    "no_ros_runtime_dependency": true,
+    "packager_context_only": true,
+    "calibration_sidecar_contract": true,
+    "physical_template_planned": true,
+    "physical_template_unapproved": true,
+    "physical_spec_recorded": true
+  },
+  "errors": [],
+  "admission_reasons": [
+    "no sealed direct hardware/hardware-in-loop/real-offline package exists",
+    "STM wheel-loop commissioning remains locked at zero",
+    "physical experiment template is planned H0 with safety approval pending",
+    "user-supplied physical geometry is recorded; independent dimensional verification, sensor calibration and ground truth remain pending",
+    "no stage-gate, protocol-freeze or target-hardware manifest is approved"
+  ],
+  "hardware_packages": [],
+  "sources": {
+    "src/stm/firmware/protocol.h": {
+      "sha256": "eba0baa64942cd41539dc47917748cc935b2d477baf6d365aaf1ddb1698ac059"
+    },
+    "src/stm/firmware/firmware_config.h": {
+      "sha256": "eb5572b9b02b17cc27dd20532706d7ed06cdddbca1b9970863ee04301b285d3b"
+    },
+    "src/stm/firmware/README.md": {
+      "sha256": "014dc216ce17f9eceef2e8ae42713efdc09642174c19bd3f6248484050a9d8df"
+    },
+    "scripts/python/tools/final_pack.py": {
+      "sha256": "078eae6bb8a1e8d627db5c2e2c399ac6ccf557e7b129c29f01e3a47b8226073f"
+    },
+    "scripts/python/tools/README.md": {
+      "sha256": "9d6f6340d3fb59107d6195cfbe831c173672465e1e0414346ffd78e87f98af42"
+    },
+    "src/shared.py": {
+      "sha256": "3600d72d0da1c48ef0ee513faac75bd01209870c7b86a0db6564ad8677010818"
+    },
+    "src/hardware.py": {
+      "sha256": "2356ba1d0411ee6a7b60ca8d4df4a432ec9e3a40146fff164966bbc97046effc"
+    },
+    "scripts/python/tools/record_hardware.py": {
+      "sha256": "1404f243c27d0a93062aab9a153bfffdd8985e81fea8efe395dca20a6d06f4e6"
+    },
+    "scripts/python/tools/stm_experiment.py": {
+      "sha256": "772fe05f546dba8d192f6968e155d87dec568903c1f41ec8aaa197896f37bd84"
+    },
+    "scripts/python/tools/hardware_entry.py": {
+      "sha256": "bba31ce257910d2aedc6b6b6787f60fcdeef1f1d1846b7911df231deb5bce318"
+    },
+    "reference/robot/turn_on_rai_robot/src/rai_robot.cpp": {
+      "sha256": "bed1f48a8e12b75fc3b83e65ac5e54b5b0fd4200c02535246e75f6e87f8cb590"
+    },
+    "reference/robot/turn_on_rai_robot/include/turn_on_rai_robot/rai_robot.h": {
+      "sha256": "b5c2a03b67b26b5034b5ad4d30478fe58348b45f477b34d72e395125da10fe8d"
+    },
+    "src/control/src/stm_c_api.cpp": {
+      "sha256": "406d05fbabfb02a1046ae932b3bc235fcd6c29145748b3fe1c9b7c71d08d664f"
+    },
+    "src/control/include/control/stm_c_api.h": {
+      "sha256": "cdfb982a1b048f630545073b3c30d878efd2b3c5f5cb70b2b7260f85874cb9a3"
+    },
+    "src/control/src/can.cpp": {
+      "sha256": "939ecedb7990b769e41aacd7175f43b24174b631afc26553e1417bfc7b68c1cc"
+    },
+    "src/control/include/control/can.hpp": {
+      "sha256": "f7f7bca918d65a50bb988a0abcc41b4cf2e1bfe5e5b004ddb3e50e93e34fdbfe"
+    },
+    "reference/robot/rai_robot_urdf/rai_robot_urdf/urdf/mini_mec_robot.urdf": {
+      "sha256": "42fec53fcdf2cb2b3e26f2d3d161e51644c5378ba77f22752e4fbfa5c3818207"
+    },
+    "configs/physical_experiment.template.yaml": {
+      "sha256": "3ffe177126cb93ce19cfcd687bbbb2e2b35b2ed0287a50243e8bae6da65062e1"
+    },
+    "configs/physical_robot.json": {
+      "sha256": "fb4a309fab9669a1b4dbf9df5a540b33000ac6fb465cffc6b478d6f85c1b9c06"
+    }
+  },
+  "next_actions": [
+    "independently verify supplied robot physical and sensor specifications",
+    "approve H0 safety, stop rules and target-hardware manifest",
+    "commission and verify e-stop/watchdog/wheel signs before motion",
+    "capture and seal direct CSV/JSON package with final_pack.py"
+  ],
+  "tool": {
+    "path": "scripts/python/tools/validate_hardware_entry.py",
+    "sha256": "bb5fa3a034d162425cd28e6668910b4638e07ae4618a9d3b9f10815f521452cd"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "cca-physical-robot-v1",
+  "status": "pending_measurement",
+  "robot_model": "mini_mec_robot",
+  "measured_at_utc": null,
+  "measured_by": null,
+  "method": null,
+  "wheel_radius_m": null,
+  "half_length_m": null,
+  "half_width_m": null,
+  "footprint_radius_m": null,
+  "sensor_mounts": null,
+  "wheel_signs": {
+    "fl": 1,
+    "fr": 1,
+    "rl": 1,
+    "rr": 1
+  },
+  "notes": null
+}

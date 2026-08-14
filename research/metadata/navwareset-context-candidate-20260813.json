@@ -1,0 +1,66 @@
+{
+  "schema": "cca-context-derived-candidate-manifest-v1",
+  "status": "candidate-not-evidence",
+  "dataset_id": "ds-navwareset-context-20260813",
+  "revision": "0.1.0",
+  "source": {
+    "name": "NavWareSet",
+    "landing_page": "https://anr-navware.github.io/navwareset/",
+    "repository": "https://github.com/anr-navware/NavWareSet-Tutorials",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "scene": "13",
+    "source_file": "data/raw/navwareset-candidate-20260813/13_robot_and_participants.csv",
+    "source_file_sha256": "66A0E6A8EE1C6868D82B71FA8C823EBF0EED26998A19500F921D5B8BEDD18679",
+    "supporting_files": [
+      {
+        "path": "data/raw/navwareset-candidate-20260813/13_occupancy_xy_points.json",
+        "sha256": "87B0156A791005C8F30E5698B05CA48139085526D6C40531E1A5A2BF2D8B30A2"
+      },
+      {
+        "path": "data/raw/navwareset-candidate-20260813/meta.json",
+        "sha256": "1E0723D0C9541EA8BC2B1BA99333BD19C4E5EE4263D26019DF81C993440F9C78"
+      },
+      {
+        "path": "data/raw/navwareset-candidate-20260813/13_grs_to_bot_offset.json",
+        "sha256": "A6632E516AAED74770FC3318ADE7365E5D91387856E6C0E21D71D83350E6BD8A"
+      }
+    ]
+  },
+  "derived_context": {
+    "path": "data/processed/navwareset-context-candidate-20260813/context.csv",
+    "sha256": "1991BDDDE63CE5ACB2275B29EDA212445A771CBEB1D2A086B54600F9160DBAEA",
+    "provenance_path": "data/processed/navwareset-context-candidate-20260813/context.provenance.json",
+    "provenance_sha256": "E6B84F235E528D19CD800D1C6C94701FCB0EA57A95AFEDF85C94E7C5252C4B6B",
+    "conversion_code": "scripts/python/tools/navwareset_context.py",
+    "conversion_code_sha256": "F4BF35EAE5C240AD9C50AE96AF077F1F1BD73389D45EA9A214096D4F1B6D0D3E",
+    "track_index": 1,
+    "row_count": 2498,
+    "recording_id": "navwareset-scene-13",
+    "episode_id": "navwareset-scene-13-track-1",
+    "coordinate_frame": "robot_local_xy_from_published_robot_pose",
+    "real_media": false,
+    "image_to_local_transform_verified": false,
+    "target_platform_match": false,
+    "human_trajectory_generated": false,
+    "future_human_path_exported": false
+  },
+  "candidate_lstm_run": {
+    "path": "experiments/runs/lstm-navwareset-candidate-20260813",
+    "manifest_sha256": "B9157F5F78B58E9D537B3F2D3597E0453D92E0EDA83455DCAFCF56CCB8F8F3F5",
+    "checkpoint_sha256": "CB3555719C53353B4F42B34FD0F19736CE22C832DA1D797CB34978B447559E91",
+    "metrics_sha256": "50B57A196A8CE84D8143DC440B5E50FF52BA94528EC13D8C4860D3D7AFF3FA0D",
+    "training_mode": "self_supervised_score_loop",
+    "seed_count": 5,
+    "window_count": 2405,
+    "independent_id_ood_holdout": false,
+    "hardware_validated": false
+  },
+  "limitations": [
+    "The public tutorial CSV has no target Astra-S/N10P image stream or camera-to-local calibration.",
+    "The source platform is not the project Mecanum robot; this is external real-offline context only.",
+    "The single recording/track is a chronological development split, not independent ID/OOD evidence.",
+    "No model, metric or checkpoint from this candidate may enter the claim register or locked manuscript."
+  ],
+  "paper_edit": false
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "cca-hardware-runtime-v1",
+  "transport": "stm32_serial",
+  "stm32": {
+    "port": null,
+    "baudrate": 115200,
+    "timeout_s": 0.1,
+    "mode": 0
+  },
+  "camera": {
+    "model": "Astra-S",
+    "sdk": "OpenNI2",
+    "uri": null,
+    "sdk_path": null,
+    "depth_scale_m": 0.001,
+    "max_pair_skew_us": null
+  },
+  "lidar": {
+    "model": "N10P",
+    "port": null,
+    "baudrate": null,
+    "protocol_profile": null,
+    "timeout_s": 0.1
+  },
+  "can": {
+    "interface": "socketcan",
+    "channel": null,
+    "bitrate": 500000
+  },
+  "firmware": null,
+  "clock": "system_time",
+  "control_mode": "position_state",
+  "state_definition": ["x_m", "y_m", "theta_rad", "vx_mps", "vy_mps", "omega_radps"],
+  "urdf_path": null,
+  "geometry_authority": "pending_physical_measurement",
+  "physical_spec_path": null,
+  "wheel_radius_m": null,
+  "half_length_m": null,
+  "half_width_m": null,
+  "sensor_mounts": null,
+  "wheel_signs": {
+    "fl": 1,
+    "fr": 1,
+    "rl": 1,
+    "rr": 1
+  }
+}

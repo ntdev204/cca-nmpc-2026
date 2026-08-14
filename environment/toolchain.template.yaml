@@ -1,0 +1,47 @@
+schema_version: "1.0.0"
+environment_id: null
+captured_at: null
+captured_by: null
+
+host:
+  hostname_alias: null
+  operating_system: null
+  os_version: null
+  architecture: null
+  cpu_model: null
+  physical_cores: null
+  logical_cores: null
+  ram_gib: null
+  gpu_model: null
+  accelerator_model: null
+  power_mode: null
+  clock_policy: null
+
+software:
+  git_version: null
+  python_version: null
+  python_lock_sha256: null
+  matlab_release: null
+  optimization_solver: null
+  compiler: null
+  cuda_version: null
+  cudnn_version: null
+  container_image_digest: null
+
+research_tools:
+  manuscript_system: overleaf
+  overleaf_compiler: null
+  zotero_version: null
+  zotero_exported_at: null
+  zotero_export_sha256: null
+  notes_system: obsidian
+
+timing_controls:
+  timezone: null
+  locale: null
+  warmup_runs: null
+  background_process_policy: null
+  thread_count: null
+  deterministic_mode: null
+
+notes: null

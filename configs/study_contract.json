@@ -1,0 +1,80 @@
+{
+  "schema": "cca-nmpc-shared-study-contract-v1",
+  "revision": "2.0.0",
+  "paper_edit": false,
+  "context": {
+    "direction_classes": ["left", "right", "forward", "backward"],
+    "observed_steps": 20,
+    "future_steps": 12,
+    "frame_stride": 3,
+    "dt_s": 0.1,
+    "min_speed_mps": 0.02,
+    "max_speed_mps": 2.0,
+    "score_target": 0.85,
+    "seed": 20260811,
+    "run_id": null,
+    "dataset_id": null,
+    "model_id": null
+  },
+  "map": {
+    "dt_s": 0.1,
+    "horizon": 6,
+    "pilot_replicates": 5,
+    "confirmatory_replicates": 30,
+    "confirmatory_requires_no_score_tuning": true,
+    "seed": 260811,
+    "score_target": 0.85,
+    "score_patience": 4,
+    "robot_radius_m": 0.282842712474619,
+    "robot_geometry": {
+      "model": "mini_mec_robot",
+      "source_urdf": "reference/robot/rai_robot_urdf/rai_robot_urdf/urdf/mini_mec_robot.urdf",
+      "source_urdf_sha256": "42fec53fcdf2cb2b3e26f2d3d161e51644c5378ba77f22752e4fbfa5c3818207",
+      "source_intake": "research/metadata/hardware/mini_mec_intake_20260814.json",
+      "source_intake_sha256": "b69f8373c28e17549cd6f8602d32c9be8bd98fa299b60f3489c522efe0e1c602",
+      "source_physical_spec": "configs/physical_robot.json",
+      "source_physical_spec_sha256": "fb4a309fab9669a1b4dbf9df5a540b33000ac6fb465cffc6b478d6f85c1b9c06",
+      "footprint_method": "circumscribed_half_diagonal_of_user_supplied_total_xy_extent",
+      "footprint_half_extents_m": [0.2, 0.2],
+      "footprint_radius_m": 0.282842712474619,
+      "physical_validation": "user_supplied_measurement_pending_independent_verification"
+    },
+    "context_radius_m": 0.6,
+    "human_radius_m": 0.34,
+    "safe_clearance_m": 0.2,
+    "cruise_speed_mps": 0.65,
+    "lateral_offset_m": 1.35,
+    "longitudinal_offset_m": 0.85,
+    "controllers": ["mpc", "nmpc", "dwa", "mppi", "cca_nmpc"],
+    "global_path_replan_count": 0,
+    "human_trajectory_provided_to_controller": false
+  },
+  "detector": {
+    "confidence": 0.25,
+    "iou": 0.5,
+    "confidence_sweep": [0.1, 0.25, 0.5, 0.75],
+    "iou_sweep": [0.25, 0.5, 0.75],
+    "genuine_negatives_per_video": 4
+  },
+  "matlab": {
+    "seed": 27072026,
+    "sample_time_s": 0.05,
+    "horizon_steps": 10,
+    "inner_loop_period_s": 0.01,
+    "command_delay_s": 0.02,
+    "duration_s": 6,
+    "trajectory_duration_s": 10,
+    "trajectory_period_s": 10,
+    "foundation_controllers": ["OPEN_LOOP", "PID", "LQR", "NMPC"],
+    "risk_controllers": ["DETERMINISTIC", "UNIFORM", "CCA_FIXED_BUDGET"],
+    "robustness_controllers": ["LQR", "NMPC"]
+  },
+  "evaluation": {
+    "global_path_replan_count_required": 0,
+    "human_trajectory_generated": false,
+    "paper_edit": false,
+    "primary_control_metrics": ["collision_rate", "safe_completion_rate", "minimum_clearance_m"],
+    "primary_context_metrics": ["macro_f1", "speed_mae", "context_valid_rate"],
+    "primary_detector_metrics": ["precision", "recall", "f1", "image_confusion_matrix", "latency_p95_ms"]
+  }
+}

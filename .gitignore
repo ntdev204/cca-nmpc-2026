@@ -1,0 +1,133 @@
+# Operating-system and editor state
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*.swp
+~$*.docx
+.idea/
+.vscode/
+**/.obsidian/workspace*.json
+**/.obsidian/cache/
+**/.obsidian/plugins/
+**/.obsidian/.trash/
+
+# Secrets and machine-local overrides
+.env
+.env.*
+!.env.example
+/configs/local*.yaml
+/configs/local*.yml
+/configs/local*.json
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv*/
+
+# MATLAB/Simulink transient output
+*.asv
+*.autosave
+*.m~
+*.slxc
+slprj/
+codegen/
+.matlab/
+
+# Native and embedded build output
+build/
+cmake-build-*/
+*.o
+*.obj
+*.axf
+*.elf
+*.hex
+*.map
+*.dep
+
+# LaTeX output. The manuscript is authored and built only on Overleaf.
+*.tex
+*.pdf
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+/paper/
+/manuscript/
+/overleaf-build/
+
+# The single local paper snapshot is retained outside version control.
+/backup/**
+!/backup/README.md
+!/backup/paper-current-2026-08-01.sha256
+
+# Dataset payloads are external. Only metadata, schemas, and registries belong in Git.
+/data/raw/**
+!/data/raw/README.md
+/data/interim/**
+!/data/interim/README.md
+/data/processed/**
+!/data/processed/README.md
+/data/external/**
+!/data/external/README.md
+/data/payload/**
+!/data/payload/README.md
+
+# Read-only robot geometry provenance keeps URDF/xacro and hashes; CAD meshes
+# remain local reference payloads and are not versioned.
+/reference/robot/**/meshes/**
+
+# Model weights and binary numerical checkpoints
+/models/**
+!/models/README.md
+!/models/registry.json
+!/models/**/*.md
+*.ckpt
+*.engine
+*.h5
+*.joblib
+*.mat
+*.onnx
+*.pkl
+*.pt
+*.pth
+*.safetensors
+
+# Run directories and experiment-tracker state
+/experiments/runs/**
+!/experiments/runs/README.md
+/wandb/
+/mlruns/
+/lightning_logs/
+/tensorboard/
+
+# Generated artifact payloads. Register their hashes and external locations instead.
+/artifacts/payload/**
+!/artifacts/payload/README.md
+/artifacts/generated/**
+
+# Zotero's deterministic BibTeX export is a versioned source artifact.
+/references/zotero/import_queue/**
+!/references/zotero/import_queue/README.md
+!/references/zotero/import_queue/source_manifest.json
+/references/zotero/local/
+/references/zotero/*.sqlite*
+!/references/zotero/**/*.bib
+
+# PR01 open-retrieval candidates are local until explicit validation and promotion.
+/references/literature/staging/**
+!/references/literature/staging/README.md
+/temp/output/**
+/temp/*.log
+/temp/*.err.log

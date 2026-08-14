@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "context-split-manifest.schema.json",
+  "title": "CCA context sequence group split manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "group_key",
+    "purposes",
+    "frozen_before_training",
+    "group_intersections_empty",
+    "assignments"
+  ],
+  "properties": {
+    "schema": {"const": "cca-context-split-manifest-v1"},
+    "group_key": {
+      "enum": ["recording_id", "episode_id", "source_id", "scene_id"]
+    },
+    "purposes": {
+      "const": ["train", "validation", "calibration", "test_id", "test_ood"]
+    },
+    "frozen_before_training": {"const": true},
+    "group_intersections_empty": {"const": true},
+    "assignments": {
+      "type": "array",
+      "minItems": 5,
+      "items": {"$ref": "#/$defs/assignment"},
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group_id", "split"],
+      "properties": {
+        "group_id": {"type": "string", "minLength": 1},
+        "split": {
+          "enum": ["train", "validation", "calibration", "test_id", "test_ood"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "schema": "cca-simulation-reset-audit-v1",
+  "reset_id": "simulation-reset-20260814",
+  "reset_at_utc": "2026-08-14T00:00:00Z",
+  "scope": "development datasets, model candidates and experiment outputs outside backup",
+  "paper_edit": false,
+  "backup_preserved": "backup/paper-current-2026-08-01",
+  "deleted_targets": [
+    "data/raw/web-cohort-20260814",
+    "experiments/runs",
+    "experiments/commands",
+    "models/candidates"
+  ],
+  "deleted_file_count": 51,
+  "deleted_bytes": 36288151,
+  "predelete_inventory_sha256": "A05C4F774588000BDB7B4B50BF169338BCC33E6730BF23845349FBD4650F11BD",
+  "registries_after_reset": {
+    "data/registry.json": "empty",
+    "models/registry.json": "empty",
+    "experiments/registry.json": "empty",
+    "artifacts/registry.json": "empty"
+  },
+  "retained": [
+    "source code",
+    "protocols and Obsidian knowledge notes",
+    "Zotero exports",
+    "backup/paper-current-2026-08-01"
+  ],
+  "next_campaign": {
+    "run_id": "simulation-learning-20260814",
+    "data_origin": "deterministic simulation generated after reset",
+    "learning": ["self_supervised_next_velocity", "score_penalty_loop", "tabular_reinforcement_learning"],
+    "status": "completed-development-only",
+    "current_manifest": "experiments/runs/simulation-learning-20260814/manifest.json",
+    "split_contract": "episode_group_disjoint_train_validation_calibration_test_id_test_ood",
+    "calibration_source": "simulation-only",
+    "hardware_validated": false
+  }
+}

@@ -1,0 +1,451 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dataset-config.schema.json",
+  "title": "CCA-NMPC dataset design and freeze configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "revision",
+    "task",
+    "status",
+    "acquisition",
+    "internet_human_images",
+    "annotation",
+    "splitting",
+    "context_window_contract",
+    "context_sequence_contract",
+    "limitations",
+    "exclusions",
+    "ethics_review"
+  ],
+  "properties": {
+    "schema_version": {"const": "2.0.0"},
+    "dataset_id": {
+      "type": ["string", "null"],
+      "pattern": "^ds-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "revision": {
+      "type": ["string", "null"],
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "task": {
+      "type": ["string", "null"],
+      "enum": [null, "person_detection", "person_context_sequence"]
+    },
+    "status": {"enum": ["planned", "acquiring", "frozen", "retired"]},
+    "acquisition": {"$ref": "#/$defs/acquisition"},
+    "internet_human_images": {"$ref": "#/$defs/internet_human_images"},
+    "annotation": {"$ref": "#/$defs/annotation"},
+    "splitting": {"$ref": "#/$defs/splitting"},
+    "context_window_contract": {"$ref": "#/$defs/context_window_contract"},
+    "context_sequence_contract": {"$ref": "#/$defs/context_sequence_contract"},
+    "limitations": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "ethics_review": {"type": ["string", "null"], "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "frozen"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "dataset_id": {"type": "string"},
+          "revision": {"type": "string"},
+          "task": {"type": "string"},
+          "acquisition": {
+            "properties": {
+              "source_kind": {"type": "string"},
+              "acquisition_start": {"type": "string", "format": "date-time"},
+              "acquisition_end": {"type": "string", "format": "date-time"},
+              "rights_review_owner": {"type": "string"},
+              "source_manifest": {"$ref": "#/$defs/relative_path"},
+              "payload_root_uri": {"type": "string", "minLength": 1},
+              "checksum_manifest": {"$ref": "#/$defs/relative_path"}
+            }
+          },
+          "splitting": {
+            "properties": {
+              "disjoint_unit": {"type": "string"},
+              "leakage_keys": {"minItems": 1},
+              "seed": {"type": "integer"},
+              "verification": {
+                "properties": {
+                  "group_intersections_empty": {"const": true},
+                  "fraction_sum_one_verified": {"const": true},
+                  "audit_report": {"$ref": "#/$defs/relative_path"}
+                }
+              },
+              "frozen_before_training": {"const": true}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"const": "frozen"},
+          "task": {"const": "person_detection"}
+        },
+        "required": ["status", "task"]
+      },
+      "then": {
+        "properties": {
+          "acquisition": {"properties": {"source_kind": {"const": "internet_images"}}},
+          "internet_human_images": {
+            "properties": {
+              "manifest_validation_report": {"$ref": "#/$defs/relative_path"},
+              "approved_asset_counts": {
+                "properties": {
+                  "calibration": {"type": "integer", "minimum": 1},
+                  "test_id": {"type": "integer", "minimum": 1},
+                  "test_ood": {"type": "integer", "minimum": 1}
+                }
+              }
+            }
+          },
+          "annotation": {
+            "properties": {
+              "schema_name": {"type": "string"},
+              "annotator_count": {"type": "integer", "minimum": 1},
+              "adjudication_rule": {"type": "string"},
+              "inter_annotator_metric": {"type": "string"},
+              "minimum_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+              "quality_audit_sample_fraction": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "splitting": {
+            "properties": {
+              "fractions": {
+                "properties": {
+                  "calibration": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                  "test_id": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                  "test_ood": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+                }
+              }
+            }
+          },
+          "ethics_review": {"type": "string"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"const": "frozen"},
+          "task": {"const": "person_context_sequence"}
+        },
+        "required": ["status", "task"]
+      },
+      "then": {
+        "properties": {
+          "acquisition": {
+            "properties": {
+              "source_kind": {
+                "enum": ["internet_images", "public_dataset", "lab_capture", "derived"]
+              }
+            }
+          },
+          "splitting": {
+            "properties": {
+              "fractions": {
+                "properties": {
+                  "train": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                  "validation": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                  "calibration": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                  "test_id": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                  "test_ood": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+                }
+              }
+            }
+          },
+          "context_window_contract": {
+            "properties": {
+              "observation_steps": {"type": "integer", "minimum": 1},
+              "sample_period_seconds": {"type": "number", "exclusiveMinimum": 0},
+              "coordinate_frame": {"const": "metric_robot_local"},
+              "self_supervised_target_source": {"type": "string"},
+              "missing_observation_policy": {"type": "string"}
+            }
+          },
+          "context_sequence_contract": {
+            "properties": {
+              "image_to_local_transform_verified": {"const": true},
+              "provenance_validation_report_path": {"$ref": "#/$defs/relative_path"},
+              "provenance_validation_report_sha256": {"$ref": "#/$defs/sha256"},
+              "calibration_validation_report_path": {"$ref": "#/$defs/relative_path"},
+              "calibration_validation_report_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          },
+          "ethics_review": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": ["string", "null"], "pattern": "^[A-Fa-f0-9]{64}$"},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "path_or_null": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/relative_path"}]
+    },
+    "acquisition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_kind",
+        "acquisition_start",
+        "acquisition_end",
+        "rights_review_owner",
+        "source_manifest",
+        "payload_root_uri",
+        "checksum_manifest",
+        "synthetic_substitute_allowed_for_human_detection_test"
+      ],
+      "properties": {
+        "source_kind": {
+          "type": ["string", "null"],
+          "enum": [null, "internet_images", "public_dataset", "lab_capture", "simulation", "derived"]
+        },
+        "acquisition_start": {"type": ["string", "null"], "format": "date-time"},
+        "acquisition_end": {"type": ["string", "null"], "format": "date-time"},
+        "rights_review_owner": {"type": ["string", "null"], "minLength": 1},
+        "source_manifest": {"$ref": "#/$defs/path_or_null"},
+        "payload_root_uri": {"type": ["string", "null"], "minLength": 1},
+        "checksum_manifest": {"$ref": "#/$defs/path_or_null"},
+        "synthetic_substitute_allowed_for_human_detection_test": {"const": false}
+      }
+    },
+    "internet_human_images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_for_person_detection_test",
+        "manifest_schema",
+        "manifest_schema_version",
+        "require_original_url",
+        "require_landing_page_url",
+        "require_retrieval_timestamp",
+        "require_license_and_attribution",
+        "require_privacy_review",
+        "require_real_media",
+        "ai_generated_allowed",
+        "lab_or_simulation_substitute_allowed",
+        "require_held_out_calibration_and_test",
+        "manifest_validation_report",
+        "approved_asset_counts",
+        "approved_record_requirements"
+      ],
+      "properties": {
+        "required_for_person_detection_test": {"const": true},
+        "manifest_schema": {"const": "schemas/web-image-manifest.schema.json"},
+        "manifest_schema_version": {"const": "2.0.0"},
+        "require_original_url": {"const": true},
+        "require_landing_page_url": {"const": true},
+        "require_retrieval_timestamp": {"const": true},
+        "require_license_and_attribution": {"const": true},
+        "require_privacy_review": {"const": true},
+        "require_real_media": {"const": true},
+        "ai_generated_allowed": {"const": false},
+        "lab_or_simulation_substitute_allowed": {"const": false},
+        "require_held_out_calibration_and_test": {"const": true},
+        "manifest_validation_report": {"$ref": "#/$defs/path_or_null"},
+        "approved_asset_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["calibration", "test_id", "test_ood"],
+          "properties": {
+            "calibration": {"type": ["integer", "null"], "minimum": 0},
+            "test_id": {"type": ["integer", "null"], "minimum": 0},
+            "test_ood": {"type": ["integer", "null"], "minimum": 0}
+          }
+        },
+        "approved_record_requirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "download_allowed",
+            "processing_allowed",
+            "derivative_annotation_allowed",
+            "annotation_status",
+            "blind_annotation_audit",
+            "legal_or_ethics_basis_when_people"
+          ],
+          "properties": {
+            "download_allowed": {"const": true},
+            "processing_allowed": {"const": true},
+            "derivative_annotation_allowed": {"const": true},
+            "annotation_status": {"const": "audited"},
+            "blind_annotation_audit": {"const": true},
+            "legal_or_ethics_basis_when_people": {"const": true}
+          }
+        }
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_name",
+        "annotator_count",
+        "adjudication_rule",
+        "inter_annotator_metric",
+        "minimum_agreement",
+        "quality_audit_sample_fraction"
+      ],
+      "properties": {
+        "schema_name": {"type": ["string", "null"], "minLength": 1},
+        "annotator_count": {"type": ["integer", "null"], "minimum": 1},
+        "adjudication_rule": {"type": ["string", "null"], "minLength": 1},
+        "inter_annotator_metric": {"type": ["string", "null"], "minLength": 1},
+        "minimum_agreement": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "quality_audit_sample_fraction": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "fractions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["train", "validation", "calibration", "test_id", "test_ood"],
+      "properties": {
+        "train": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "validation": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "calibration": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "test_id": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "test_ood": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+      }
+    },
+    "splitting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disjoint_unit",
+        "leakage_keys",
+        "seed",
+        "fractions",
+        "generic_test_alias_allowed",
+        "required_context_purposes",
+        "held_out_purposes",
+        "verification",
+        "stratification_fields",
+        "frozen_before_training"
+      ],
+      "properties": {
+        "disjoint_unit": {
+          "type": ["string", "null"],
+          "enum": [null, "subject", "scene", "episode", "video", "image", "trial"]
+        },
+        "leakage_keys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "seed": {"type": ["integer", "null"], "minimum": 0},
+        "fractions": {"$ref": "#/$defs/fractions"},
+        "generic_test_alias_allowed": {"const": false},
+        "required_context_purposes": {
+          "const": ["train", "validation", "calibration", "test_id", "test_ood"]
+        },
+        "held_out_purposes": {"const": ["calibration", "test_id", "test_ood"]},
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["group_intersections_empty", "fraction_sum_one_verified", "audit_report"],
+          "properties": {
+            "group_intersections_empty": {"type": ["boolean", "null"]},
+            "fraction_sum_one_verified": {"type": ["boolean", "null"]},
+            "audit_report": {"$ref": "#/$defs/path_or_null"}
+          }
+        },
+        "stratification_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "frozen_before_training": {"type": "boolean"}
+      }
+    },
+    "context_window_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_steps",
+        "sample_period_seconds",
+        "coordinate_frame",
+        "self_supervised_target_source",
+        "missing_observation_policy",
+        "preserve_real_frame_hashes",
+        "preserve_calibrated_image_to_local_transform",
+        "synthetic_allowed_in_test_id_or_test_ood"
+      ],
+      "properties": {
+        "observation_steps": {"type": ["integer", "null"], "minimum": 1},
+        "sample_period_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "coordinate_frame": {"type": ["string", "null"], "minLength": 1},
+        "self_supervised_target_source": {"type": ["string", "null"], "minLength": 1},
+        "missing_observation_policy": {"type": ["string", "null"], "minLength": 1},
+        "preserve_real_frame_hashes": {"const": true},
+        "preserve_calibrated_image_to_local_transform": {"const": true},
+        "synthetic_allowed_in_test_id_or_test_ood": {"const": false}
+      }
+    },
+    "context_sequence_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id_real_context_sequences",
+        "test_ood_real_context_sequences",
+        "synthetic_allowed_in_test_id_or_test_ood",
+        "held_out_partitions",
+        "real_frame_media_available",
+        "frame_or_video_hashes_preserved",
+        "ground_truth_independent_of_evaluated_model",
+        "coordinate_claim_scope",
+        "output_fields",
+        "image_to_local_transform_verified",
+        "provenance_validation_report_path",
+        "provenance_validation_report_sha256",
+        "calibration_validation_report_path",
+        "calibration_validation_report_sha256"
+      ],
+      "properties": {
+        "test_id_real_context_sequences": {"const": true},
+        "test_ood_real_context_sequences": {"const": true},
+        "synthetic_allowed_in_test_id_or_test_ood": {"const": false},
+        "held_out_partitions": {"const": true},
+        "real_frame_media_available": {"const": true},
+        "frame_or_video_hashes_preserved": {"const": true},
+        "ground_truth_independent_of_evaluated_model": {"const": true},
+        "coordinate_claim_scope": {"const": "metric_robot_local"},
+        "output_fields": {
+          "const": ["position", "speed", "direction"]
+        },
+        "image_to_local_transform_verified": {"type": ["boolean", "null"]},
+        "provenance_validation_report_path": {"$ref": "#/$defs/path_or_null"},
+        "provenance_validation_report_sha256": {"$ref": "#/$defs/sha256"},
+        "calibration_validation_report_path": {"$ref": "#/$defs/path_or_null"},
+        "calibration_validation_report_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

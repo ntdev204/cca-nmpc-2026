@@ -1,0 +1,104 @@
+{
+  "schema": "cca-pr30-hardware-entry-preflight-v1",
+  "checked_at_utc": "2026-08-13T22:13:38Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "checks": {
+    "command_header": true,
+    "command_payload": true,
+    "status": true,
+    "applied": true,
+    "wheels_abc": true,
+    "wheel_d": true,
+    "body_velocity_mode_declared": true,
+    "position_state_scope_declared": true,
+    "legacy_torque_mode_not_claimed": true,
+    "commissioning_lock_zero": true,
+    "direct_csv_json_mapping": true,
+    "python_can_decoder_present": true,
+    "stm32_serial_bridge_present": true,
+    "stm_bridge_frame_contract_referenced": true,
+    "stm_bridge_frame_constants_present": true,
+    "mini_mec_urdf_present": true,
+    "record_actuation_gate_present": true,
+    "motion_safety_record_gate_present": true,
+    "direct_stm_recorder_present": true,
+    "single_hardware_entrypoint_present": true,
+    "no_device_preflight_present": true,
+    "complete_urdf_inventory_present": true,
+    "sensor_contract_inventory_present": true,
+    "component_inventory_present": true,
+    "footprint_contract_present": true,
+    "runtime_urdf_geometry_metadata_present": true,
+    "runtime_urdf_source_hash_validation_present": true,
+    "no_ros_runtime_dependency": true,
+    "packager_context_only": true,
+    "calibration_sidecar_contract": true,
+    "physical_template_planned": true,
+    "physical_template_unapproved": true
+  },
+  "errors": [],
+  "admission_reasons": [
+    "no sealed direct hardware/hardware-in-loop/real-offline package exists",
+    "STM wheel-loop commissioning remains locked at zero",
+    "physical experiment template is planned H0 with safety approval pending",
+    "robot physical specifications, sensor calibration and independent ground truth are absent",
+    "no stage-gate, protocol-freeze or target-hardware manifest is approved"
+  ],
+  "hardware_packages": [],
+  "sources": {
+    "src/stm/CCA/cca_protocol.h": {
+      "sha256": "eba0baa64942cd41539dc47917748cc935b2d477baf6d365aaf1ddb1698ac059"
+    },
+    "src/stm/CCA/cca_firmware_config.h": {
+      "sha256": "eb5572b9b02b17cc27dd20532706d7ed06cdddbca1b9970863ee04301b285d3b"
+    },
+    "src/stm/CCA/README.md": {
+      "sha256": "60d1775501fa4c45c40a8d29dd30bdea20a872c7420fe72573ab296750b9609c"
+    },
+    "scripts/python/tools/final_pack.py": {
+      "sha256": "cff63bf40d0591c498f5f854add24ddcec0269252dac182a08ee9388581d938d"
+    },
+    "scripts/python/tools/README.md": {
+      "sha256": "9897fbced16ab4a112b5aed5b8f2f8539955ec5e71bb76cb64aa94b9267f0874"
+    },
+    "src/python/cca_shared.py": {
+      "sha256": "7a2f40747c410bff7e9d3b25e6742adb009652089149361e88e0178931e5660a"
+    },
+    "src/python/cca_hardware.py": {
+      "sha256": "699511d6178423ffde85424282032b191a970cf90dc21683ed51b80ed97f5371"
+    },
+    "scripts/python/tools/record_hardware.py": {
+      "sha256": "b60af3e7ae19db67d4f8ce8d5e9d287c1ba008a4c42346bcf8b23a249c55c89c"
+    },
+    "scripts/python/tools/stm_experiment.py": {
+      "sha256": "f6f28ce85368e23849d78fdd1810db25c415b91abc5463c1379b8ca2e02dc823"
+    },
+    "scripts/python/tools/hardware_entry.py": {
+      "sha256": "3f6bfc31811f277e2b8c1f0756d2264498c7db0495392beab1b2b950635f7393"
+    },
+    "src/ros2/turn_on_rai_robot/src/rai_robot.cpp": {
+      "sha256": "bed1f48a8e12b75fc3b83e65ac5e54b5b0fd4200c02535246e75f6e87f8cb590"
+    },
+    "src/ros2/turn_on_rai_robot/include/turn_on_rai_robot/rai_robot.h": {
+      "sha256": "b5c2a03b67b26b5034b5ad4d30478fe58348b45f477b34d72e395125da10fe8d"
+    },
+    "src/ros2/rai_robot_urdf/rai_robot_urdf/urdf/mini_mec_robot.urdf": {
+      "sha256": "42fec53fcdf2cb2b3e26f2d3d161e51644c5378ba77f22752e4fbfa5c3818207"
+    },
+    "configs/physical_experiment.template.yaml": {
+      "sha256": "3ffe177126cb93ce19cfcd687bbbb2e2b35b2ed0287a50243e8bae6da65062e1"
+    }
+  },
+  "next_actions": [
+    "supply robot physical and sensor specifications",
+    "approve H0 safety, stop rules and target-hardware manifest",
+    "commission and verify e-stop/watchdog/wheel signs before motion",
+    "capture and seal direct CSV/JSON package with final_pack.py"
+  ],
+  "tool": {
+    "path": "scripts/python/tools/validate_hardware_entry.py",
+    "sha256": "61e32ce2f70fd83d514c81a658e4a6b9f9c57ad14e7b5cf8a0a4e36a1e1cb0e1"
+  }
+}

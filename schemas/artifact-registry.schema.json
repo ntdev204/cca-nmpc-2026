@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "artifact-registry.schema.json",
+  "title": "CCA-NMPC accepted artifact registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifacts"],
+  "properties": {
+    "schema_version": {"const": "1.1.0"},
+    "artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "classification_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "task_type",
+        "ontology",
+        "class_order",
+        "decision_rule",
+        "ground_truth",
+        "genuine_negative_examples",
+        "raw_counts_present",
+        "normalized_rates_present",
+        "support_present"
+      ],
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "task_type": {
+          "enum": [
+            "image_level_presence_classification",
+            "multiclass_classification",
+            "auxiliary_behavior_classification"
+          ]
+        },
+        "ontology": {"$ref": "#/$defs/file_ref"},
+        "class_order": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "decision_rule": {"$ref": "#/$defs/file_ref"},
+        "ground_truth": {"$ref": "#/$defs/file_ref"},
+        "genuine_negative_examples": {"const": true},
+        "raw_counts_present": {"const": true},
+        "normalized_rates_present": {"const": true},
+        "support_present": {"const": true}
+      }
+    },
+    "overlay_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "task_type",
+        "selection_protocol",
+        "source_manifest",
+        "selection_frozen_before_results"
+      ],
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "task_type": {
+          "enum": [
+            "person_context_overlay",
+            "physical_trial_trace",
+            "person_detection_error_gallery",
+            "controller_qualitative_case",
+            "simulation_qualitative_case"
+          ]
+        },
+        "selection_protocol": {"$ref": "#/$defs/file_ref"},
+        "source_manifest": {"$ref": "#/$defs/file_ref"},
+        "selection_frozen_before_results": {"const": true},
+        "context_overlay_manifest": {"$ref": "#/$defs/file_ref"},
+        "context_overlay_schema": {"type": "string", "minLength": 1},
+        "real_source_frames": {"type": "boolean"},
+        "context_fields_on_source_image": {"type": "boolean"},
+        "uncertainty_shown": {"type": "boolean"},
+        "ground_truth_or_missing_marker": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "task_type": {
+                "const": "person_context_overlay"
+              }
+            },
+            "required": ["task_type"]
+          },
+          "then": {
+            "required": [
+              "context_overlay_manifest",
+              "context_overlay_schema",
+              "real_source_frames",
+              "context_fields_on_source_image",
+              "uncertainty_shown",
+              "ground_truth_or_missing_marker"
+            ],
+            "properties": {
+              "real_source_frames": {"const": true},
+              "context_fields_on_source_image": {"const": true},
+              "uncertainty_shown": {"const": true},
+              "ground_truth_or_missing_marker": {"const": true}
+            }
+          }
+        }
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision",
+        "artifact_type",
+        "status",
+        "experiment_id",
+        "uri",
+        "media_type",
+        "claim_scope",
+        "description"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "revision": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+        },
+        "artifact_type": {
+          "enum": [
+            "dataset_manifest",
+            "model_checkpoint",
+            "metrics_table",
+            "confusion_matrix",
+            "qualitative_overlay",
+            "figure",
+            "run_log",
+            "timing_trace",
+            "proof_check",
+            "physical_gate_record",
+            "other"
+          ]
+        },
+        "status": {"enum": ["candidate", "accepted", "superseded", "invalidated"]},
+        "experiment_id": {"type": "string", "pattern": "^exp-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "uri": {"type": "string", "minLength": 1},
+        "media_type": {"type": "string", "minLength": 1},
+        "claim_scope": {
+          "enum": ["simulation_only", "real_data_offline", "target_timing", "hardware_in_loop", "integrated_robot"]
+        },
+        "description": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "run_manifest_path": {"$ref": "#/$defs/relative_path"},
+        "generator_command": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "environment_id": {"type": "string", "minLength": 1},
+        "immutable": {"type": "boolean"},
+        "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "classification_semantics": {"$ref": "#/$defs/classification_semantics"},
+        "overlay_semantics": {"$ref": "#/$defs/overlay_semantics"},
+        "supersedes": {"type": "string", "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "invalidation_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "accepted"}},
+            "required": ["status"]
+          },
+          "then": {
+            "required": [
+              "sha256",
+              "generated_at",
+              "run_manifest_path",
+              "generator_command",
+              "environment_id",
+              "immutable",
+              "limitations"
+            ],
+            "properties": {"immutable": {"const": true}}
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {"const": "accepted"},
+              "artifact_type": {"const": "confusion_matrix"}
+            },
+            "required": ["status", "artifact_type"]
+          },
+          "then": {"required": ["classification_semantics"]}
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {"const": "accepted"},
+              "artifact_type": {"const": "qualitative_overlay"}
+            },
+            "required": ["status", "artifact_type"]
+          },
+          "then": {"required": ["overlay_semantics"]}
+        },
+        {
+          "if": {
+            "properties": {"status": {"const": "invalidated"}},
+            "required": ["status"]
+          },
+          "then": {"required": ["invalidation_reason"]}
+        }
+      ]
+    }
+  }
+}

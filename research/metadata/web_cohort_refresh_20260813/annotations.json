@@ -1,0 +1,26 @@
+{
+  "schema": "cca-person-bbox-annotations-v1",
+  "schema_version": "1.0.0",
+  "annotation_id": "ann-web-refresh-primary-pending",
+  "source_manifest": {
+    "path": "data/manifests/web_person_cohort_refresh_20260813.json",
+    "sha256": "E76F01735D555AD639DBEF8CBD0B3FD38DB69E2431A656F5ACC0B591D30EF8DB"
+  },
+  "guideline_version": "pr10-bbox-v1",
+  "blinded_to_predictions": true,
+  "annotator_id": "pending-primary",
+  "records": [
+    {
+      "asset_id": "asset-boussou-fields",
+      "image_width": 1920,
+      "image_height": 1440,
+      "persons": []
+    },
+    {
+      "asset_id": "asset-calgary-street",
+      "image_width": 1600,
+      "image_height": 1200,
+      "persons": []
+    }
+  ]
+}

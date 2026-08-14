@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "focused-literature-audit.schema.json",
+  "title": "Focused literature audit record for an original research paper",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "audit_id",
+    "scope",
+    "status",
+    "systematic_review_required",
+    "database_accounts_required",
+    "method",
+    "zotero_export",
+    "literature_review_note",
+    "literature_synthesis_note",
+    "nearest_work_matrix",
+    "research_gap_note",
+    "source_notes",
+    "reviewer_id",
+    "reviewed_at",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.1.0"},
+    "audit_id": {
+      "type": "string",
+      "pattern": "^audit-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "scope": {"const": "original_research_paper"},
+    "status": {"enum": ["IN_PROGRESS", "COMPLETE"]},
+    "systematic_review_required": {"const": false},
+    "database_accounts_required": {"const": false},
+    "method": {
+      "enum": ["focused-primary-source-audit", "focused-primary-source-audit-complete"]
+    },
+    "zotero_export": {"$ref": "#/$defs/file_ref"},
+    "literature_review_note": {"$ref": "#/$defs/file_ref"},
+    "literature_synthesis_note": {"$ref": "#/$defs/file_ref"},
+    "nearest_work_matrix": {"$ref": "#/$defs/file_ref"},
+    "research_gap_note": {"$ref": "#/$defs/file_ref"},
+    "source_notes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/file_ref"}
+    },
+    "reviewer_id": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "rationale": {"type": "string", "minLength": 1},
+    "completion_requirements": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "COMPLETE"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "method": {"const": "focused-primary-source-audit-complete"}
+        }
+      }
+    }
+  ]
+}

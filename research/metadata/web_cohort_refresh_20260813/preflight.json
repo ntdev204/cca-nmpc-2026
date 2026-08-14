@@ -1,0 +1,59 @@
+{
+  "schema": "cca-pr10-web-cohort-preflight-v1",
+  "checked_at_utc": "2026-08-13T15:33:45Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "tool": {
+    "path": "scripts/python/tools/validate_web_cohort.py",
+    "sha256": "4d5edd4c80e586dcbea58c47d295c3a72751a1930737f8296366d1a6be98f35e"
+  },
+  "manifest": {
+    "path": "data/manifests/web_person_cohort_refresh_20260813.json",
+    "sha256": "e76f01735d555ad639dbef8cbd0b3fd38db69e2431a656f5acc0b591d30ef8db",
+    "asset_count": 2,
+    "approved_count": 0,
+    "split_counts": {
+      "calibration": 0,
+      "test_id": 1,
+      "test_ood": 1
+    }
+  },
+  "annotations": {
+    "path": "research/metadata/web_cohort_refresh_20260813/annotations.json",
+    "sha256": "ff7bc053d2afa6a36d81a20b2c5a48ef866573a5961be85da4d41b0dd0945a2c",
+    "record_count": 2,
+    "blinded_to_predictions": true,
+    "annotator_id": "pending-primary",
+    "independent_annotation": {
+      "independent_annotation_present": false,
+      "adjudication_present": false,
+      "independent_annotation_valid": false,
+      "adjudication_valid": false,
+      "gate": false,
+      "primary_record_count": 2
+    }
+  },
+  "checks": {
+    "json_schema": true,
+    "media_hash_size_decode_dimensions": true,
+    "annotation_binding_and_bbox_bounds": true,
+    "independent_annotation_and_adjudication": false,
+    "unique_asset_and_sha256": true,
+    "source_group_split_disjoint": true,
+    "real_non_ai_media": true,
+    "rights_and_privacy_fields": true
+  },
+  "errors": [],
+  "admission_reasons": [
+    "all calibration/test records remain approved=false",
+    "independent second annotator and blinded adjudication record are absent or incomplete",
+    "pretraining-overlap review is not recorded for the detector",
+    "cohort expansion and held-out OOD audit remain open"
+  ],
+  "next_actions": [
+    "obtain an independent bbox annotation and blinded adjudication record",
+    "record detector pretraining-overlap review",
+    "expand and lock calibration/test_id/test_ood cohort before model selection"
+  ]
+}

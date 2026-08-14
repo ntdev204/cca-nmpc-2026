@@ -1,0 +1,110 @@
+{
+  "schema": "cca-development-artifact-purge-v1",
+  "schema_version": "1.0.0",
+  "purged_at_utc": "2026-08-13T01:20:00Z",
+  "reason": "Reset before a new confirmatory campaign; development-only runs and the prior detector payload are not admissible evidence and were removed to prevent accidental reuse.",
+  "paper_edit": false,
+  "preserved": [
+    "backup/paper-current-2026-08-01"
+  ],
+  "removed": [
+    {
+      "path": "experiments/runs/context-map-run-20260812-metric-contract",
+      "kind": "development_map_run",
+      "file_count": 6,
+      "byte_count": 4807712,
+      "manifest_sha256": "77ADEAB6A4C90C2C1002E64505C603A24F080D888CE76C7EC399BA4865D3AD6D"
+    },
+    {
+      "path": "experiments/runs/context-map-run-20260813-deadline-fix-pilot",
+      "kind": "development_map_run",
+      "file_count": 6,
+      "byte_count": 1175378,
+      "manifest_sha256": "2993DA8EF327DFC3E969CD56125615671C07460A91DFFF5C5D6C061493779AEE"
+    },
+    {
+      "path": "experiments/runs/det-eval-web-bbox-20260812-r11",
+      "kind": "development_detector_run",
+      "file_count": 13,
+      "byte_count": 5390489,
+      "manifest_sha256": "9848F1C41EF850D17A2E0E9AC0C8AC8DAA6F2A7BBCCE9DB19B9EA13A6C9934F4"
+    },
+    {
+      "path": "experiments/runs/det-eval-web-bbox-20260813-r12",
+      "kind": "development_detector_run",
+      "file_count": 15,
+      "byte_count": 6327303,
+      "manifest_sha256": "C7F7F5F5EF4D5E4DF18186174E09030473A5D8C9BDDBB3F7B37535DEDC83ABB0"
+    },
+    {
+      "path": "experiments/runs/matlab-bounded-20260813",
+      "kind": "development_matlab_run",
+      "file_count": 21,
+      "byte_count": 966886,
+      "manifest_sha256": "976E92F1E0E46ABD062AEB5DBEB820BF437960E2B1641B0C422C56D4EE42D18E"
+    },
+    {
+      "path": "experiments/runs/matlab-bounded-20260813-r2",
+      "kind": "development_matlab_run",
+      "file_count": 21,
+      "byte_count": 976276,
+      "manifest_sha256": "99B28C1520855BEFA576C9F48B9E6430DC172DDBD215DDF929FFD55CA4B64540"
+    },
+    {
+      "path": "artifacts/payload/person_detection_pilot/yolo26s-pose.pt",
+      "kind": "development_detector_model",
+      "file_count": 1,
+      "byte_count": 24151790,
+      "sha256": "A083ADB42303728AE14C4BD6BD56D80DA46F82FB2564DBD6F31DCC92EA321646"
+    },
+    {
+      "path": "data/raw/person-web-20260812",
+      "kind": "development_person_dataset",
+      "file_count": 10,
+      "byte_count": 4070976,
+      "files": [
+        {"path": "neg-01-empty-hallway.jpg", "byte_count": 95134, "sha256": "4A439650B0ECEF5F2C2806C540F1DBA9C7EA15D2D71BD439363507DFE83D03AE"},
+        {"path": "neg-02-empty-street.jpg", "byte_count": 192950, "sha256": "EABA7F094224F820551DD0C5F19BBD7386F2FC0235DD61EE910FD46E881E5DE9"},
+        {"path": "pos-01-couple-buckingham.jpg", "byte_count": 1847952, "sha256": "B90C12DE5ECB1593F7930B77B6D0CC7EED8A6F3ED7B1EC45E1F4D1C12CBCFCB3"},
+        {"path": "pos-02-fort-greene.jpg", "byte_count": 139475, "sha256": "2B6DC7069DD683FE91C93D161FB5A77B8AA8E620A69A1CD23B758309B68B9E97"},
+        {"path": "pos-03-people-walking.jpg", "byte_count": 134631, "sha256": "86F578DEF875E8580662325C170ABBE8786097ECABEC04D45C396DC7C2D0A650"},
+        {"path": "pos-04-patio.jpg", "byte_count": 419517, "sha256": "6077B980AE9B6CC2EC7A0E0DAC4E8B0ED59F710ED28B0D95727795913B34268E"},
+        {"path": "pos-05-street.jpg", "byte_count": 98456, "sha256": "25EB9B7F11526AC39B17FF88800E0D02A2F01A157BD0530430748A7AF3E8414E"},
+        {"path": "pos-06-pexels-street.jpg", "byte_count": 325584, "sha256": "A7EC064F06EFE2BDF45DC4F37D63C2FC6B812D9659EC0945A6D245A6D6AABC57"},
+        {"path": "pos-07-bromo.jpg", "byte_count": 322772, "sha256": "DDF29C4A085DE2A6C1F51C78BA89F7F9AC5CCEEF9DA2136FDFB0E9F7D377FCBD"},
+        {"path": "pos-08-nairobi.jpg", "byte_count": 205475, "sha256": "4DF2739D1610C86E41933AE9FA8C0E224BBF55D141812BB7288996FD5D9ED7D3"},
+        {"path": "pos-09-himeji.jpg", "byte_count": 289030, "sha256": "B84C3243615B7A44E6DBC4C643A49F641262E2985CF86A9516C85B0C2BA52979"}
+      ]
+    },
+    {
+      "path": "research/metadata/web_images/person_context_manifest.json",
+      "kind": "development_dataset_manifest",
+      "file_count": 1,
+      "byte_count": 21674,
+      "sha256": "1AD1E154D8CC89B7D1165036AFC75F14DD278877B890649F8B793AAAB5EC9DD4"
+    },
+    {
+      "path": "research/metadata/web_images/person_bbox_annotations_20260812.json",
+      "kind": "development_dataset_manifest",
+      "file_count": 1,
+      "byte_count": 3094,
+      "sha256": "65C9F3704E8DBEB0DDB69985F170C346EA9EA0823163C74664368AFD2A4FFBD2"
+    },
+    {
+      "path": "research/metadata/web_images/pr10_preflight_20260813.json",
+      "kind": "development_dataset_preflight",
+      "file_count": 1,
+      "byte_count": 2139,
+      "sha256": "CC40F0E3A4ACFE8B437CFED42727295D17327033897FF91824C6888B032F0E95"
+    }
+  ],
+  "registry_entries_removed": [
+    {
+      "registry": "data/registry.json",
+      "dataset_id": "ds-person-context-web-20260812",
+      "reason": "Old Internet-image smoke cohort removed before new acquisition"
+    }
+  ],
+  "total_removed_bytes": 48793717,
+  "recovery": "No local copy retained; the listed hashes preserve provenance only. A new model/run must be acquired under a new protocol freeze and run ID."
+}

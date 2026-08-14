@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this research software, cite the archived release and associated paper."
+title: "Continuous Context-Aware NMPC with an LSTM human-context interface"
+type: software
+version: "0.1.0"
+# TODO: Add an ORCID only after the author has confirmed it; never infer or invent one.
+authors:
+  - family-names: "Nguyen"
+    given-names: "Ngoc Thien"
+    affiliation: "University of Transport and Communications, Ha Noi, Viet Nam"
+  - family-names: "Ho"
+    given-names: "Ba Dat"
+    affiliation: "University of Transport and Communications, Ha Noi, Viet Nam"
+  - family-names: "Vo"
+    given-names: "Thanh Ha"
+    affiliation: "University of Transport and Communications, Ha Noi, Viet Nam"
+    email: "vothanhha.ktd@utc.edu.vn"
+abstract: >-
+  Reproducibility control plane for context-aware collision-avoidance nonlinear model
+  predictive control with an LSTM human-context interface.
+keywords:
+  - nonlinear model predictive control
+  - context awareness
+  - collision avoidance
+  - trajectory prediction
+  - mobile robotics

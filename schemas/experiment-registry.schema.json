@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "experiment-registry.schema.json",
+  "title": "CCA-NMPC experiment registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "experiments"],
+  "properties": {
+    "schema_version": {"const": "1.2.0"},
+    "experiments": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/experiment"}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "protocol_freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "protocol_ids",
+        "revision",
+        "freeze_record",
+        "frozen_by",
+        "frozen_at"
+      ],
+      "properties": {
+        "status": {"const": "FROZEN"},
+        "protocol_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^PR[0-9]{2}$"}
+        },
+        "revision": {"$ref": "#/$defs/semver"},
+        "freeze_record": {"$ref": "#/$defs/file_ref"},
+        "frozen_by": {"type": "string", "minLength": 1},
+        "frozen_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "nonclassification_task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "confusion_matrix_required"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "confusion_matrix_required": {"const": false}
+      }
+    },
+    "classification_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "task_kind",
+        "ontology",
+        "class_order",
+        "decision_rule",
+        "ground_truth",
+        "genuine_negative_examples",
+        "support_reported"
+      ],
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "task_kind": {
+          "enum": [
+            "image_level_presence_classification",
+            "multiclass_classification",
+            "auxiliary_behavior_classification"
+          ]
+        },
+        "ontology": {"$ref": "#/$defs/file_ref"},
+        "class_order": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "decision_rule": {"$ref": "#/$defs/file_ref"},
+        "ground_truth": {"$ref": "#/$defs/file_ref"},
+        "genuine_negative_examples": {"const": true},
+        "support_reported": {"const": true}
+      }
+    },
+    "classification_task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "confusion_matrix_required"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "confusion_matrix_required": {"type": "boolean"},
+        "contract": {"$ref": "#/$defs/classification_contract"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"confusion_matrix_required": {"const": true}},
+            "required": ["confusion_matrix_required"]
+          },
+          "then": {
+            "required": ["contract"],
+            "properties": {"enabled": {"const": true}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"enabled": {"const": false}},
+            "required": ["enabled"]
+          },
+          "then": {"properties": {"confusion_matrix_required": {"const": false}}}
+        }
+      ]
+    },
+    "task_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bbox_detection", "trajectory_regression", "classification"],
+      "properties": {
+        "bbox_detection": {"$ref": "#/$defs/nonclassification_task"},
+        "trajectory_regression": {"$ref": "#/$defs/nonclassification_task"},
+        "classification": {"$ref": "#/$defs/classification_task"}
+      }
+    },
+    "physical_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "stage_gate_record",
+        "ethics_status",
+        "consent_status",
+        "safety_plan",
+        "safety_approved",
+        "stop_rule_record",
+        "stop_rules_frozen",
+        "target_hardware_manifest"
+      ],
+      "properties": {
+        "stage": {"enum": ["H0", "H1", "H2", "H3"]},
+        "stage_gate_record": {"$ref": "#/$defs/file_ref"},
+        "ethics_status": {"enum": ["not_required", "approved", "exempt"]},
+        "ethics_record": {"$ref": "#/$defs/file_ref"},
+        "consent_status": {"enum": ["not_required", "complete"]},
+        "consent_record": {"$ref": "#/$defs/file_ref"},
+        "safety_plan": {"$ref": "#/$defs/file_ref"},
+        "safety_approved": {"const": true},
+        "stop_rule_record": {"$ref": "#/$defs/file_ref"},
+        "stop_rules_frozen": {"const": true},
+        "target_hardware_manifest": {"$ref": "#/$defs/file_ref"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"stage": {"enum": ["H2", "H3"]}},
+            "required": ["stage"]
+          },
+          "then": {
+            "required": ["ethics_record", "consent_record"],
+            "properties": {
+              "ethics_status": {"enum": ["approved", "exempt"]},
+              "consent_status": {"const": "complete"}
+            }
+          }
+        }
+      ]
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision",
+        "title",
+        "study_type",
+        "study_phase",
+        "status",
+        "preregistration_path",
+        "config_path",
+        "dataset_ids",
+        "primary_metrics",
+        "baselines",
+        "ablations",
+        "claim_scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^exp-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "revision": {"$ref": "#/$defs/semver"},
+        "title": {"type": "string", "minLength": 1},
+        "study_type": {
+          "enum": [
+            "simulation",
+            "person_detection",
+            "lstm_prediction",
+            "controller",
+            "integrated_system",
+            "physical_experiment"
+          ]
+        },
+        "study_phase": {"enum": ["development", "pilot", "confirmatory"]},
+        "status": {"enum": ["planned", "running", "completed", "invalidated"]},
+        "preregistration_path": {"$ref": "#/$defs/relative_path"},
+        "preregistration_sha256": {"$ref": "#/$defs/sha256"},
+        "config_path": {"$ref": "#/$defs/relative_path"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "focused_audit": {"oneOf": [{"$ref": "#/$defs/file_ref"}, {"type": "null"}]},
+        "protocol_freeze": {"$ref": "#/$defs/protocol_freeze"},
+        "physical_gate": {"$ref": "#/$defs/physical_gate"},
+        "task_semantics": {"$ref": "#/$defs/task_semantics"},
+        "dataset_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^ds-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+        },
+        "primary_metrics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "baselines": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "ablations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "random_seeds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "claim_scope": {
+          "enum": [
+            "simulation_only",
+            "real_data_offline",
+            "target_timing",
+            "hardware_in_loop",
+            "integrated_robot"
+          ]
+        },
+        "qualitative_protocol_path": {"$ref": "#/$defs/relative_path"},
+        "code_revision": {"type": "string", "pattern": "^[A-Fa-f0-9]{40,64}$"},
+        "environment_manifest_path": {"$ref": "#/$defs/relative_path"},
+        "run_manifest_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/relative_path"}
+        },
+        "artifact_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+        },
+        "started_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
+        "quality_gate": {"enum": ["not_evaluated", "pass", "fail"]},
+        "invalidation_reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "completed"}},
+            "required": ["status"]
+          },
+          "then": {
+            "required": [
+              "random_seeds",
+              "code_revision",
+              "environment_manifest_path",
+              "run_manifest_paths",
+              "artifact_ids",
+              "started_at",
+              "finished_at",
+              "quality_gate"
+            ],
+            "properties": {"quality_gate": {"const": "pass"}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"status": {"const": "invalidated"}},
+            "required": ["status"]
+          },
+          "then": {"required": ["invalidation_reason"]}
+        },
+        {
+          "if": {
+            "properties": {
+              "study_phase": {"const": "confirmatory"},
+              "status": {"enum": ["running", "completed"]}
+            },
+            "required": ["study_phase", "status"]
+          },
+          "then": {
+            "required": [
+              "preregistration_sha256",
+              "config_sha256",
+              "focused_audit",
+              "protocol_freeze"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "study_type": {"enum": ["person_detection", "lstm_prediction"]}
+            },
+            "required": ["study_type"]
+          },
+          "then": {"required": ["task_semantics", "qualitative_protocol_path"]}
+        },
+        {
+          "if": {
+            "properties": {
+              "study_type": {"const": "person_detection"}
+            },
+            "required": ["study_type"]
+          },
+          "then": {
+            "properties": {
+              "task_semantics": {
+                "properties": {
+                  "bbox_detection": {
+                    "properties": {"enabled": {"const": true}}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "study_type": {"const": "lstm_prediction"}
+            },
+            "required": ["study_type"]
+          },
+          "then": {
+            "properties": {
+              "task_semantics": {
+                "properties": {
+                  "trajectory_regression": {
+                    "properties": {"enabled": {"const": true}}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "study_type": {"const": "physical_experiment"},
+              "status": {"enum": ["running", "completed"]}
+            },
+            "required": ["study_type", "status"]
+          },
+          "then": {"required": ["physical_gate"]}
+        }
+      ]
+    }
+  }
+}

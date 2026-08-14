@@ -1,0 +1,128 @@
+{
+  "schema": "cca-development-artifact-purge-v1",
+  "schema_version": "1.0.0",
+  "purged_at_utc": "2026-08-14T00:00:00Z",
+  "reason": "User-requested clean reset before the next confirmatory campaign; all retained candidate datasets, model weights, detector outputs, LSTM checkpoint and development simulation runs were removed to prevent accidental reuse.",
+  "paper_edit": false,
+  "preserved": [
+    "backup/paper-current-2026-08-01",
+    "source code, schemas, protocols, Zotero exports and linked Obsidian research notes",
+    "research/metadata/development-purge-20260813.json"
+  ],
+  "removed": [
+    {
+      "path": "data/manifests/web_person_annotations_20260813.json",
+      "kind": "candidate_or_development_payload",
+      "file_count": 1,
+      "byte_count": 965,
+      "manifest_sha256": "F3AD289F40218600EE0D5CEA8C39BB6DE1982E01A9BAF1BA1F8E9F802AB27471"
+    },
+    {
+      "path": "data/manifests/web_person_cohort_20260813.json",
+      "kind": "candidate_or_development_payload",
+      "file_count": 1,
+      "byte_count": 8061,
+      "manifest_sha256": "478FDE9C3257AE5D902A102216F7A63D4FB2AAAFEC99416B7D7EEBF8899B9329"
+    },
+    {
+      "path": "data/manifests/web_person_cohort_refresh_20260813.json",
+      "kind": "candidate_or_development_payload",
+      "file_count": 1,
+      "byte_count": 4557,
+      "manifest_sha256": "9F8FB0A87728BAB525E8CDE7D1511E847279A94EB7ACF1A97638823FA888ADE9"
+    },
+    {
+      "path": "data/raw/navwareset-candidate-20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 4,
+      "byte_count": 631598,
+      "manifest_sha256": "F46170ED379B62A9F86BF9269DF8BB17E92E626EBE01A691EA21E39070F62245"
+    },
+    {
+      "path": "data/raw/web_cohort_20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 4,
+      "byte_count": 3495155,
+      "manifest_sha256": "0C897D35BF431B0B916A56F34D173336802249793B8555065C2D51E4BA352634"
+    },
+    {
+      "path": "data/raw/web_cohort_refresh_20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 2,
+      "byte_count": 1844574,
+      "manifest_sha256": "1D2DBA338B8C997FAD92FD14E1511B7DE39E2E751BB96363E53A07E65D07800F"
+    },
+    {
+      "path": "data/processed/navwareset-context-candidate-20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 2,
+      "byte_count": 479475,
+      "manifest_sha256": "48DDA9F772714BBF4052F2EFB574184E39037283C8E657B1D5B9359432315122"
+    },
+    {
+      "path": "experiments/runs/context-map-position-state-pilot-20260813-v7",
+      "kind": "candidate_or_development_payload",
+      "file_count": 6,
+      "byte_count": 6939994,
+      "manifest_sha256": "0DDC6E924E64448079338F42688681FC6DDAAD05881A530A9A12824AFB7367A7"
+    },
+    {
+      "path": "experiments/runs/context-map-position-state-pilot-20260813-v8",
+      "kind": "candidate_or_development_payload",
+      "file_count": 6,
+      "byte_count": 7072979,
+      "manifest_sha256": "4056DA11FF28FA2D53F7119D6CA2CDCFC18C991149567C62DEBA81F47DA11ABB"
+    },
+    {
+      "path": "experiments/runs/context-map-position-state-pilot-20260813-v9",
+      "kind": "candidate_or_development_payload",
+      "file_count": 6,
+      "byte_count": 7017020,
+      "manifest_sha256": "AE24784631C7B6872D1CC1CB6CCC2A7400302AC2FFD5F28CE87AAB3DA4F7CE7F"
+    },
+    {
+      "path": "experiments/runs/lstm-navwareset-candidate-20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 4,
+      "byte_count": 97626,
+      "manifest_sha256": "BDF8221DC822048F7F1B777D14A7C6E37217A581AE9C3250FBBC045DFAFF338C"
+    },
+    {
+      "path": "experiments/runs/person-detection-web-pilot-20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 9,
+      "byte_count": 5389239,
+      "manifest_sha256": "43FC9A00B8A4C5D576BF3387D879A77C5B3CBFEB1855D734B22219CF74154E98"
+    },
+    {
+      "path": "experiments/runs/person-detection-web-refresh-20260813",
+      "kind": "candidate_or_development_payload",
+      "file_count": 7,
+      "byte_count": 2125201,
+      "manifest_sha256": "B17BB07151FC220C3B21BC5C2FCE42597EC336BDE04000059F5F0284B41D89F0"
+    },
+    {
+      "path": "models/candidates/yolo26s-pose.pt",
+      "kind": "candidate_or_development_payload",
+      "file_count": 1,
+      "byte_count": 24151790,
+      "manifest_sha256": "B20ED7DE33F1569C82BA0D0105F821DEDC2FAAD57E321A20EFD1AEA510A0110D"
+    },
+    {
+      "path": "artifacts/web-cohort-preflight-current.json",
+      "kind": "candidate_or_development_payload",
+      "file_count": 1,
+      "byte_count": 2112,
+      "manifest_sha256": "4BA9CF8672487870537C6446644D146E2401A554E7A25A1E25D94B4D20574575"
+    }
+  ],
+  "total_removed_files": 55,
+  "total_removed_bytes": 59260346,
+  "registry_reset": [
+    "data/registry.json",
+    "models/registry.json",
+    "experiments/registry.json",
+    "artifacts/registry.json"
+  ],
+  "recovery": "No local payload copy is retained. The hashes identify the removed artifacts for audit only; a new acquisition must use a new protocol freeze, code snapshot and run identifier."
+}

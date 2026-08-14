@@ -1,0 +1,117 @@
+schema_version: "1.2.0"
+evaluation_id: null
+status: planned
+frozen_before_first_confirmatory_run: false
+frozen_at: null
+focused_audit: null
+protocol_freeze: null
+
+common:
+  primary_hypotheses: []
+  primary_metrics: []
+  secondary_metrics: []
+  acceptance_thresholds: {}
+  baselines: []
+  ablations: []
+  random_seeds: []
+  failure_definition: null
+  missing_run_policy: null
+  outlier_policy: null
+  all_started_runs_in_denominator: true
+
+statistics:
+  power_or_sample_size_rationale: null
+  paired_design: true
+  confidence_level: 0.95
+  confidence_interval_method: null
+  hypothesis_tests: []
+  multiple_comparison_correction: null
+  effect_sizes: []
+  report_individual_runs: true
+
+person_detection:
+  enabled: null
+  test_source_must_be_internet_or_public_real_images: true
+  generated_test_images_allowed: false
+  # Bounding-box detection has TP/FP/FN and AP/PR metrics, not a valid 2x2
+  # confusion matrix because true negatives are not naturally enumerated.
+  bbox_detection_confusion_matrix_required: false
+  iou_matching_threshold: null
+  confidence_threshold: null
+  metrics:
+    - precision
+    - recall
+    - f1
+    - ap50
+    - map50_95
+    - false_positives_per_image
+    - miss_rate
+  image_level_presence_classification:
+    enabled: null
+    confusion_matrix_required: false
+    # When enabled=true and confusion_matrix_required=true, add a contract with
+    # task_id, task_kind, ontology file+hash, fixed class_order, decision_rule
+    # file+hash, ground_truth file+hash, genuine_negative_examples=true and
+    # counts_rates_and_support_required=true.
+  subgroup_analysis_fields: []
+  qualitative_failure_categories: []
+
+lstm_context:
+  enabled: null
+  metrics:
+    - direction_accuracy
+    - direction_macro_f1
+    - direction_confusion_matrix
+    - speed_mae
+    - speed_rmse
+    - context_valid_rate
+    - calibration_error
+    - inference_latency_p50_p95_p99
+  baselines:
+    - constant_speed_direction
+    - kalman_speed_direction
+  direction_classification:
+    # When lstm_context.enabled=true, this task must be enabled with a frozen
+    # ontology/decision/ground-truth contract and a required confusion matrix.
+    enabled: false
+    confusion_matrix_required: false
+  context_overlay_required: true
+  overlay_layers:
+    - source_image
+    - person_box_and_keypoints
+    - position_speed_direction_text
+    - context_validity
+    - model_dataset_calibration_ids
+  representative_case_selection_rule: null
+  failure_case_selection_rule: null
+
+cca_nmpc_control:
+  enabled: null
+  metrics:
+    - collision_rate
+    - safe_completion_rate
+    - minimum_signed_human_clearance
+    - tracking_rmse
+    - terminal_error
+    - control_effort
+    - command_variation
+    - jerk
+    - constraint_violation_rate
+    - solver_success_rate
+    - fallback_rate
+    - deadline_miss_rate
+    - solve_time_p50_p95_p99_max
+  paired_scenarios_and_seeds: true
+  report_safety_separately_from_tracking_stability: true
+  report_all_fallbacks_and_failed_runs: true
+
+qualitative_evidence:
+  required: true
+  selection_rule_frozen_before_results: false
+  include_first_eligible: true
+  include_random_stratified: true
+  include_median: true
+  include_typical_failures: true
+  include_worst_cases: true
+  include_each_ood_stratum: true
+  no_cherry_picked_only_figures: true

@@ -1,0 +1,234 @@
+{
+  "schema_version": "2.0.0",
+  "matrix_version": "0.1.0",
+  "status": "draft",
+  "created_at": "2026-08-01T14:39:47Z",
+  "contract_sources": {
+    "protocol_pr02": {
+      "path": "protocols/PR02_theory_and_proofs.md",
+      "sha256": "65F44A98E681797C05EA64DAFB04CDF9B25F6559C22FBCFA0ECE205E45301962"
+    },
+    "claim_register": {
+      "path": "research/obsidian/01_Governance/claim-register.md",
+      "sha256": "CE463E3386A2DD0463DBDABC8A7C31A58751EC67C4B7A8BE7A3A0C52A55A997A"
+    },
+    "assumption_ledger": {
+      "path": "research/obsidian/05_Theory/assumptions.md",
+      "sha256": "8B148507B1C52C5753CB31DF943EC386849E30CFA889A8CCA1E35EE75E191DFF"
+    },
+    "proof_obligation_ledger": {
+      "path": "research/obsidian/05_Theory/proof-obligations.md",
+      "sha256": "73806792AF22A8C9B0CE4304C863E23BFCCC7436202962B8FC84E06A26C02985"
+    },
+    "proposition_ledger": {
+      "path": "research/obsidian/05_Theory/theorems.md",
+      "sha256": "512D786CB45A23F8A3537135D7C1F3D12ADA13B48D7B91614760E1B899FA38CA"
+    },
+    "derivation_ledger": {
+      "path": "research/obsidian/05_Theory/proofs.md",
+      "sha256": "C431710410AF47EAB6C7E4261239CEB2F2C6972834787A7C426791CF34BD38FC"
+    }
+  },
+  "rows": [
+    {
+      "claim_id": "CLM-T-01",
+      "exact_wording": "T1--T3 là các mệnh đề hợp đồng sơ cấp: với active set cố định và beta hữu hạn, allocator bảo toàn tổng ngân sách, phân bổ allowance nhỏ hơn cho context lớn hơn khi beta > 0, và trở thành phân bổ đều khi beta = 0.",
+      "claim_type": "theory",
+      "support_status": "blocked",
+      "manuscript_admission": "blocked",
+      "evidence_tier": "theory_only",
+      "protocol_ids": [
+        "PR02"
+      ],
+      "dataset_ids": [],
+      "model_ids": [],
+      "run_ids": [],
+      "evidence": [],
+      "assumption_ids": [
+        "A-01",
+        "A-02",
+        "A-03"
+      ],
+      "proof_obligation_ids": [
+        "PO-014"
+      ],
+      "limitations": [
+        "Đây chỉ là đại số của allocator dưới active set cố định và không phải novelty lý thuyết.",
+        "Derivation số học thực không tự xác nhận parity trong số học dấu phẩy động hoặc khi active set thay đổi."
+      ],
+      "blockers": [
+        "PO-014 chưa có property test số học mới và derivation chưa được phản biện độc lập.",
+        "Chưa có báo cáo implementation-parity có file reference và SHA-256 được verifier xác minh."
+      ],
+      "verifier": {
+        "status": "unverified",
+        "notes": "Contract derivation draft; không được dùng để claim novelty hoặc verification."
+      }
+    },
+    {
+      "claim_id": "CLM-T-02",
+      "exact_wording": "T4 chỉ kiểm scalar Gaussian surrogate, gồm trường hợp sigma = 0, và geometry containment dưới phân phối mô hình Pr_model trong một lần solve.",
+      "claim_type": "theory",
+      "support_status": "blocked",
+      "manuscript_admission": "blocked",
+      "evidence_tier": "theory_only",
+      "protocol_ids": [
+        "PR02"
+      ],
+      "dataset_ids": [],
+      "model_ids": [],
+      "run_ids": [],
+      "evidence": [],
+      "assumption_ids": [
+        "A-02",
+        "A-05",
+        "A-07",
+        "A-08",
+        "A-17"
+      ],
+      "proof_obligation_ids": [
+        "PO-001",
+        "PO-011",
+        "PO-013"
+      ],
+      "limitations": [
+        "Wording chỉ áp dụng cho Pr_model có điều kiện; không phát biểu về phân phối vận hành Pr_star.",
+        "Cận mất điều kiện áp dụng nếu slack khác không, solver residual không đạt ngưỡng khóa trước, covariance sai hoặc containment hình học sai."
+      ],
+      "blockers": [
+        "PO-001 chưa đóng geometry containment và implementation parity.",
+        "PO-011 chưa có bằng chứng zero-slack và solver-residual theo tolerance khóa trước.",
+        "PO-013 chưa có provenance, frame/time và kiểm PSD cho covariance tương đối.",
+        "PO-003 còn mở nên mọi mở rộng sang Pr_star bị cấm."
+      ],
+      "verifier": {
+        "status": "unverified",
+        "notes": "Model-internal derivation only; không có operational probability claim."
+      }
+    },
+    {
+      "claim_id": "CLM-T-03",
+      "exact_wording": "Không có claim analytic về recursive feasibility hoặc practical stability cho controller hiện tại; claim này đã được rút và chỉ có thể mở lại bằng amendment.",
+      "claim_type": "theory",
+      "support_status": "withdrawn",
+      "manuscript_admission": "withdrawn",
+      "evidence_tier": "none",
+      "protocol_ids": [
+        "PR02"
+      ],
+      "dataset_ids": [],
+      "model_ids": [],
+      "run_ids": [],
+      "evidence": [],
+      "assumption_ids": [
+        "A-09",
+        "A-15",
+        "A-16"
+      ],
+      "proof_obligation_ids": [
+        "PO-005",
+        "PO-006",
+        "PO-009"
+      ],
+      "limitations": [
+        "Simulation, fallback rate hoặc nominal six-state model không thể thay thế một proof trên đúng augmented actuator model.",
+        "Dòng withdrawn này không được diễn đạt lại thành một guarantee yếu hơn trong manuscript."
+      ],
+      "blockers": [
+        "Mô hình hiện chưa gồm đầy đủ actuator lag, command delay, previous torque và miền bị chặn đã xác minh của w_k.",
+        "Chưa có terminal set/controller, shifted feasible candidate hoặc Lyapunov/ISS argument cho đúng controller triển khai."
+      ],
+      "verifier": {
+        "status": "unverified",
+        "notes": "Withdrawal recorded; không có proposition đang được theo đuổi cho CLM-T-03."
+      }
+    },
+    {
+      "claim_id": "CLM-T-04",
+      "exact_wording": "T5 chỉ kiểm predictive-mode partition, công thức xác suất toàn phần và cận Boole dưới Pr_model cho active set đóng băng trong một solve open-loop.",
+      "claim_type": "theory",
+      "support_status": "blocked",
+      "manuscript_admission": "blocked",
+      "evidence_tier": "theory_only",
+      "protocol_ids": [
+        "PR02"
+      ],
+      "dataset_ids": [],
+      "model_ids": [],
+      "run_ids": [],
+      "evidence": [],
+      "assumption_ids": [
+        "A-01",
+        "A-02",
+        "A-04",
+        "A-05",
+        "A-07",
+        "A-08",
+        "A-17"
+      ],
+      "proof_obligation_ids": [
+        "PO-002",
+        "PO-008",
+        "PO-015"
+      ],
+      "limitations": [
+        "Wording không phải joint-horizon, closed-loop, post-update hoặc mission-wide probability guarantee.",
+        "Wording chỉ thuộc Pr_model và phụ thuộc cận T4 hợp lệ cho mọi mode; không phát biểu về Pr_star."
+      ],
+      "blockers": [
+        "PO-002 chưa có implementation audit chứng minh partition đầy đủ, tổng mode probability bằng một và omitted mass bằng không.",
+        "PO-008 chưa có bằng chứng runtime rằng thông tin và các tham số xác suất được đóng băng đúng trong một solve.",
+        "PO-015 và các tiền đề T4 chưa có báo cáo parity/verification độc lập có hash.",
+        "PO-003 còn mở nên mọi mở rộng sang Pr_star bị cấm."
+      ],
+      "verifier": {
+        "status": "unverified",
+        "notes": "Open-loop model-accounting derivation only; không phải novelty."
+      }
+    },
+    {
+      "claim_id": "CLM-EMP-02",
+      "exact_wording": "Solve feasibility, fallback, constraint violation và tracking chỉ được mô tả thực nghiệm trong đúng miền đã thử, với đầy đủ mẫu số và khoảng bất định đã khóa.",
+      "claim_type": "empirical",
+      "support_status": "blocked",
+      "manuscript_admission": "blocked",
+      "evidence_tier": "none",
+      "protocol_ids": [
+        "PR20",
+        "PR21",
+        "PR30",
+        "PR40"
+      ],
+      "dataset_ids": [],
+      "model_ids": [],
+      "run_ids": [],
+      "evidence": [],
+      "assumption_ids": [
+        "A-11",
+        "A-12",
+        "A-13",
+        "A-14"
+      ],
+      "proof_obligation_ids": [],
+      "limitations": [
+        "Claim này là empirical characterization, không phải theorem về recursive feasibility, stability hoặc safety.",
+        "Không được ngoại suy ngoài simulator, dataset, robot, site, participant và software/hardware configuration đã khóa."
+      ],
+      "blockers": [
+        "Chưa có dataset/model/run mới hoặc artifact kết quả được xác minh theo PR20, PR21, PR30 và PR40.",
+        "Chưa có full failure denominator, confidence interval, registry cross-link hoặc evidence file reference có SHA-256."
+      ],
+      "verifier": {
+        "status": "unverified",
+        "notes": "Không có kết quả thực nghiệm mới; admission vẫn đóng."
+      }
+    }
+  ],
+  "known_limitations": [
+    "Mọi dòng hiện là blocked hoặc withdrawn; không có wording nào được approved cho manuscript.",
+    "T1--T5 chỉ là các mệnh đề hợp đồng sơ cấp và không hỗ trợ claim novelty lý thuyết.",
+    "CLM-T-02 và CLM-T-04 chỉ thuộc Pr_model; calibration cho Pr_star và các kiểm geometry, covariance, slack, residual, mode completeness còn mở.",
+    "Không có evidence file nào hoặc verifier report nào được chấp nhận; ma trận này không claim verification.",
+    "Mọi thay đổi của contract source làm SHA-256 trong ma trận hết hiệu lực cho tới khi audit và cập nhật lại có chủ đích."
+  ]
+}

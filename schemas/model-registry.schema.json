@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "model-registry.schema.json",
+  "title": "CCA-NMPC model registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "models"],
+  "properties": {
+    "schema_version": {"const": "2.0.0"},
+    "models": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/model"}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "dataset_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset_id", "revision", "manifest_sha256", "purpose"],
+      "properties": {
+        "dataset_id": {
+          "type": "string",
+          "pattern": "^ds-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "revision": {"$ref": "#/$defs/semver"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "purpose": {
+          "enum": ["training", "validation", "calibration", "test_id", "test_ood"]
+        }
+      }
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["not_applicable", "pending", "calibrated", "failed"]},
+        "method": {"type": "string", "minLength": 1},
+        "dataset_id": {
+          "type": "string",
+          "pattern": "^ds-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "calibrated"}}, "required": ["status"]},
+          "then": {"required": ["method", "dataset_id", "artifact_id"]}
+        }
+      ]
+    },
+    "context_overlay_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_artifact_id",
+        "manifest",
+        "manifest_schema_version",
+        "acceptance_status",
+        "accepted_by",
+        "accepted_at",
+        "overlay_artifact_ids",
+        "registry_linkage_verified",
+        "required_case_set"
+      ],
+      "properties": {
+        "manifest_artifact_id": {
+          "type": "string",
+          "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "manifest": {"$ref": "#/$defs/file_ref"},
+        "manifest_schema_version": {"const": "2.0.0"},
+        "acceptance_status": {"const": "accepted"},
+        "accepted_by": {"type": "string", "minLength": 1},
+        "accepted_at": {"type": "string", "format": "date-time"},
+        "overlay_artifact_ids": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "registry_linkage_verified": {"const": true},
+        "required_case_set": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "first_eligible",
+            "median_context_error",
+            "worst_context_error",
+            "ood",
+            "calibration_undercoverage_or_failure",
+            "real_frames",
+            "context_fields_on_image"
+          ],
+          "properties": {
+            "first_eligible": {"const": true},
+            "median_context_error": {"const": true},
+            "worst_context_error": {"const": true},
+            "ood": {"const": true},
+            "calibration_undercoverage_or_failure": {"const": true},
+            "real_frames": {"const": true},
+            "context_fields_on_image": {"const": true}
+          }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision",
+        "title",
+        "task",
+        "role",
+        "origin",
+        "status",
+        "architecture_name",
+        "dataset_inputs",
+        "config",
+        "code_revision",
+        "environment",
+        "training_seeds",
+        "training_run_ids",
+        "selection_rule",
+        "calibration",
+        "claim_scope",
+        "limitations",
+        "created_by"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^model-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "revision": {"$ref": "#/$defs/semver"},
+        "title": {"type": "string", "minLength": 1},
+        "task": {
+          "enum": [
+            "person_context_sequence",
+            "person_detection",
+            "context_filtering",
+            "system_identification"
+          ]
+        },
+        "role": {"enum": ["primary", "baseline", "ablation", "measurement_interface"]},
+        "origin": {"enum": ["study_trained", "external_pretrained", "analytic"]},
+        "status": {"enum": ["candidate", "verified", "invalidated", "retired"]},
+        "architecture_name": {"type": "string", "minLength": 1},
+        "parameter_count": {"type": "integer", "minimum": 0},
+        "dataset_inputs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/dataset_input"}
+        },
+        "config": {"$ref": "#/$defs/file_ref"},
+        "code_revision": {"type": "string", "pattern": "^[A-Fa-f0-9]{40,64}$"},
+        "environment": {"$ref": "#/$defs/file_ref"},
+        "training_seeds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "training_run_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^run-[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "selection_rule": {"type": "string", "minLength": 1},
+        "calibration": {"$ref": "#/$defs/calibration"},
+        "context_overlay_evidence": {"$ref": "#/$defs/context_overlay_evidence"},
+        "checkpoint_artifact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "evaluation_experiment_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^exp-[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "evaluation_artifact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "claim_scope": {
+          "enum": ["development_only", "real_data_offline", "target_timing", "integrated_robot"]
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "frozen_at": {"type": "string", "format": "date-time"},
+        "created_by": {"type": "string", "minLength": 1},
+        "upstream_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["landing_url", "license", "retrieved_at", "payload_sha256"],
+          "properties": {
+            "landing_url": {"type": "string", "format": "uri", "pattern": "^https?://"},
+            "license": {"type": "string", "minLength": 1},
+            "retrieved_at": {"type": "string", "format": "date-time"},
+            "payload_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "invalidation_reason": {"type": "string", "minLength": 1},
+        "supersedes_model_id": {
+          "type": "string",
+          "pattern": "^model-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"origin": {"const": "study_trained"}}, "required": ["origin"]},
+          "then": {
+            "properties": {
+              "dataset_inputs": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {"purpose": {"const": "training"}},
+                      "required": ["purpose"]
+                    },
+                    "minContains": 1
+                  },
+                  {
+                    "contains": {
+                      "properties": {"purpose": {"const": "validation"}},
+                      "required": ["purpose"]
+                    },
+                    "minContains": 1
+                  }
+                ]
+              },
+              "training_seeds": {"minItems": 1},
+              "training_run_ids": {"minItems": 1}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"origin": {"const": "external_pretrained"}}, "required": ["origin"]},
+          "then": {"required": ["upstream_source"]}
+        },
+        {
+          "if": {"properties": {"status": {"const": "verified"}}, "required": ["status"]},
+          "then": {
+            "required": [
+              "parameter_count",
+              "evaluation_experiment_ids",
+              "evaluation_artifact_ids",
+              "frozen_at"
+            ],
+            "properties": {
+              "evaluation_experiment_ids": {"minItems": 1},
+              "evaluation_artifact_ids": {"minItems": 1}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {"const": "verified"},
+              "origin": {"enum": ["study_trained", "external_pretrained"]}
+            },
+            "required": ["status", "origin"]
+          },
+          "then": {
+            "required": ["checkpoint_artifact_ids"],
+            "properties": {"checkpoint_artifact_ids": {"minItems": 1}}
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {"const": "verified"},
+              "task": {"const": "person_context_sequence"}
+            },
+            "required": ["status", "task"]
+          },
+          "then": {
+            "required": ["context_overlay_evidence"],
+            "properties": {
+              "calibration": {
+                "properties": {"status": {"const": "calibrated"}}
+              },
+              "dataset_inputs": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {"purpose": {"const": "calibration"}},
+                      "required": ["purpose"]
+                    },
+                    "minContains": 1
+                  },
+                  {
+                    "contains": {
+                      "properties": {"purpose": {"const": "test_id"}},
+                      "required": ["purpose"]
+                    },
+                    "minContains": 1
+                  },
+                  {
+                    "contains": {
+                      "properties": {"purpose": {"const": "test_ood"}},
+                      "required": ["purpose"]
+                    },
+                    "minContains": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "invalidated"}}, "required": ["status"]},
+          "then": {"required": ["invalidation_reason"]}
+        }
+      ]
+    }
+  }
+}

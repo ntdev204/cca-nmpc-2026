@@ -1,0 +1,78 @@
+{
+  "schema": "cca-yolo26s-pose-candidate-acquisition-v1",
+  "status": "candidate-not-evidence",
+  "paper_edit": false,
+  "model_name": "yolo26s-pose",
+  "task": "pose",
+  "origin": "external_pretrained",
+  "checkpoint": {
+    "path": "experiments/runs/person-web-inference-20260814/yolo26s-pose.pt",
+    "sha256": "A083ADB42303728AE14C4BD6BD56D80DA46F82FB2564DBD6F31DCC92EA321646",
+    "byte_size": 24151790
+  },
+  "upstream": {
+    "download_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-pose.pt",
+    "documentation_url": "https://docs.ultralytics.com/tasks/pose",
+    "retrieved_at_utc": "2026-08-13T23:42:26Z",
+    "license_review": "deployment license and target redistribution terms remain to be reviewed"
+  },
+  "runtime": {
+    "ultralytics": "8.4.16",
+    "torch": "2.11.0+cpu",
+    "device": "cpu",
+    "config": {
+      "path": "configs/yolo26s-pose-candidate.json",
+      "sha256": "89FE5DE75DCDACFD92202B0DDA2886E63BF869D77CCD3DF9139CAC8B2CA3BCE4"
+    },
+    "environment": {
+      "path": "environment/yolo26s-pose-candidate.json",
+      "sha256": "DDE0C1F61EEB55F29349C61A3C5F782F8A493AAF23B34BD9A74CFE6905C69E3F"
+    }
+  },
+  "intended_dataset": {
+    "manifest": "data/raw/web-cohort-20260814/web-image-manifest.json",
+    "manifest_sha256": "3c5a7f17ff224d20859fdc04a2f4952a2e6e345fb7b8c81a45f037771d00a5b6",
+    "annotation_status": "pending",
+    "approved_for_metrics": false
+  },
+  "evaluation": {
+    "inference_run": "experiments/runs/person-web-inference-20260814/inference",
+    "inference_manifest_sha256": "EE1EC2B9731F48AFC19E75DFD885869A77E4EC5EEFE6FA4F8D4D33EF0C876235",
+    "inference_metrics_sha256": "4E8758E1F372C4ACA85C9E470BAC901B29E9FDBFF3B9065895DD5CED18B9C995",
+    "inference_confusion_matrix_sha256": "EF6C9D06BB5890746B2243BAF5E9EC1F68E9FBFA6AACE2E344C7015A81809601",
+    "bbox_metrics": "blocked_without_blind_annotations",
+    "confusion_matrix": "descriptive_scene-tag diagnostic only; not independent presence labels",
+    "target_latency": "not-measured; CPU diagnostic only",
+    "claim_scope": "real-internet-image presence and LSTM-path provenance overlay; candidate-only"
+  },
+  "sanity_check": {
+    "status": "candidate-inference-sanity-only",
+    "run_at_utc": "2026-08-14T04:30:12Z",
+    "device": "cpu",
+    "keypoint_shape_contract": "[N,17,2]",
+    "person_box_counts_by_asset": {
+      "asset-wm-outdoor-walking-01": 7,
+      "asset-wm-indoor-person-01": 6,
+      "asset-wm-standing-person-01": 5,
+      "asset-wm-crowd-ood-01": 29,
+      "asset-wm-backlight-ood-01": 1,
+      "asset-wm-empty-indoor-01": 1,
+      "asset-wm-empty-outdoor-01": 0
+    },
+    "metrics_generated": true,
+    "metrics_scope": "descriptive scene-tag image-level matrix only",
+    "ground_truth_used": false,
+    "lstm_overlay": {
+      "path": "experiments/runs/simulation-learning-20260814/model/ctx_lstm.pt",
+      "sha256": "A0F0D564E8CDA4287D3250FD6DBF09E0121A0E8D60B0FDD8A505B80670A80034",
+      "context_snapshot": "not-provided; no fabricated speed/direction"
+    }
+  },
+  "next_gate": [
+    "independent blinded annotation and adjudication",
+    "privacy and ethics review",
+    "detector-pretraining overlap review",
+    "held-out cohort expansion",
+    "target-device inference timing"
+  ]
+}

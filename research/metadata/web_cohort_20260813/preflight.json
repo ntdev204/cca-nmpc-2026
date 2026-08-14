@@ -1,0 +1,59 @@
+{
+  "schema": "cca-pr10-web-cohort-preflight-v1",
+  "checked_at_utc": "2026-08-13T05:38:56Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "tool": {
+    "path": "scripts/python/tools/validate_web_cohort.py",
+    "sha256": "4d5edd4c80e586dcbea58c47d295c3a72751a1930737f8296366d1a6be98f35e"
+  },
+  "manifest": {
+    "path": "data/manifests/web_person_cohort_20260813.json",
+    "sha256": "9855e607cef38b9f28094e2ba14c8be2848fc09208b91afd001d211ef2c76290",
+    "asset_count": 4,
+    "approved_count": 0,
+    "split_counts": {
+      "calibration": 1,
+      "test_id": 1,
+      "test_ood": 1
+    }
+  },
+  "annotations": {
+    "path": "data/manifests/web_person_annotations_20260813.json",
+    "sha256": "caa677fef84976b1e7201bbbb0f4d79d196400269eedc3dccd6f02b6c7c2cbba",
+    "record_count": 4,
+    "blinded_to_predictions": true,
+    "annotator_id": "unassigned-pr10",
+    "independent_annotation": {
+      "independent_annotation_present": false,
+      "adjudication_present": false,
+      "independent_annotation_valid": false,
+      "adjudication_valid": false,
+      "gate": false,
+      "primary_record_count": 4
+    }
+  },
+  "checks": {
+    "json_schema": true,
+    "media_hash_size_decode_dimensions": true,
+    "annotation_binding_and_bbox_bounds": true,
+    "independent_annotation_and_adjudication": false,
+    "unique_asset_and_sha256": true,
+    "source_group_split_disjoint": true,
+    "real_non_ai_media": true,
+    "rights_and_privacy_fields": true
+  },
+  "errors": [],
+  "admission_reasons": [
+    "all calibration/test records remain approved=false",
+    "independent second annotator and blinded adjudication record are absent or incomplete",
+    "pretraining-overlap review is not recorded for the detector",
+    "cohort expansion and held-out OOD audit remain open"
+  ],
+  "next_actions": [
+    "obtain an independent bbox annotation and blinded adjudication record",
+    "record detector pretraining-overlap review",
+    "expand and lock calibration/test_id/test_ood cohort before model selection"
+  ]
+}

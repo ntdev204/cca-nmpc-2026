@@ -1,0 +1,35 @@
+{
+  "schema": "cca-nmpc-zotero-export-receipt",
+  "schema_version": "1.1.0",
+  "exported_at_utc": "2026-08-01T14:53:12Z",
+  "verified_at_utc": "2026-08-01T15:15:28Z",
+  "library_scope": "My Library; contained only the 32 project items at export time",
+  "local_api": {
+    "zotero_version": "9.0.6",
+    "connector_api_version": "3"
+  },
+  "import_source": {
+    "manifest_path": "references/zotero/import_queue/source_manifest.json",
+    "manifest_sha256": "217035431CD189117C0FD57F740647ED30F22F0458A43AE4C592BF5C7F2148AF",
+    "declared_item_count": 32,
+    "pdf_count": 32,
+    "pdf_sha256_count": 32,
+    "verified_download_origin_count": 5,
+    "legacy_origin_unresolved_count": 27
+  },
+  "verification": {
+    "top_level_item_count": 32,
+    "pdf_attachment_count": 32,
+    "total_item_count": 64,
+    "manifest_pdf_hash_match_count": 32,
+    "items_without_exactly_one_child": 0,
+    "duplicate_normalized_doi_groups": 0,
+    "items_missing_title_doi_creator_or_date": 0
+  },
+  "portable_bibtex": {
+    "path": "references/zotero/export/library.bib",
+    "sha256": "62099566F10E98EDBABFD670A51BDC71E4C2F9AF59E3AC563EA640870B6F7416",
+    "entry_count": 32,
+    "transformation": "Exported by the Zotero local API; machine-local file fields removed."
+  }
+}

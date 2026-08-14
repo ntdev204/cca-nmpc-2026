@@ -1,0 +1,96 @@
+schema_version: "1.0.0"
+project_id: cca-nmpc-2026
+reset_date: "2026-08-01"
+status: redesign
+release_profile: comprehensive_q1
+
+scientific_scope:
+  primary_contribution_candidate: transparent_fixed_budget_context_allocator_in_position_state_mecanum_cca_nmpc
+  novelty_status: at_risk_broad_claim_rejected
+  provisional_gap_recommendation: PIVOT-EMPIRICAL
+  gap_decision_required: [GO-ALGORITHM, PIVOT-EMPIRICAL, STOP]
+  controller_family: cca_nmpc
+  control_mode: position_state
+  state_definition: [x, y, theta, vx, vy, omega]
+  command_interface: body_velocity
+  torque_control_required: false
+  predictor_interface: lstm_context_position_speed_direction
+  perception_role: upstream_person_measurement
+  mathematics_policy: simple_interpretable_minimal_extension
+  prohibited_scope_drift:
+    - replace_cca_nmpc_with_unrelated_controller
+    - replace_lstm_with_unrelated_predictor_as_core_contribution
+    - claim_perception_as_the_control_novelty
+
+canonical_tools:
+  professor_documents: overleaf_latex_pdf
+  final_journal_manuscript: overleaf_main_pdf
+  references: zotero
+  research_notes: obsidian_markdown_professor_shareable
+  reproducibility_control_plane: git
+
+overleaf_projects:
+  final_journal_english:
+    project_id: 6a6dd22be3ab13b78d949879
+    url: https://www.overleaf.com/project/6a6dd22be3ab13b78d949879
+    language: en
+    root_file: main.tex
+  professor_report_vietnamese:
+    project_id: 6a6dd281e3ab13b78d94b545
+    url: https://www.overleaf.com/project/6a6dd281e3ab13b78d94b545
+    language: vi
+    root_file: main.tex
+
+manuscript_policy:
+  local_authoring: false
+  local_build: false
+  professor_deliverable_format: latex_pdf
+  professor_deliverable_language: vi
+  final_main_pdf_language: en
+  obsidian_notes_may_be_shared_with_professor: true
+  markdown_outside_obsidian_is_submission_format: false
+  immutable_snapshot: backup/paper-current-2026-08-01
+  snapshot_is_new_evidence: false
+
+evidence_state:
+  datasets: none
+  trained_models: none
+  simulations: development_only
+  experiments: none
+  hardware_validation: none
+  q1_final_review: pending
+
+registries:
+  datasets: data/registry.json
+  models: models/registry.json
+  experiments: experiments/registry.json
+  artifacts: artifacts/registry.json
+
+release_gates:
+  research_gap_traceable_to_zotero: true
+  focused_literature_audit_complete: true
+  theorem_assumptions_and_proofs_reviewed: false
+  licensed_web_person_test_frozen: false
+  detector_evaluation_complete: false
+  lstm_context_dataset_frozen: false
+  lstm_context_calibration_and_ood_complete: false
+  lstm_real_frame_context_overlays_verified: false
+  dataset_and_splits_frozen: false
+  baselines_and_ablations_complete: false
+  quantitative_and_qualitative_evaluation_complete: false
+  physical_experiment_complete: false
+  target_hardware_timing_complete: false
+  artifact_provenance_verified: false
+  final_q1_reviewer_ee_passed: false
+
+required_protocols_for_release:
+  - PR00
+  - PR02
+  - PR10
+  - PR11
+  - PR12
+  - PR20
+  - PR21
+  - PR30
+  - PR40
+  - PR50

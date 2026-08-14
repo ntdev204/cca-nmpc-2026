@@ -1,0 +1,93 @@
+schema_version: "1.3.0"
+control_mode: position_state
+state_definition: [x_m, y_m, theta_rad, vx_mps, vy_mps, omega_radps]
+physical_experiment_id: null
+experiment_id: null
+study_phase: development
+status: planned
+stage: H0
+frozen_at: null
+focused_audit: null
+protocol_freeze: null
+
+stage_gate:
+  status: pending
+  record: null
+
+ethics:
+  status: pending
+  record: null
+  authority: null
+  reviewed_at: null
+
+consent:
+  required: false
+  status: not_required
+  template: null
+  participant_ledger: null
+  privacy_retention_plan: null
+
+safety:
+  plan: null
+  approved: false
+  approved_by: null
+  approved_at: null
+  independent_safety_operator_assigned: false
+  emergency_stop_verified: false
+  remote_disable_verified: false
+  watchdog_verified: false
+  speed_limit_mps: null
+  acceleration_limit_mps2: null
+  minimum_separation_m: null
+
+stop_rules:
+  frozen: false
+  record: null
+  conditions:
+    - contact_or_serious_near_contact
+    - localization_loss
+    - sensor_stale
+    - actuator_anomaly
+    - emergency_stop_failure
+    - operator_stop
+    - deadline_or_fallback_limit
+
+target_hardware:
+  manifest: null
+  timing_scope: target_hardware
+  deadline_seconds: null
+
+ground_truth:
+  system: null
+  calibration_record: null
+  uncertainty_record: null
+  independent_from_estimator_under_test: true
+
+trial_design:
+  scenarios: []
+  paired_controller_order: false
+  randomized: false
+  expected_trial_count: null
+  attrition_policy: null
+
+evaluation_config: null
+environment_manifest: null
+output_run_manifest_root: null
+
+final_data_package:
+  status: planned
+  root: null
+  robot_state_csv: null
+  control_csv: null
+  context_csv: null
+  events_csv: null
+  map_json: null
+  map_yaml: null
+  map_image: null
+  manifest_json: null
+  checksum_file: null
+  frame_id: null
+  clock: null
+  units: si
+  context_only: true
+  human_trajectory_generated: false

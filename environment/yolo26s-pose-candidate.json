@@ -1,0 +1,9 @@
+{
+  "schema": "cca-yolo26s-pose-environment-v1",
+  "python": "3.11",
+  "ultralytics": "8.4.16",
+  "torch": "2.11.0+cpu",
+  "device": "cpu",
+  "inference_mode": "pretrained_checkpoint_only",
+  "note": "This environment record is provenance only; it is not a target-device latency result."
+}

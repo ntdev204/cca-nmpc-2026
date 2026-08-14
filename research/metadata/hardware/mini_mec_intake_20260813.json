@@ -1,0 +1,437 @@
+{
+  "schema": "cca-hardware-intake-v1",
+  "created_at_utc": "2026-08-13T16:59:35Z",
+  "robot": {
+    "model": "mini_mec_robot",
+    "urdf_package": {
+      "name": "rai_robot_urdf",
+      "version": "2.1.0",
+      "description": "3D models of the rai_robot for simulation and visualization",
+      "license": "TODO: License declaration",
+      "package_xml_sha256": "42d485aba2af52d794d05455f5489a123802c1b0d1de5752d3c1ed21e642ac09",
+      "cmake_sha256": "8a0c45b3bf74a9d485373a3530b16a983e3647d6de84e909886f0d32b59caa76",
+      "install_directories": [
+        "meshes",
+        "rviz",
+        "urdf"
+      ],
+      "available_urdf_models": [
+        "S100_diff_robot",
+        "brushless_senior_diff",
+        "flagship_4wd_bs_robot",
+        "flagship_4wd_dl_robot",
+        "flagship_mec_bs_robot",
+        "flagship_mec_dl_robot",
+        "four_wheel_diff_bs_robot",
+        "four_wheel_diff_dl_robot",
+        "mini_4wd_moveit_four",
+        "mini_4wd_robot",
+        "mini_akm_robot",
+        "mini_diff_robot",
+        "mini_mec_moveit_four",
+        "mini_mec_moveit_six",
+        "mini_mec_robot",
+        "mini_omni_robot",
+        "mini_tank_moveit_four",
+        "mini_tank_robot",
+        "r3S_4wd_robot",
+        "r3s_mec_robot",
+        "s300_mini_robot",
+        "s300_yw_robot",
+        "senior_4wd_bs_robot",
+        "senior_4wd_dl_robot",
+        "senior_akm_robot",
+        "senior_diff_robot",
+        "senior_mec_bs_robot",
+        "senior_mec_dl_robot",
+        "senior_omni_robot",
+        "top_4wd_bs_robot",
+        "top_4wd_dl_robot",
+        "top_akm_bs_robot",
+        "top_akm_dl_robot",
+        "top_mec_EightDrive_robot",
+        "top_mec_bs_robot",
+        "top_mec_dl_robot",
+        "top_omni_robot"
+      ]
+    },
+    "urdf": "src/ros2/rai_robot_urdf/rai_robot_urdf/urdf/mini_mec_robot.urdf",
+    "urdf_sha256": "42fec53fcdf2cb2b3e26f2d3d161e51644c5378ba77f22752e4fbfa5c3818207",
+    "xacro": "src/ros2/turn_on_rai_robot/urdf/mini_mec_gazebo.urdf.xacro",
+    "xacro_sha256": "b63dfc579d00490dffe0cf60cf2e603c3826d45372a5d2b424b468a01f046133",
+    "mass_kg_from_urdf": 1.0494329132611915,
+    "link_meshes": {
+      "base_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/base_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/base_link.STL"
+        ]
+      },
+      "lf_wheel_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/lf_wheel_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/lf_wheel_link.STL"
+        ]
+      },
+      "lb_wheel_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/lb_wheel_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/lb_wheel_link.STL"
+        ]
+      },
+      "rb_wheel_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/rb_wheel_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/rb_wheel_link.STL"
+        ]
+      },
+      "rf_wheel_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/rf_wheel_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/rf_wheel_link.STL"
+        ]
+      },
+      "controller_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/controller_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/controller_link.STL"
+        ]
+      },
+      "laser_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/laser.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/laser.STL"
+        ]
+      },
+      "camera_link": {
+        "visual": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/camera_link.STL"
+        ],
+        "collision": [
+          "package://rai_robot_urdf/meshes/mini_mec_robot_meshes/camera_link.STL"
+        ]
+      }
+    },
+    "wheel_radius_m": 0.0363,
+    "half_length_m": 0.0859500000000003,
+    "half_width_m": 0.09901199999999971,
+    "wheel_origins_m": {
+      "fl": [
+        0.0788906867829701,
+        0.099101092708038,
+        -0.0363
+      ],
+      "rl": [
+        -0.0930093132170299,
+        0.0990810927080387,
+        -0.0363
+      ],
+      "rr": [
+        -0.0930093132170305,
+        -0.0989229072919614,
+        -0.0363
+      ],
+      "fr": [
+        0.0788906867829694,
+        -0.098902907291962,
+        -0.0363
+      ]
+    },
+    "camera_joint": {
+      "xyz_m": [
+        0.10709468678297,
+        0.000317092708037946,
+        0.21
+      ],
+      "rpy_rad": [
+        0.0,
+        -0.34906585,
+        0.0
+      ]
+    },
+    "laser_joint": {
+      "xyz_m": [
+        0.0316310367407428,
+        9.05810809802502e-05,
+        0.095024183741431
+      ],
+      "rpy_rad": [
+        0.0,
+        0.0,
+        3.14159265358979
+      ]
+    },
+    "mesh_inventory": {
+      "mini_mec_robot": {
+        "base_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/base_link.STL",
+          "sha256": "fa32430d54c5173550606e2690b146776064219183407bfc6ba76dca55a83521",
+          "bytes": 5943834,
+          "triangles": 118875,
+          "units": "m",
+          "min": [
+            -0.13480931520462036,
+            -0.09191090613603592,
+            -0.04891468212008476
+          ],
+          "max": [
+            0.13149069249629974,
+            0.09208909422159195,
+            0.05409536510705948
+          ],
+          "span": [
+            0.2663000077009201,
+            0.18400000035762787,
+            0.10301004722714424
+          ]
+        },
+        "controller_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/controller_link.STL",
+          "sha256": "031869061266e6bb2df5b6ee024a441cac43bdb03d4859be8cd5e9fd4d398b73",
+          "bytes": 592484,
+          "triangles": 11848,
+          "units": "m",
+          "min": [
+            -0.06232500076293945,
+            -0.005028791259974241,
+            -6.938893903907228e-18
+          ],
+          "max": [
+            0.05112500116229057,
+            0.09297120571136475,
+            0.03779999911785126
+          ],
+          "span": [
+            0.11345000192523003,
+            0.09799999697133899,
+            0.037799999117851264
+          ]
+        },
+        "lf_wheel_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/lf_wheel_link.STL",
+          "sha256": "a5999d9af1bc400e1f2497c7da61e84932780ed208eb913e5671bf36b8be5325",
+          "bytes": 1030584,
+          "triangles": 20610,
+          "units": "m",
+          "min": [
+            -0.03718908503651619,
+            -0.03201200067996979,
+            -0.03723028302192688
+          ],
+          "max": [
+            0.03718908503651619,
+            0.015987999737262726,
+            0.03723028302192688
+          ],
+          "span": [
+            0.07437817007303238,
+            0.04800000041723251,
+            0.07446056604385376
+          ]
+        },
+        "lb_wheel_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/lb_wheel_link.STL",
+          "sha256": "613812b0805177624ec311ca8e50a82b624109c475e565d9b94e64a5f6712620",
+          "bytes": 1056684,
+          "triangles": 21132,
+          "units": "m",
+          "min": [
+            -0.03718908131122589,
+            -0.031991999596357346,
+            -0.03723028302192688
+          ],
+          "max": [
+            0.03718908131122589,
+            0.016008000820875168,
+            0.03723028302192688
+          ],
+          "span": [
+            0.07437816262245178,
+            0.04800000041723251,
+            0.07446056604385376
+          ]
+        },
+        "rf_wheel_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/rf_wheel_link.STL",
+          "sha256": "10bd92d5409855285accdc0446fe07ad91fe2f320aa4954f03b507688371a416",
+          "bytes": 1056684,
+          "triangles": 21132,
+          "units": "m",
+          "min": [
+            -0.03718908131122589,
+            -0.016008000820875168,
+            -0.03723028302192688
+          ],
+          "max": [
+            0.03718908131122589,
+            0.031991999596357346,
+            0.03723028302192688
+          ],
+          "span": [
+            0.07437816262245178,
+            0.04800000041723251,
+            0.07446056604385376
+          ]
+        },
+        "rb_wheel_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/rb_wheel_link.STL",
+          "sha256": "95927fa13fd32779bd92ffcdeda489b8d062c2df2813ff0088656ac34ac1fd72",
+          "bytes": 1030584,
+          "triangles": 20610,
+          "units": "m",
+          "min": [
+            -0.03718908503651619,
+            -0.015987999737262726,
+            -0.03723028302192688
+          ],
+          "max": [
+            0.03718908503651619,
+            0.03201200067996979,
+            0.03723028302192688
+          ],
+          "span": [
+            0.07437817007303238,
+            0.04800000041723251,
+            0.07446056604385376
+          ]
+        },
+        "camera_link.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/camera_link.STL",
+          "sha256": "237430188b8103eaadda2a491a96cf96f242de74a37ad2e0810e69f7456d5b47",
+          "bytes": 1085484,
+          "triangles": 21708,
+          "units": "m",
+          "min": [
+            -0.021960705518722534,
+            -0.08250237256288528,
+            -0.02470399998128414
+          ],
+          "max": [
+            0.018095504492521286,
+            0.08234725147485733,
+            0.018546000123023987
+          ],
+          "span": [
+            0.04005621001124382,
+            0.16484962403774261,
+            0.04325000010430813
+          ]
+        },
+        "laser.STL": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/mini_mec_robot_meshes/laser.STL",
+          "sha256": "f339f3ea07cc6bb0b6c427f29bf9a9a4a4ee5e91754bfe14baf777de0a902d7e",
+          "bytes": 277884,
+          "triangles": 5556,
+          "units": "m",
+          "min": [
+            -0.0398104153573513,
+            -0.0398104153573513,
+            -0.04302418231964111
+          ],
+          "max": [
+            0.09470000118017197,
+            0.0398104153573513,
+            0.02786136418581009
+          ],
+          "span": [
+            0.13451041653752327,
+            0.0796208307147026,
+            0.0708855465054512
+          ]
+        }
+      },
+      "sensor_library": {
+        "astra.dae": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/sensors/astra.dae",
+          "sha256": "0fbcc8a51c193f34a22da4348c304f375efcf2537f1ae4f2f6148423e9c1767c",
+          "bytes": 9233933,
+          "format": "dae"
+        },
+        "lds.stl": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/sensors/lds.stl",
+          "sha256": "98f0bd7046159f83caab9509293112ef13534368535669124b91b5114c3132f6",
+          "bytes": 728384,
+          "format": "stl",
+          "triangles": 14566,
+          "units": "asset_units_unknown",
+          "min": [
+            -32.9998779296875,
+            -34.38481903076172,
+            -30.200000762939453
+          ],
+          "max": [
+            60.84831619262695,
+            34.5,
+            9.0
+          ],
+          "span": [
+            93.84819412231445,
+            68.88481903076172,
+            39.20000076293945
+          ]
+        },
+        "r200.dae": {
+          "path": "src/ros2/rai_robot_urdf/rai_robot_urdf/meshes/sensors/r200.dae",
+          "sha256": "7d2bc34b9e1a55b833f357e85f34966bc952c73e8369d71423b78ef6215dc813",
+          "bytes": 209114,
+          "format": "dae"
+        }
+      }
+    },
+    "state_definition": [
+      "x_m",
+      "y_m",
+      "theta_rad",
+      "vx_mps",
+      "vy_mps",
+      "omega_radps"
+    ],
+    "control_interface": "body_velocity",
+    "stm32": {
+      "device": "/dev/rai_controller",
+      "baudrate": 115200,
+      "command_bytes": 11,
+      "telemetry_bytes": 24,
+      "header": "0x7B",
+      "tail": "0x7D",
+      "checksum": "xor",
+      "quantization": "1e-3 SI units"
+    },
+    "n10p": {
+      "profile": "n10p-108b-v1",
+      "baudrate": "must be measured on the supplied unit",
+      "packet_bytes": 108
+    },
+    "middleware_source": {
+      "bridge_cpp": "src/ros2/turn_on_rai_robot/src/rai_robot.cpp",
+      "bridge_header": "src/ros2/turn_on_rai_robot/include/turn_on_rai_robot/rai_robot.h",
+      "serial_launch": "src/ros2/turn_on_rai_robot/launch/base_serial.launch.py",
+      "udev_rules": {
+        "path": "src/ros2/turn_on_rai_robot/rai_udev.sh",
+        "sha256": "a0b97bdcb7d92f2b45bad4755b38e132fd8795c239ce32cccc6d8ab5d78e1b58"
+      }
+    }
+  },
+  "serial_ports": [],
+  "runtime": {
+    "python": "3.14.3",
+    "openni2_importable": false,
+    "pyserial_importable": true,
+    "ultralytics_importable": true
+  },
+  "status": "no_serial_device_detected"
+}

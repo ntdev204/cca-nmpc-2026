@@ -1,0 +1,528 @@
+{
+  "schema_version": "1.2.0",
+  "manifest_id": "pr01-search-v3",
+  "protocol_id": "PR01",
+  "status": "FROZEN",
+  "frozen_at_utc": "2026-08-01T16:52:24Z",
+  "frozen_by": "nguyen-ngoc-thien",
+  "protocol_source": {
+    "path": "protocols/PR01_literature_review.md",
+      "sha256": "57C4FB842E80416EA27D6C999B2DC1A1AE223A75CB9D67D27531F800E2A4B133"
+  },
+  "coverage": {
+    "publication_year_start": 2010,
+    "publication_year_end": 2026,
+    "search_cutoff_date": "2026-08-01",
+    "languages": [
+      "English"
+    ],
+    "document_types": [
+      "journal-article",
+      "conference-paper",
+      "review"
+    ],
+    "older_classics_policy": "backward-snowballing-with-recorded-rationale",
+    "rationale": "The window covers contemporary probabilistic MPC, human-motion prediction and mobile-robot NMPC; older foundational work is recovered by logged backward snowballing without altering database flow counts."
+  },
+  "screening": {
+    "reviewer_ids": [
+      "nguyen-ngoc-thien"
+    ],
+    "mode": "single-blinded-rescreen",
+    "blinded_rescreen_fraction": 0.2,
+    "sampling": "stratified-by-database-and-decision",
+    "conflict_resolution": "All changed decisions are logged; unresolved scientific eligibility is escalated to the principal-investigator review before synthesis."
+  },
+  "filter_profiles": [
+    {
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "publication_year_start": 2010,
+      "publication_year_end": 2026,
+      "search_cutoff_date": "2026-08-01",
+      "languages": [
+        "English"
+      ],
+      "document_types": [
+        "journal-article",
+        "conference-paper",
+        "review"
+      ]
+    }
+  ],
+  "databases": [
+    {
+      "database_id": "scopus",
+      "database_name": "Scopus",
+      "coverage_role": "core-bibliographic",
+      "interface": "web-ui",
+      "platform_url": "https://www.scopus.com/search/form.uri?display=advanced",
+      "documentation_url": "https://service.elsevier.com/app/answers/detail/a_id/11365/supporthub/scopus/",
+      "export_tool": {
+        "name": "Scopus web export",
+        "version": "accessed-2026-08-01"
+      },
+      "access_state_at_freeze": "access-blocked",
+      "access_note": "Personal account is authenticated, but document search remains limited to Scopus Preview without student subscription access.",
+      "required_for_completion": false,
+      "retrieval_policy": {
+        "mode": "all-results-pagination",
+        "page_size": 1000,
+        "ordering": "platform-default",
+        "pagination_method": "ui-batch",
+        "reported_total_semantics": "source-reported-unverified",
+        "completion_rule": "terminal-pagination-state",
+        "platform_record_limit": null,
+        "overflow_action": "fail-and-amend",
+        "scope_statement": "If institutional access becomes available, export every result exposed by the frozen Scopus query and facets."
+      }
+    },
+    {
+      "database_id": "web-of-science",
+      "database_name": "Web of Science Core Collection",
+      "coverage_role": "core-bibliographic",
+      "interface": "web-ui",
+      "platform_url": "https://www.webofscience.com/wos/woscc/advanced-search",
+      "documentation_url": "https://webofscience.help.clarivate.com/Content/wos-core-collection/woscc-search-field-tags.htm",
+      "export_tool": {
+        "name": "Web of Science web export",
+        "version": "accessed-2026-08-01"
+      },
+      "access_state_at_freeze": "access-blocked",
+      "access_note": "Personal researcher-profile login succeeds, but Core Collection basic and advanced search routes are not entitled.",
+      "required_for_completion": false,
+      "retrieval_policy": {
+        "mode": "all-results-pagination",
+        "page_size": 1000,
+        "ordering": "platform-default",
+        "pagination_method": "ui-batch",
+        "reported_total_semantics": "source-reported-unverified",
+        "completion_rule": "terminal-pagination-state",
+        "platform_record_limit": null,
+        "overflow_action": "fail-and-amend",
+        "scope_statement": "If institutional access becomes available, export every result exposed by the frozen Web of Science query and facets."
+      }
+    },
+    {
+      "database_id": "ieee-xplore",
+      "database_name": "IEEE Xplore",
+      "coverage_role": "core-bibliographic",
+      "interface": "web-ui",
+      "platform_url": "https://ieeexplore.ieee.org/search/advanced/command",
+      "documentation_url": "https://ieeexplore.ieee.org/Xplorehelp/searching-ieee-xplore/search-examples",
+      "export_tool": {
+        "name": "IEEE Xplore web export",
+        "version": "accessed-2026-08-01"
+      },
+      "access_state_at_freeze": "accessible",
+      "access_note": "Public Command Search is accessible; publication-year and content-type facets are applied in the results UI.",
+      "required_for_completion": true,
+      "retrieval_policy": {
+        "mode": "all-results-pagination",
+        "page_size": 1000,
+        "ordering": "platform-default",
+        "pagination_method": "ui-batch",
+        "reported_total_semantics": "source-reported-unverified",
+        "completion_rule": "terminal-pagination-state",
+        "platform_record_limit": null,
+        "overflow_action": "fail-and-amend",
+        "scope_statement": "Export every IEEE Xplore result exposed by the frozen command query and publication/content facets; fail and amend if the platform limit prevents this."
+      }
+    },
+    {
+      "database_id": "crossref",
+      "database_name": "Crossref REST API",
+      "coverage_role": "broad-robotics-control",
+      "interface": "rest-api",
+      "platform_url": "https://api.crossref.org/works",
+      "documentation_url": "https://www.crossref.org/documentation/retrieve-metadata/rest-api/",
+      "export_tool": {
+        "name": "Crossref REST API relevance-ranked JSON export",
+        "version": "v1-accessed-2026-08-01"
+      },
+      "access_state_at_freeze": "api-accessible",
+      "access_note": "Public REST endpoint is accessible and used as a non-exhaustive, relevance-ranked recall supplement capped at 1000 records per query.",
+      "required_for_completion": true,
+      "retrieval_policy": {
+        "mode": "ranked-cap",
+        "cap_records_per_query": 1000,
+        "page_size": 1000,
+        "ordering": "score:desc",
+        "pagination_method": "none",
+        "reported_total_semantics": "source-reported-unverified",
+        "completion_rule": "cap-reached-or-source-exhausted",
+        "scope_statement": "Top 1000 relevance-ranked Crossref records per frozen query; this recall-supplement source is explicitly non-exhaustive."
+      }
+    },
+    {
+      "database_id": "semantic-scholar",
+      "database_name": "Semantic Scholar Academic Graph API",
+      "coverage_role": "broad-robotics-control",
+      "interface": "rest-api",
+      "platform_url": "https://api.semanticscholar.org/graph/v1/paper/search/bulk",
+      "documentation_url": "https://www.semanticscholar.org/product/api/tutorial",
+      "export_tool": {
+        "name": "Semantic Scholar paper bulk search JSON export",
+        "version": "graph-v1-accessed-2026-08-01"
+      },
+      "access_state_at_freeze": "api-accessible",
+      "access_note": "The public bulk-search endpoint supports title/abstract Boolean matching, date and publication-type filters, and token pagination.",
+      "required_for_completion": true,
+      "retrieval_policy": {
+        "mode": "all-results-pagination",
+        "page_size": 1000,
+        "ordering": "paperId:asc",
+        "pagination_method": "continuation-token",
+        "reported_total_semantics": "estimated",
+        "completion_rule": "terminal-pagination-state",
+        "platform_record_limit": 10000000,
+        "overflow_action": "fail-and-amend",
+        "scope_statement": "Retrieve every record exposed by Semantic Scholar token pagination; the reported total is descriptive and is not forced to equal the retrieved count."
+      }
+    }
+  ],
+  "queries": [
+    {
+      "query_id": "qry-scopus-context-human-nmpc",
+      "database_id": "scopus",
+      "concept_block": "context-human-nmpc",
+      "lrq_ids": ["LRQ-01", "LRQ-05"],
+      "search_fields": ["TITLE-ABS-KEY", "PUBYEAR"],
+      "exact_query": "TITLE-ABS-KEY((\"nonlinear model predictive control\" OR NMPC OR \"model predictive control\") AND (\"context aware\" OR \"continuous context\" OR \"human aware\" OR social) AND (robot* OR mobile OR mecanum)) AND PUBYEAR > 2009 AND PUBYEAR < 2027",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Conference Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-scopus-chance-risk-human",
+      "database_id": "scopus",
+      "concept_block": "chance-risk-human",
+      "lrq_ids": ["LRQ-02", "LRQ-05"],
+      "search_fields": ["TITLE-ABS-KEY", "PUBYEAR"],
+      "exact_query": "TITLE-ABS-KEY((chance-constrain* OR \"risk allocation\" OR probabilistic OR uncertainty) AND (NMPC OR \"model predictive control\") AND (human OR pedestrian OR trajectory)) AND PUBYEAR > 2009 AND PUBYEAR < 2027",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Conference Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-scopus-adaptive-risk",
+      "database_id": "scopus",
+      "concept_block": "adaptive-risk",
+      "lrq_ids": ["LRQ-02", "LRQ-06"],
+      "search_fields": ["TITLE-ABS-KEY", "PUBYEAR"],
+      "exact_query": "TITLE-ABS-KEY((\"adaptive risk\" OR \"risk adaptation\" OR \"risk allocation\") AND (context* OR threat OR feasibility OR learned) AND (\"model predictive control\" OR NMPC OR CVaR OR \"barrier function\")) AND PUBYEAR > 2009 AND PUBYEAR < 2027",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Conference Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-scopus-elastic-chance",
+      "database_id": "scopus",
+      "concept_block": "elastic-chance",
+      "lrq_ids": ["LRQ-05", "LRQ-07"],
+      "search_fields": ["TITLE-ABS-KEY", "PUBYEAR"],
+      "exact_query": "TITLE-ABS-KEY((\"elastic chance constraint\" OR \"adaptive probability level\" OR \"online risk value\" OR \"perception aware chance constrained\") AND (\"model predictive control\" OR SMPC) AND (feasibility OR stability OR \"closed loop\")) AND PUBYEAR > 2009 AND PUBYEAR < 2027",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Conference Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-scopus-lstm-trajectory",
+      "database_id": "scopus",
+      "concept_block": "lstm-trajectory",
+      "lrq_ids": ["LRQ-03", "LRQ-05"],
+      "search_fields": ["TITLE-ABS-KEY", "PUBYEAR"],
+      "exact_query": "TITLE-ABS-KEY((LSTM OR \"recurrent neural network\") AND (pedestrian OR human) AND (\"trajectory prediction\" OR \"motion prediction\") AND (uncertainty OR calibration OR covariance OR multimodal)) AND PUBYEAR > 2009 AND PUBYEAR < 2027",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Conference Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-scopus-mecanum-dynamics",
+      "database_id": "scopus",
+      "concept_block": "mecanum-dynamics",
+      "lrq_ids": ["LRQ-04", "LRQ-05"],
+      "search_fields": ["TITLE-ABS-KEY", "PUBYEAR"],
+      "exact_query": "TITLE-ABS-KEY((mecanum OR omnidirectional) AND (torque OR dynamic*) AND (NMPC OR \"model predictive control\")) AND PUBYEAR > 2009 AND PUBYEAR < 2027",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Conference Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-web-of-science-context-human-nmpc",
+      "database_id": "web-of-science",
+      "concept_block": "context-human-nmpc",
+      "lrq_ids": ["LRQ-01", "LRQ-05"],
+      "search_fields": ["TS", "PY"],
+      "exact_query": "TS=((\"nonlinear model predictive control\" OR NMPC OR \"model predictive control\") AND (\"context aware\" OR \"continuous context\" OR \"human aware\" OR social) AND (robot* OR mobile OR mecanum)) AND PY=(2010-2026)",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Proceedings Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-web-of-science-chance-risk-human",
+      "database_id": "web-of-science",
+      "concept_block": "chance-risk-human",
+      "lrq_ids": ["LRQ-02", "LRQ-05"],
+      "search_fields": ["TS", "PY"],
+      "exact_query": "TS=((chance-constrain* OR \"risk allocation\" OR probabilistic OR uncertainty) AND (NMPC OR \"model predictive control\") AND (human OR pedestrian OR trajectory)) AND PY=(2010-2026)",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Proceedings Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-web-of-science-adaptive-risk",
+      "database_id": "web-of-science",
+      "concept_block": "adaptive-risk",
+      "lrq_ids": ["LRQ-02", "LRQ-06"],
+      "search_fields": ["TS", "PY"],
+      "exact_query": "TS=((\"adaptive risk\" OR \"risk adaptation\" OR \"risk allocation\") AND (context* OR threat OR feasibility OR learned) AND (\"model predictive control\" OR NMPC OR CVaR OR \"barrier function\")) AND PY=(2010-2026)",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Proceedings Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-web-of-science-elastic-chance",
+      "database_id": "web-of-science",
+      "concept_block": "elastic-chance",
+      "lrq_ids": ["LRQ-05", "LRQ-07"],
+      "search_fields": ["TS", "PY"],
+      "exact_query": "TS=((\"elastic chance constraint\" OR \"adaptive probability level\" OR \"online risk value\" OR \"perception aware chance constrained\") AND (\"model predictive control\" OR SMPC) AND (feasibility OR stability OR \"closed loop\")) AND PY=(2010-2026)",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Proceedings Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-web-of-science-lstm-trajectory",
+      "database_id": "web-of-science",
+      "concept_block": "lstm-trajectory",
+      "lrq_ids": ["LRQ-03", "LRQ-05"],
+      "search_fields": ["TS", "PY"],
+      "exact_query": "TS=((LSTM OR \"recurrent neural network\") AND (pedestrian OR human) AND (\"trajectory prediction\" OR \"motion prediction\") AND (uncertainty OR calibration OR covariance OR multimodal)) AND PY=(2010-2026)",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Proceedings Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-web-of-science-mecanum-dynamics",
+      "database_id": "web-of-science",
+      "concept_block": "mecanum-dynamics",
+      "lrq_ids": ["LRQ-04", "LRQ-05"],
+      "search_fields": ["TS", "PY"],
+      "exact_query": "TS=((mecanum OR omnidirectional) AND (torque OR dynamic*) AND (NMPC OR \"model predictive control\")) AND PY=(2010-2026)",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["language:English", "document_type:Article", "document_type:Proceedings Paper", "document_type:Review"],
+      "export_format": "ris"
+    },
+    {
+      "query_id": "qry-ieee-xplore-context-human-nmpc",
+      "database_id": "ieee-xplore",
+      "concept_block": "context-human-nmpc",
+      "lrq_ids": ["LRQ-01", "LRQ-05"],
+      "search_fields": ["All Metadata"],
+      "exact_query": "((\"All Metadata\":\"nonlinear model predictive control\" OR \"All Metadata\":NMPC OR \"All Metadata\":\"model predictive control\") AND (\"All Metadata\":\"context aware\" OR \"All Metadata\":\"continuous context\" OR \"All Metadata\":\"human aware\" OR \"All Metadata\":social) AND (\"All Metadata\":robot* OR \"All Metadata\":mobile OR \"All Metadata\":mecanum))",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publication_year:2010-2026", "content_type:Journals and Magazines", "content_type:Conferences", "language:English-at-screening"],
+      "export_format": "csv"
+    },
+    {
+      "query_id": "qry-ieee-xplore-chance-risk-human",
+      "database_id": "ieee-xplore",
+      "concept_block": "chance-risk-human",
+      "lrq_ids": ["LRQ-02", "LRQ-05"],
+      "search_fields": ["All Metadata"],
+      "exact_query": "((\"All Metadata\":chance-constrain* OR \"All Metadata\":\"risk allocation\" OR \"All Metadata\":probabilistic OR \"All Metadata\":uncertainty) AND (\"All Metadata\":NMPC OR \"All Metadata\":\"model predictive control\") AND (\"All Metadata\":human OR \"All Metadata\":pedestrian OR \"All Metadata\":trajectory))",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publication_year:2010-2026", "content_type:Journals and Magazines", "content_type:Conferences", "language:English-at-screening"],
+      "export_format": "csv"
+    },
+    {
+      "query_id": "qry-ieee-xplore-adaptive-risk",
+      "database_id": "ieee-xplore",
+      "concept_block": "adaptive-risk",
+      "lrq_ids": ["LRQ-02", "LRQ-06"],
+      "search_fields": ["All Metadata"],
+      "exact_query": "((\"All Metadata\":\"adaptive risk\" OR \"All Metadata\":\"risk adaptation\" OR \"All Metadata\":\"risk allocation\") AND (\"All Metadata\":context* OR \"All Metadata\":threat OR \"All Metadata\":feasibility OR \"All Metadata\":learned) AND (\"All Metadata\":\"model predictive control\" OR \"All Metadata\":NMPC OR \"All Metadata\":CVaR OR \"All Metadata\":\"barrier function\"))",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publication_year:2010-2026", "content_type:Journals and Magazines", "content_type:Conferences", "language:English-at-screening"],
+      "export_format": "csv"
+    },
+    {
+      "query_id": "qry-ieee-xplore-elastic-chance",
+      "database_id": "ieee-xplore",
+      "concept_block": "elastic-chance",
+      "lrq_ids": ["LRQ-05", "LRQ-07"],
+      "search_fields": ["All Metadata"],
+      "exact_query": "((\"All Metadata\":\"elastic chance constraint\" OR \"All Metadata\":\"adaptive probability level\" OR \"All Metadata\":\"online risk value\" OR \"All Metadata\":\"perception aware chance constrained\") AND (\"All Metadata\":\"model predictive control\" OR \"All Metadata\":SMPC) AND (\"All Metadata\":feasibility OR \"All Metadata\":stability OR \"All Metadata\":\"closed loop\"))",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publication_year:2010-2026", "content_type:Journals and Magazines", "content_type:Conferences", "language:English-at-screening"],
+      "export_format": "csv"
+    },
+    {
+      "query_id": "qry-ieee-xplore-lstm-trajectory",
+      "database_id": "ieee-xplore",
+      "concept_block": "lstm-trajectory",
+      "lrq_ids": ["LRQ-03", "LRQ-05"],
+      "search_fields": ["All Metadata"],
+      "exact_query": "((\"All Metadata\":LSTM OR \"All Metadata\":\"recurrent neural network\") AND (\"All Metadata\":pedestrian OR \"All Metadata\":human) AND (\"All Metadata\":\"trajectory prediction\" OR \"All Metadata\":\"motion prediction\") AND (\"All Metadata\":uncertainty OR \"All Metadata\":calibration OR \"All Metadata\":covariance OR \"All Metadata\":multimodal))",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publication_year:2010-2026", "content_type:Journals and Magazines", "content_type:Conferences", "language:English-at-screening"],
+      "export_format": "csv"
+    },
+    {
+      "query_id": "qry-ieee-xplore-mecanum-dynamics",
+      "database_id": "ieee-xplore",
+      "concept_block": "mecanum-dynamics",
+      "lrq_ids": ["LRQ-04", "LRQ-05"],
+      "search_fields": ["All Metadata"],
+      "exact_query": "((\"All Metadata\":mecanum OR \"All Metadata\":omnidirectional) AND (\"All Metadata\":torque OR \"All Metadata\":dynamic*) AND (\"All Metadata\":NMPC OR \"All Metadata\":\"model predictive control\"))",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publication_year:2010-2026", "content_type:Journals and Magazines", "content_type:Conferences", "language:English-at-screening"],
+      "export_format": "csv"
+    },
+    {
+      "query_id": "qry-crossref-context-human-nmpc",
+      "database_id": "crossref",
+      "concept_block": "context-human-nmpc",
+      "lrq_ids": ["LRQ-01", "LRQ-05"],
+      "search_fields": ["query.bibliographic"],
+      "exact_query": "query.bibliographic=nonlinear model predictive control context aware human aware robot mobile mecanum&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["date:2010-01-01..2026-08-01", "language-and-document-type:eligibility-screening"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-crossref-chance-risk-human",
+      "database_id": "crossref",
+      "concept_block": "chance-risk-human",
+      "lrq_ids": ["LRQ-02", "LRQ-05"],
+      "search_fields": ["query.bibliographic"],
+      "exact_query": "query.bibliographic=chance constrained risk allocation probabilistic uncertainty model predictive control human pedestrian trajectory&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["date:2010-01-01..2026-08-01", "language-and-document-type:eligibility-screening"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-crossref-adaptive-risk",
+      "database_id": "crossref",
+      "concept_block": "adaptive-risk",
+      "lrq_ids": ["LRQ-02", "LRQ-06"],
+      "search_fields": ["query.bibliographic"],
+      "exact_query": "query.bibliographic=adaptive risk allocation context feasibility learned model predictive control CVaR barrier function&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["date:2010-01-01..2026-08-01", "language-and-document-type:eligibility-screening"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-crossref-elastic-chance",
+      "database_id": "crossref",
+      "concept_block": "elastic-chance",
+      "lrq_ids": ["LRQ-05", "LRQ-07"],
+      "search_fields": ["query.bibliographic"],
+      "exact_query": "query.bibliographic=elastic chance constraint adaptive probability level online risk value perception aware model predictive control feasibility stability closed loop&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["date:2010-01-01..2026-08-01", "language-and-document-type:eligibility-screening"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-crossref-lstm-trajectory",
+      "database_id": "crossref",
+      "concept_block": "lstm-trajectory",
+      "lrq_ids": ["LRQ-03", "LRQ-05"],
+      "search_fields": ["query.bibliographic"],
+      "exact_query": "query.bibliographic=LSTM recurrent neural network pedestrian human trajectory prediction uncertainty calibration covariance multimodal&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["date:2010-01-01..2026-08-01", "language-and-document-type:eligibility-screening"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-crossref-mecanum-dynamics",
+      "database_id": "crossref",
+      "concept_block": "mecanum-dynamics",
+      "lrq_ids": ["LRQ-04", "LRQ-05"],
+      "search_fields": ["query.bibliographic"],
+      "exact_query": "query.bibliographic=mecanum omnidirectional torque dynamics nonlinear model predictive control&filter=from-pub-date:2010-01-01,until-pub-date:2026-08-01&sort=score&order=desc&rows=1000",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["date:2010-01-01..2026-08-01", "language-and-document-type:eligibility-screening"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-semantic-scholar-context-human-nmpc",
+      "database_id": "semantic-scholar",
+      "concept_block": "context-human-nmpc",
+      "lrq_ids": ["LRQ-01", "LRQ-05"],
+      "search_fields": ["title", "abstract"],
+      "exact_query": "query=((\"nonlinear model predictive control\" | NMPC | \"model predictive control\") + (\"context aware\" | \"continuous context\" | \"human aware\" | social) + (robot | robots | mobile | mecanum))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publicationDateOrYear:2010-01-01..2026-08-01", "publicationTypes:JournalArticle,Conference,Review", "language:English-at-screening", "sort:paperId:asc"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-semantic-scholar-chance-risk-human",
+      "database_id": "semantic-scholar",
+      "concept_block": "chance-risk-human",
+      "lrq_ids": ["LRQ-02", "LRQ-05"],
+      "search_fields": ["title", "abstract"],
+      "exact_query": "query=((\"chance constrained\" | \"chance constraint\" | \"chance constraints\" | \"risk allocation\" | probabilistic | uncertainty) + (NMPC | \"model predictive control\") + (human | pedestrian | trajectory))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publicationDateOrYear:2010-01-01..2026-08-01", "publicationTypes:JournalArticle,Conference,Review", "language:English-at-screening", "sort:paperId:asc"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-semantic-scholar-adaptive-risk",
+      "database_id": "semantic-scholar",
+      "concept_block": "adaptive-risk",
+      "lrq_ids": ["LRQ-02", "LRQ-06"],
+      "search_fields": ["title", "abstract"],
+      "exact_query": "query=((\"adaptive risk\" | \"risk adaptation\" | \"risk allocation\") + (context | threat | feasibility | learned) + (\"model predictive control\" | NMPC | CVaR | \"barrier function\"))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publicationDateOrYear:2010-01-01..2026-08-01", "publicationTypes:JournalArticle,Conference,Review", "language:English-at-screening", "sort:paperId:asc"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-semantic-scholar-elastic-chance",
+      "database_id": "semantic-scholar",
+      "concept_block": "elastic-chance",
+      "lrq_ids": ["LRQ-05", "LRQ-07"],
+      "search_fields": ["title", "abstract"],
+      "exact_query": "query=((\"elastic chance constraint\" | \"adaptive probability level\" | \"online risk value\" | \"perception aware chance constrained\") + (\"model predictive control\" | SMPC) + (feasibility | stability | \"closed loop\"))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publicationDateOrYear:2010-01-01..2026-08-01", "publicationTypes:JournalArticle,Conference,Review", "language:English-at-screening", "sort:paperId:asc"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-semantic-scholar-lstm-trajectory",
+      "database_id": "semantic-scholar",
+      "concept_block": "lstm-trajectory",
+      "lrq_ids": ["LRQ-03", "LRQ-05"],
+      "search_fields": ["title", "abstract"],
+      "exact_query": "query=((LSTM | \"recurrent neural network\") + (pedestrian | human) + (\"trajectory prediction\" | \"motion prediction\") + (uncertainty | calibration | covariance | multimodal))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publicationDateOrYear:2010-01-01..2026-08-01", "publicationTypes:JournalArticle,Conference,Review", "language:English-at-screening", "sort:paperId:asc"],
+      "export_format": "json"
+    },
+    {
+      "query_id": "qry-semantic-scholar-mecanum-dynamics",
+      "database_id": "semantic-scholar",
+      "concept_block": "mecanum-dynamics",
+      "lrq_ids": ["LRQ-04", "LRQ-05"],
+      "search_fields": ["title", "abstract"],
+      "exact_query": "query=((mecanum | omnidirectional) + (torque | dynamic | dynamics) + (NMPC | \"model predictive control\"))&publicationDateOrYear=2010-01-01:2026-08-01&publicationTypes=JournalArticle,Conference,Review&sort=paperId:asc&fields=paperId,title,abstract,authors,year,publicationDate,venue,externalIds,publicationTypes,url,openAccessPdf",
+      "filter_profile_id": "eligibility-2010-2026-en-peer-reviewed",
+      "platform_filters": ["publicationDateOrYear:2010-01-01..2026-08-01", "publicationTypes:JournalArticle,Conference,Review", "language:English-at-screening", "sort:paperId:asc"],
+      "export_format": "json"
+    }
+  ],
+  "snowballing": {
+    "google_scholar_role": "snowballing-only",
+    "backward_rounds": 2,
+    "forward_rounds": 2,
+    "stopping_rule": "Stop only after two consecutive backward and forward rounds add no new nearest-work mechanism, baseline or gap-changing evidence."
+  },
+  "preexecution_amendment": {
+    "amendment_id": "pr01-search-retrieval-amendment-02",
+    "amended_at_utc": "2026-08-01T16:52:24Z",
+    "superseded_manifest_sha256": "58DF0F13ABBF9842C6B0ADB51F5F9B0E7BAC9015160C90E28EA1ACE85ACBEC13",
+    "reason": "Version 2 already recorded the Scopus and Web of Science access amendment. Before any official query execution, version 3 freezes database-specific retrieval semantics: all-result export for IEEE Xplore, token exhaustion and an explicit screening-metadata projection for Semantic Scholar, and an explicitly non-exhaustive top-1000 relevance cap for the Crossref recall supplement.",
+    "official_query_executions_before_amendment": 0
+  }
+}

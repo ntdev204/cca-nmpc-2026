@@ -1,0 +1,110 @@
+schema_version: "2.0.0"
+dataset_id: null
+revision: null
+task: null
+status: planned
+
+acquisition:
+  source_kind: null
+  acquisition_start: null
+  acquisition_end: null
+  rights_review_owner: null
+  source_manifest: null
+  payload_root_uri: null
+  checksum_manifest: null
+  synthetic_substitute_allowed_for_human_detection_test: false
+
+internet_human_images:
+  required_for_person_detection_test: true
+  manifest_schema: schemas/web-image-manifest.schema.json
+  manifest_schema_version: "2.0.0"
+  require_original_url: true
+  require_landing_page_url: true
+  require_retrieval_timestamp: true
+  require_license_and_attribution: true
+  require_privacy_review: true
+  require_real_media: true
+  ai_generated_allowed: false
+  lab_or_simulation_substitute_allowed: false
+  require_held_out_calibration_and_test: true
+  manifest_validation_report: null
+  approved_asset_counts:
+    calibration: null
+    test_id: null
+    test_ood: null
+  approved_record_requirements:
+    download_allowed: true
+    processing_allowed: true
+    derivative_annotation_allowed: true
+    annotation_status: audited
+    blind_annotation_audit: true
+    legal_or_ethics_basis_when_people: true
+
+annotation:
+  schema_name: null
+  annotator_count: null
+  adjudication_rule: null
+  inter_annotator_metric: null
+  minimum_agreement: null
+  quality_audit_sample_fraction: null
+
+splitting:
+  disjoint_unit: null
+  leakage_keys: []
+  seed: null
+  fractions:
+    train: null
+    validation: null
+    calibration: null
+    test_id: null
+    test_ood: null
+  generic_test_alias_allowed: false
+  required_context_purposes:
+    - train
+    - validation
+    - calibration
+    - test_id
+    - test_ood
+  held_out_purposes:
+    - calibration
+    - test_id
+    - test_ood
+  verification:
+    group_intersections_empty: null
+    fraction_sum_one_verified: null
+    audit_report: null
+  stratification_fields: []
+  frozen_before_training: false
+
+context_window_contract:
+  observation_steps: null
+  sample_period_seconds: null
+  coordinate_frame: null
+  self_supervised_target_source: null
+  missing_observation_policy: null
+  preserve_real_frame_hashes: true
+  preserve_calibrated_image_to_local_transform: true
+  synthetic_allowed_in_test_id_or_test_ood: false
+
+context_sequence_contract:
+  test_id_real_context_sequences: true
+  test_ood_real_context_sequences: true
+  synthetic_allowed_in_test_id_or_test_ood: false
+  held_out_partitions: true
+  real_frame_media_available: true
+  frame_or_video_hashes_preserved: true
+  ground_truth_independent_of_evaluated_model: true
+  coordinate_claim_scope: metric_robot_local
+  output_fields:
+    - position
+    - speed
+    - direction
+  image_to_local_transform_verified: null
+  provenance_validation_report_path: null
+  provenance_validation_report_sha256: null
+  calibration_validation_report_path: null
+  calibration_validation_report_sha256: null
+
+limitations: []
+exclusions: []
+ethics_review: null

@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zotero-export-receipt.schema.json",
+  "title": "Zotero deterministic-export receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "exported_at_utc",
+    "verified_at_utc",
+    "library_scope",
+    "local_api",
+    "import_source",
+    "verification",
+    "portable_bibtex"
+  ],
+  "properties": {
+    "schema": {
+      "const": "cca-nmpc-zotero-export-receipt"
+    },
+    "schema_version": {
+      "const": "1.1.0"
+    },
+    "exported_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "verified_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "library_scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "local_api": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zotero_version",
+        "connector_api_version"
+      ],
+      "properties": {
+        "zotero_version": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"
+        },
+        "connector_api_version": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)*$"
+        }
+      }
+    },
+    "import_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "manifest_sha256",
+        "declared_item_count",
+        "pdf_count",
+        "pdf_sha256_count",
+        "verified_download_origin_count",
+        "legacy_origin_unresolved_count"
+      ],
+      "properties": {
+        "manifest_path": {
+          "const": "references/zotero/import_queue/source_manifest.json"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "declared_item_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "pdf_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "pdf_sha256_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "verified_download_origin_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "legacy_origin_unresolved_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "top_level_item_count",
+        "pdf_attachment_count",
+        "total_item_count",
+        "manifest_pdf_hash_match_count",
+        "items_without_exactly_one_child",
+        "duplicate_normalized_doi_groups",
+        "items_missing_title_doi_creator_or_date"
+      ],
+      "properties": {
+        "top_level_item_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "pdf_attachment_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "total_item_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "manifest_pdf_hash_match_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "items_without_exactly_one_child": {
+          "const": 0
+        },
+        "duplicate_normalized_doi_groups": {
+          "const": 0
+        },
+        "items_missing_title_doi_creator_or_date": {
+          "const": 0
+        }
+      }
+    },
+    "portable_bibtex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "entry_count",
+        "transformation"
+      ],
+      "properties": {
+        "path": {
+          "const": "references/zotero/export/library.bib"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "entry_count": {
+          "$ref": "#/$defs/nonnegative_integer"
+        },
+        "transformation": {
+          "const": "Exported by the Zotero local API; machine-local file fields removed."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "nonnegative_integer": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

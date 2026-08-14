@@ -1,0 +1,15 @@
+{
+  "schema": "cca-yolo26s-pose-candidate-config-v1",
+  "model_name": "yolo26s-pose",
+  "task": "pose",
+  "weights_path": "models/candidates/yolo26s-pose-candidate.pt",
+  "weights_sha256": "A083ADB42303728AE14C4BD6BD56D80DA46F82FB2564DBD6F31DCC92EA321646",
+  "keypoint_contract": {
+    "count": 17,
+    "format": "ultralytics_pose_result_keypoints"
+  },
+  "local_training": false,
+  "local_calibration": false,
+  "claim_scope": "candidate_measurement_interface_only",
+  "source_documentation": "https://docs.ultralytics.com/tasks/pose"
+}

@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "claim-evidence-matrix.schema.json",
+  "title": "CCA-NMPC claim-to-evidence matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "matrix_version",
+    "status",
+    "created_at",
+    "contract_sources",
+    "rows",
+    "known_limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": "2.0.0"},
+    "matrix_version": {"$ref": "#/$defs/semver"},
+    "status": {"enum": ["draft", "frozen", "verified"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "frozen_at": {"type": "string", "format": "date-time"},
+    "protocol_freeze_manifest": {"$ref": "#/$defs/file_ref"},
+    "contract_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_pr02",
+        "claim_register",
+        "assumption_ledger",
+        "proof_obligation_ledger",
+        "proposition_ledger",
+        "derivation_ledger"
+      ],
+      "properties": {
+        "protocol_pr02": {"$ref": "#/$defs/file_ref"},
+        "claim_register": {"$ref": "#/$defs/file_ref"},
+        "assumption_ledger": {"$ref": "#/$defs/file_ref"},
+        "proof_obligation_ledger": {"$ref": "#/$defs/file_ref"},
+        "proposition_ledger": {"$ref": "#/$defs/file_ref"},
+        "derivation_ledger": {"$ref": "#/$defs/file_ref"}
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/claim_row"}
+    },
+    "known_limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["frozen", "verified"]}}, "required": ["status"]},
+      "then": {"required": ["frozen_at", "protocol_freeze_manifest"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "verified"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "rows": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/claim_row"},
+                {
+                  "properties": {
+                    "support_status": {
+                      "enum": ["supported", "falsified", "withdrawn"]
+                    },
+                    "verifier": {
+                      "properties": {"status": {"const": "verified"}}
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["unverified", "verified", "failed"]},
+        "verifier_id": {"type": "string", "minLength": 1},
+        "verified_at": {"type": "string", "format": "date-time"},
+        "report": {"$ref": "#/$defs/file_ref"},
+        "notes": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["verified", "failed"]}}, "required": ["status"]},
+          "then": {"required": ["verifier_id", "verified_at", "report"]}
+        }
+      ]
+    },
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_sha256", "relation"],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^art-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "file": {"$ref": "#/$defs/file_ref"},
+        "relation": {"enum": ["primary", "supporting", "counterevidence", "limitation"]},
+        "locator": {"type": "string", "minLength": 1}
+      }
+    },
+    "overleaf_locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "revision_id", "section", "wording_sha256"],
+      "properties": {
+        "project_id": {"type": "string", "minLength": 1},
+        "revision_id": {"type": "string", "minLength": 1},
+        "section": {"type": "string", "minLength": 1},
+        "wording_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "claim_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "exact_wording",
+        "claim_type",
+        "support_status",
+        "manuscript_admission",
+        "evidence_tier",
+        "protocol_ids",
+        "dataset_ids",
+        "model_ids",
+        "run_ids",
+        "evidence",
+        "assumption_ids",
+        "proof_obligation_ids",
+        "limitations",
+        "verifier"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "pattern": "^CLM-(?:NOV|EMP|T|ML|SIM|HW)-[0-9]{2,}$"
+        },
+        "exact_wording": {"type": "string", "minLength": 1},
+        "claim_type": {
+          "enum": ["novelty", "empirical", "theory", "machine_learning", "simulation", "hardware"]
+        },
+        "support_status": {
+          "enum": ["proposed", "blocked", "partially_supported", "supported", "falsified", "withdrawn"]
+        },
+        "manuscript_admission": {"enum": ["blocked", "approved", "withdrawn"]},
+        "evidence_tier": {
+          "enum": [
+            "none",
+            "literature_synthesis",
+            "theory_only",
+            "simulation_only",
+            "real_data_offline",
+            "target_timing",
+            "hardware_in_loop",
+            "integrated_robot"
+          ]
+        },
+        "protocol_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^PR(?:00|01|02|10|11|12|20|21|30|40|50)$"
+          }
+        },
+        "dataset_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^ds-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+        },
+        "model_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^model-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+        },
+        "run_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^run-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+        },
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidence_ref"}
+        },
+        "assumption_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^A-[0-9]{2,}$"}
+        },
+        "proof_obligation_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^PO-[0-9]{3,}$"}
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "overleaf_locator": {"$ref": "#/$defs/overleaf_locator"},
+        "verifier": {"$ref": "#/$defs/verifier"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"claim_id": {"pattern": "^CLM-NOV-"}}, "required": ["claim_id"]},
+          "then": {"properties": {"claim_type": {"const": "novelty"}}}
+        },
+        {
+          "if": {"properties": {"claim_id": {"pattern": "^CLM-EMP-"}}, "required": ["claim_id"]},
+          "then": {"properties": {"claim_type": {"const": "empirical"}}}
+        },
+        {
+          "if": {"properties": {"claim_id": {"pattern": "^CLM-T-"}}, "required": ["claim_id"]},
+          "then": {
+            "properties": {"claim_type": {"const": "theory"}},
+            "allOf": [
+              {
+                "if": {
+                  "anyOf": [
+                    {
+                      "properties": {"support_status": {"const": "supported"}},
+                      "required": ["support_status"]
+                    },
+                    {
+                      "properties": {"manuscript_admission": {"const": "approved"}},
+                      "required": ["manuscript_admission"]
+                    }
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "protocol_ids": {
+                      "contains": {"const": "PR02"},
+                      "minContains": 1
+                    },
+                    "assumption_ids": {"minItems": 1},
+                    "proof_obligation_ids": {"minItems": 1},
+                    "evidence": {
+                      "minItems": 1,
+                      "items": {
+                        "allOf": [
+                          {"$ref": "#/$defs/evidence_ref"},
+                          {"required": ["file"]}
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {"properties": {"claim_id": {"pattern": "^CLM-ML-"}}, "required": ["claim_id"]},
+          "then": {"properties": {"claim_type": {"const": "machine_learning"}}}
+        },
+        {
+          "if": {"properties": {"claim_id": {"pattern": "^CLM-SIM-"}}, "required": ["claim_id"]},
+          "then": {"properties": {"claim_type": {"const": "simulation"}}}
+        },
+        {
+          "if": {"properties": {"claim_id": {"pattern": "^CLM-HW-"}}, "required": ["claim_id"]},
+          "then": {"properties": {"claim_type": {"const": "hardware"}}}
+        },
+        {
+          "if": {
+            "properties": {"support_status": {"const": "supported"}},
+            "required": ["support_status"]
+          },
+          "then": {
+            "properties": {
+              "evidence": {"minItems": 1},
+              "evidence_tier": {"not": {"const": "none"}},
+              "verifier": {"properties": {"status": {"const": "verified"}}}
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {"support_status": {"enum": ["blocked", "withdrawn"]}},
+                "required": ["support_status"]
+              },
+              {
+                "properties": {"manuscript_admission": {"enum": ["blocked", "withdrawn"]}},
+                "required": ["manuscript_admission"]
+              }
+            ]
+          },
+          "then": {
+            "required": ["blockers"],
+            "properties": {"blockers": {"minItems": 1}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"support_status": {"const": "blocked"}},
+            "required": ["support_status"]
+          },
+          "then": {"properties": {"manuscript_admission": {"const": "blocked"}}}
+        },
+        {
+          "if": {
+            "properties": {"support_status": {"const": "withdrawn"}},
+            "required": ["support_status"]
+          },
+          "then": {"properties": {"manuscript_admission": {"const": "withdrawn"}}}
+        },
+        {
+          "if": {
+            "properties": {"manuscript_admission": {"const": "withdrawn"}},
+            "required": ["manuscript_admission"]
+          },
+          "then": {"properties": {"support_status": {"const": "withdrawn"}}}
+        },
+        {
+          "if": {
+            "properties": {"manuscript_admission": {"const": "approved"}},
+            "required": ["manuscript_admission"]
+          },
+          "then": {
+            "required": ["overleaf_locator"],
+            "properties": {
+              "support_status": {"const": "supported"},
+              "verifier": {"properties": {"status": {"const": "verified"}}}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

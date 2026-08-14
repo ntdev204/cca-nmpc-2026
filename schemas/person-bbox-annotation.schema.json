@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "person-bbox-annotation.schema.json",
+  "title": "Blind person bounding-box annotation manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "annotation_id",
+    "source_manifest",
+    "guideline_version",
+    "blinded_to_predictions",
+    "records"
+  ],
+  "properties": {
+    "schema": {"const": "cca-person-bbox-annotations-v1"},
+    "schema_version": {"const": "1.0.0"},
+    "annotation_id": {"type": "string", "pattern": "^ann-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "source_manifest": {"$ref": "#/$defs/file_ref"},
+    "guideline_version": {"type": "string", "minLength": 1},
+    "blinded_to_predictions": {"const": true},
+    "annotator_id": {"type": "string", "minLength": 1},
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/record"}
+    },
+    "independent_annotation": {"$ref": "#/$defs/independent_annotation"},
+    "adjudication": {"$ref": "#/$defs/adjudication"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {"not": {"pattern": "^(?:[A-Za-z]:|/|\\\\|[A-Za-z][A-Za-z0-9+.-]*:)"}},
+        {"not": {"pattern": "(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)"}}
+      ]
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "independent_annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotation_id",
+        "source_manifest",
+        "guideline_version",
+        "blinded_to_predictions",
+        "annotator_id",
+        "records"
+      ],
+      "properties": {
+        "annotation_id": {"type": "string", "pattern": "^ann-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "source_manifest": {"$ref": "#/$defs/file_ref"},
+        "guideline_version": {"type": "string", "minLength": 1},
+        "blinded_to_predictions": {"const": true},
+        "annotator_id": {"type": "string", "minLength": 1},
+        "records": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/record"}
+        }
+      }
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adjudication_id",
+        "primary_annotation_id",
+        "independent_annotation_id",
+        "adjudicator_id",
+        "status",
+        "blinded_to_predictions",
+        "reviewed_at_utc",
+        "agreement"
+      ],
+      "properties": {
+        "adjudication_id": {"type": "string", "pattern": "^adj-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "primary_annotation_id": {"type": "string", "pattern": "^ann-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "independent_annotation_id": {"type": "string", "pattern": "^ann-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "adjudicator_id": {"type": "string", "minLength": 1},
+        "status": {"const": "complete"},
+        "blinded_to_predictions": {"const": true},
+        "reviewed_at_utc": {"type": "string", "format": "date-time"},
+        "agreement": {"$ref": "#/$defs/agreement"},
+        "changed_asset_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "agreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric_version", "asset_count", "presence_agreement", "mean_matched_iou"],
+      "properties": {
+        "metric_version": {"type": "string", "minLength": 1},
+        "asset_count": {"type": "integer", "minimum": 1},
+        "presence_agreement": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_matched_iou": {"type": "number", "minimum": 0, "maximum": 1},
+        "matched_person_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "bbox": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "image_width", "image_height", "persons"],
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1},
+        "image_width": {"type": "integer", "minimum": 1},
+        "image_height": {"type": "integer", "minimum": 1},
+        "persons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["bbox_xyxy"],
+            "properties": {
+              "bbox_xyxy": {"$ref": "#/$defs/bbox"},
+              "occluded": {"type": "boolean"},
+              "truncated": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

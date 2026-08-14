@@ -1,0 +1,138 @@
+schema_version: "1.2.0"
+simulation_id: null
+study_phase: confirmatory
+status: planned
+frozen_at: null
+
+# The focused-audit record is required only when a confirmatory configuration is
+# frozen/run.
+focused_audit: null
+protocol_freeze: null
+
+controller_contract:
+  family: cca_nmpc
+  actuation: body_velocity
+  state_definition: "[x,y,theta,vx,vy,omega]"
+  prediction_horizon: null
+  control_horizon: null
+  sample_period_seconds: null
+  solver: null
+  deadline_seconds: null
+  fallback_policy: null
+
+risk_allocation_contract:
+  target_equation_id: cca_fixed_budget_softmax
+  target_equation_version: "1.1.0"
+  active_event_unit: context_event
+  total_budget: null
+  event_floor: null
+  context_sensitivity_beta: null
+  physical_clearance:
+    value: null
+    unit: m
+    fixed_across_primary_strategies: true
+  comparator_equation_manifest: null
+  primary_invariant_id: matched_context_budget_contrast
+  primary_invariant_version: "1.1.0"
+  context_fixed_within_each_solve: true
+  direction_fixed_within_each_solve: true
+  confidence_fixed_within_each_solve: true
+  chance_relaxation_allowed: false
+  probability_claim_requires_zero_relaxation: true
+  calibration_artifact_id: null
+
+context_contract:
+  family: context_lstm
+  checkpoint_artifact_id: null
+  observation_steps: null
+  output_fields: [position, speed, direction]
+  direction_classes: [left, right, forward, backward]
+  coordinate_frame: null
+  uncertainty_interface: confidence_and_validity
+
+primary_comparison:
+  # Exactly these five strategies form the primary comparison. Each equation
+  # record is frozen and hashed before the first confirmatory run.
+  strategies:
+    - id: plain_mpc
+      role: baseline
+      equation_id: deterministic_mpc
+      equation_version: "1.0.0"
+      equation_record: null
+      risk_budget_applicable: false
+      uses_common_total_budget: false
+      uses_common_physical_clearance: true
+    - id: nmpc
+      role: baseline
+      equation_id: deterministic_nmpc
+      equation_version: "1.0.0"
+      equation_record: null
+      risk_budget_applicable: false
+      uses_common_total_budget: false
+      uses_common_physical_clearance: true
+    - id: dwa
+      role: baseline
+      equation_id: dynamic_window_approach
+      equation_version: "1.0.0"
+      equation_record: null
+      risk_budget_applicable: false
+      uses_common_total_budget: false
+      uses_common_physical_clearance: true
+    - id: mppi
+      role: baseline
+      equation_id: model_predictive_path_integral
+      equation_version: "1.0.0"
+      equation_record: null
+      risk_budget_applicable: false
+      uses_common_total_budget: false
+      uses_common_physical_clearance: true
+    - id: cca_nmpc
+      role: target
+      equation_id: cca_fixed_budget_softmax
+      equation_version: "1.1.0"
+      equation_record: null
+      risk_budget_applicable: true
+      uses_common_total_budget: true
+      uses_common_physical_clearance: true
+  matched_invariants:
+    dynamics: true
+    constraints: true
+    reference: true
+    solver_backend: true
+    solver_tolerances: true
+    tuning_budget: true
+    scenario_seed_package: true
+    sample_period_and_horizon: true
+    physical_clearance: true
+    total_budget_when_applicable: true
+  ablations:
+    - distance_only_context
+    - context_off
+    - context_adaptive_clearance_uniform_risk
+    - direction_permutation
+    - fallback_policy_ablation_offline_only
+
+scenario_matrix:
+  geometries: []
+  context_events: []
+  context_levels: []
+  sensor_noise_levels: []
+  context_error_levels: []
+  initial_conditions: []
+  trials_per_cell: null
+
+robustness:
+  parameter_perturbations: []
+  occlusion_conditions: []
+  timing_jitter_conditions: []
+  infeasibility_conditions: []
+
+randomization:
+  paired_random_seeds: true
+  common_random_numbers: true
+  execution_order_randomized: true
+  seed_manifest: null
+
+evaluation_config: null
+environment_manifest: null
+output_run_manifest_root: null

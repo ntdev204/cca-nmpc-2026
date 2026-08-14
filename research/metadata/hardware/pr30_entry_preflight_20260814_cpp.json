@@ -1,0 +1,120 @@
+{
+  "schema": "cca-pr30-hardware-entry-preflight-v1",
+  "checked_at_utc": "2026-08-13T23:49:58Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "checks": {
+    "command_header": true,
+    "command_payload": true,
+    "status": true,
+    "applied": true,
+    "wheels_abc": true,
+    "wheel_d": true,
+    "body_velocity_mode_declared": true,
+    "position_state_scope_declared": true,
+    "legacy_torque_mode_not_claimed": true,
+    "commissioning_lock_zero": true,
+    "direct_csv_json_mapping": true,
+    "python_can_decoder_present": true,
+    "cpp_can_codec_present": true,
+    "cpp_can_c_abi_present": true,
+    "python_cpp_can_selector_present": true,
+    "stm32_serial_bridge_present": true,
+    "stm_bridge_frame_contract_referenced": true,
+    "stm_bridge_frame_constants_present": true,
+    "cpp_stm_transport_present": true,
+    "mini_mec_urdf_present": true,
+    "record_actuation_gate_present": true,
+    "motion_safety_record_gate_present": true,
+    "direct_stm_recorder_present": true,
+    "single_hardware_entrypoint_present": true,
+    "no_device_preflight_present": true,
+    "complete_urdf_inventory_present": true,
+    "sensor_contract_inventory_present": true,
+    "component_inventory_present": true,
+    "footprint_contract_present": true,
+    "runtime_urdf_geometry_metadata_present": true,
+    "runtime_urdf_source_hash_validation_present": true,
+    "no_ros_runtime_dependency": true,
+    "packager_context_only": true,
+    "calibration_sidecar_contract": true,
+    "physical_template_planned": true,
+    "physical_template_unapproved": true
+  },
+  "errors": [],
+  "admission_reasons": [
+    "no sealed direct hardware/hardware-in-loop/real-offline package exists",
+    "STM wheel-loop commissioning remains locked at zero",
+    "physical experiment template is planned H0 with safety approval pending",
+    "robot physical specifications, sensor calibration and independent ground truth are absent",
+    "no stage-gate, protocol-freeze or target-hardware manifest is approved"
+  ],
+  "hardware_packages": [],
+  "sources": {
+    "src/stm/CCA/cca_protocol.h": {
+      "sha256": "eba0baa64942cd41539dc47917748cc935b2d477baf6d365aaf1ddb1698ac059"
+    },
+    "src/stm/CCA/cca_firmware_config.h": {
+      "sha256": "eb5572b9b02b17cc27dd20532706d7ed06cdddbca1b9970863ee04301b285d3b"
+    },
+    "src/stm/CCA/README.md": {
+      "sha256": "60d1775501fa4c45c40a8d29dd30bdea20a872c7420fe72573ab296750b9609c"
+    },
+    "scripts/python/tools/final_pack.py": {
+      "sha256": "cff63bf40d0591c498f5f854add24ddcec0269252dac182a08ee9388581d938d"
+    },
+    "scripts/python/tools/README.md": {
+      "sha256": "917a4c27d6c69aec6e54cb72b209032a5d029fd57c71624460e591a434c7a5d9"
+    },
+    "src/python/cca_shared.py": {
+      "sha256": "5b3f299f84578768763e0727b53f802f1f6a19d82a1554973a1c55bf1c8d197d"
+    },
+    "src/python/cca_hardware.py": {
+      "sha256": "9bb5bfa5ed08ea63f1ed1238879aefe99e9342854fa152b22ad8024b0220e1f6"
+    },
+    "scripts/python/tools/record_hardware.py": {
+      "sha256": "dffdbc4fd49e274a129d52af8355621fb0ed34ff3adb6eb59ee4366c74006655"
+    },
+    "scripts/python/tools/stm_experiment.py": {
+      "sha256": "e626f31de539b4205a1bf4e2cbcf2de239987fd1ea59178c49e0286376e831ee"
+    },
+    "scripts/python/tools/hardware_entry.py": {
+      "sha256": "3f6bfc31811f277e2b8c1f0756d2264498c7db0495392beab1b2b950635f7393"
+    },
+    "src/ros2/turn_on_rai_robot/src/rai_robot.cpp": {
+      "sha256": "bed1f48a8e12b75fc3b83e65ac5e54b5b0fd4200c02535246e75f6e87f8cb590"
+    },
+    "src/ros2/turn_on_rai_robot/include/turn_on_rai_robot/rai_robot.h": {
+      "sha256": "b5c2a03b67b26b5034b5ad4d30478fe58348b45f477b34d72e395125da10fe8d"
+    },
+    "src/cpp/src/stm_c_api.cpp": {
+      "sha256": "0bc6c32591d9beedbe3f2032f52fe5533a297f6f93b0628e597325d386a9da65"
+    },
+    "src/cpp/include/cca_ai/stm_c_api.h": {
+      "sha256": "cdfb982a1b048f630545073b3c30d878efd2b3c5f5cb70b2b7260f85874cb9a3"
+    },
+    "src/cpp/src/cca_can.cpp": {
+      "sha256": "f8a7c8a2f154abc29ad2e309159dd05f3898ec8a39c2d7233abf13be709e87b2"
+    },
+    "src/cpp/include/cca_ai/cca_can.hpp": {
+      "sha256": "f7f7bca918d65a50bb988a0abcc41b4cf2e1bfe5e5b004ddb3e50e93e34fdbfe"
+    },
+    "src/ros2/rai_robot_urdf/rai_robot_urdf/urdf/mini_mec_robot.urdf": {
+      "sha256": "42fec53fcdf2cb2b3e26f2d3d161e51644c5378ba77f22752e4fbfa5c3818207"
+    },
+    "configs/physical_experiment.template.yaml": {
+      "sha256": "3ffe177126cb93ce19cfcd687bbbb2e2b35b2ed0287a50243e8bae6da65062e1"
+    }
+  },
+  "next_actions": [
+    "supply robot physical and sensor specifications",
+    "approve H0 safety, stop rules and target-hardware manifest",
+    "commission and verify e-stop/watchdog/wheel signs before motion",
+    "capture and seal direct CSV/JSON package with final_pack.py"
+  ],
+  "tool": {
+    "path": "scripts/python/tools/validate_hardware_entry.py",
+    "sha256": "67abea85434f0fb340274f461ddd75775a4732bab8be268752f0e6deb4d3258d"
+  }
+}

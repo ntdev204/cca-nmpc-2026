@@ -1,0 +1,600 @@
+[
+  {
+    "key": "kruse2013survey",
+    "citation_number": 1,
+    "title": "Human-Aware Robot Navigation: A Survey",
+    "doi": "10.1016/j.robot.2013.05.007",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[01] kruse2013survey - Human-Aware Robot Navigation A Survey.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "B76DAC068C014395E489EAEF58047569197CA90BCFBA450B6D8EF6FC763B097F",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "stefanini2024context",
+    "citation_number": 2,
+    "title": "Efficient Context-Aware Model Predictive Control for Human-Aware Navigation",
+    "doi": "10.1109/LRA.2024.3461552",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[02] stefanini2024context - Efficient Context-Aware Model Predictive Control for Human-Aware Navigation.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "10F40977E99D4F11A604CA3455958BC360F3C9561798B8DB87AD3641EF2F205D",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "heuer2023proactive",
+    "citation_number": 3,
+    "title": "Proactive Model Predictive Control with Multi-Modal Human Motion Prediction in Cluttered Dynamic Environments",
+    "doi": "10.1109/IROS55552.2023.10341702",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[03] heuer2023proactive - Proactive Model Predictive Control with Multi-Modal Human Motion Prediction in Cluttered Dynamic Environments.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "67316F5AFCCA05B584BFE2101BCF0EAAFAB874B7B910E14543462A1F7DD00112",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "vulcano2022cbf",
+    "citation_number": 4,
+    "title": "Safe Robot Navigation in a Crowd Combining NMPC and Control Barrier Functions",
+    "doi": "10.1109/CDC51059.2022.9993397",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[04] vulcano2022cbf - Safe Robot Navigation in a Crowd Combining NMPC and Control Barrier Functions.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "3B8A34B86DD5DB62A4B4A0510D859A2AE22088226B1E170C619465F81AB92141",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "akhtyamov2025uncertainty",
+    "citation_number": 5,
+    "title": "Social Robot Navigation through Constrained Optimization: A Comprehensive Study of Uncertainty-Based Objectives and Constraints in the Simulated and Real World",
+    "doi": "10.1016/j.robot.2024.104830",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[05] akhtyamov2025uncertainty - Social Robot Navigation through Constrained Optimization A Comprehensive Study of Uncertainty-Based Objectives and Constraints in the Simulated and Real Wo.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "F97DDE579B479943478370BCB36B7B9A530F87A278DB7A57AD46C7B1153D379B",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "ryu2024drcc",
+    "citation_number": 6,
+    "title": "Integrating Predictive Motion Uncertainties with Distributionally Robust Risk-Aware Control for Safe Robot Navigation in Crowds",
+    "doi": "10.1109/ICRA57147.2024.10610404",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[06] ryu2024drcc - Integrating Predictive Motion Uncertainties with Distributionally Robust Risk-Aware Control for Safe Robot Navigation in Crowds.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "5978F9A38FDD5C0AADE6A2EA95C10C14FA9A1BE1407D48DE7E81514DA17CF9FB",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "degroot2025scenario",
+    "citation_number": 7,
+    "title": "Scenario-Based Motion Planning with Bounded Probability of Collision",
+    "doi": "10.1177/02783649251315203",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[07] degroot2025scenario - Scenario-Based Motion Planning with Bounded Probability of Collision.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "55B46C77EE64827534E5AE212DF9F31C6BC72FEBC57E2A3CB1069027DD8E9AA7",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "oleinikov2024scenario",
+    "citation_number": 8,
+    "title": "Scenario-Based Model Predictive Control with Probabilistic Human Predictions for Human--Robot Coexistence",
+    "doi": "10.1016/j.conengprac.2023.105769",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[08] oleinikov2024scenario - Scenario-Based Model Predictive Control with Probabilistic Human Predictions for Human-Robot Coexistence.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "D82676B54A866318BAC1728C79EF241199F0983FA96AF403BEB7C440E27A2467",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "samavi2025sicnav",
+    "citation_number": 9,
+    "title": "SICNav: Safe and Interactive Crowd Navigation Using Model Predictive Control and Bilevel Optimization",
+    "doi": "10.1109/TRO.2024.3484634",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[09] samavi2025sicnav - SICNav Safe and Interactive Crowd Navigation Using Model Predictive Control and Bilevel Optimization.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "FEC63C211FBD32618AD7D755143322DBEDB56FE397412FB6D4F69DEFA659B141",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "andersson2019casadi",
+    "citation_number": 10,
+    "title": "CasADi: A Software Framework for Nonlinear Optimization and Optimal Control",
+    "doi": "10.1007/s12532-018-0139-4",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[10] andersson2019casadi - CasADi A Software Framework for Nonlinear Optimization and Optimal Control.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "55106413BD7B129B173B32FAC5007DE604031A3296DF731CD9A37BFC4C214239",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "verschueren2022acados",
+    "citation_number": 11,
+    "title": "acados: A Modular Open-Source Framework for Fast Embedded Optimal Control",
+    "doi": "10.1007/s12532-021-00208-8",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[11] verschueren2022acados - acados A Modular Open-Source Framework for Fast Embedded Optimal Control.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "9157A08A54F5E62C81C3B9D6E88B2A6B90A00ECDF709EB6F85373C6F6D11406F",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "houska2011rti",
+    "citation_number": 12,
+    "title": "An Auto-Generated Real-Time Iteration Algorithm for Nonlinear MPC in the Microsecond Range",
+    "doi": "10.1016/j.automatica.2011.08.020",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[12] houska2011rti - An Auto-Generated Real-Time Iteration Algorithm for Nonlinear MPC in the Microsecond Range.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "4808F33DE7481F2263E934821D4759C5D052B70DADC4F3BAC136A8572F57BF44",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "frey2024zoro",
+    "citation_number": 13,
+    "title": "Efficient Zero-Order Robust Optimization for Real-Time Model Predictive Control with acados",
+    "doi": "10.23919/ECC64448.2024.10591148",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[13] frey2024zoro - Efficient Zero-Order Robust Optimization for Real-Time Model Predictive Control with acados.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "8164A1CD483725CDFF344E0C1774CF1DBB4F6B384E4585843A2652C9BE87D70D",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "blackmore2011path",
+    "citation_number": 14,
+    "title": "Chance-Constrained Optimal Path Planning With Obstacles",
+    "doi": "10.1109/TRO.2011.2161160",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[14] blackmore2011path - Chance-Constrained Optimal Path Planning With Obstacles.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "899103868CEA63AAB56B99C65B746E257B5E1D7FFFB8ACFBDD645E0B979AEA90",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "dutoit2011collision",
+    "citation_number": 15,
+    "title": "Probabilistic Collision Checking With Chance Constraints",
+    "doi": "10.1109/TRO.2011.2116190",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[15] dutoit2011collision - Probabilistic Collision Checking With Chance Constraints.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "AC45A8B2C1DE1093B32C532EB10C4680EA25F949536D498F3A9A5BF0789A82F8",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "zhu2019chance",
+    "citation_number": 16,
+    "title": "Chance-Constrained Collision Avoidance for MAVs in Dynamic Environments",
+    "doi": "10.1109/LRA.2019.2893494",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[16] zhu2019chance - Chance-Constrained Collision Avoidance for MAVs in Dynamic Environments.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "0872DF0F23790BFACC70DB44460B05C352EDA492666FA46FABA5123EE8E2F34E",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "castillo2020realtime",
+    "citation_number": 17,
+    "title": "A Real-Time Approach for Chance-Constrained Motion Planning with Dynamic Obstacles",
+    "doi": "10.1109/LRA.2020.2975759",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[17] castillo2020realtime - A Real-Time Approach for Chance-Constrained Motion Planning with Dynamic Obstacles.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "BA112D64C44D4809BBDA307DE74DA14C3382902AABCF83A2CF058B2813B86D34",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "campion1996models",
+    "citation_number": 18,
+    "title": "Structural Properties and Classification of Kinematic and Dynamic Models of Wheeled Mobile Robots",
+    "doi": "10.1109/70.481750",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[18] campion1996models - Structural Properties and Classification of Kinematic and Dynamic Models of Wheeled Mobile Robots.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "199DB7037F575E135A6C0846E9431EF72672D657AF2B59924B787D7116C2DC1B",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "gracia2007slip",
+    "citation_number": 19,
+    "title": "Kinematic Modeling of Wheeled Mobile Robots with Slip",
+    "doi": "10.1163/156855307781503763",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[19] gracia2007slip - Kinematic Modeling of Wheeled Mobile Robots with Slip.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "8DBB2E2DE6638A7734D5914A70DC6E28D43F36A573061E0F13F58699FB40ED4C",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "lin2013mecanum",
+    "citation_number": 20,
+    "title": "Modeling and Adaptive Control of an Omni-Mecanum-Wheeled Robot",
+    "doi": "10.4236/ica.2013.42021",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[20] lin2013mecanum - Modeling and Adaptive Control of an Omni-Mecanum-Wheeled Robot.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "A3C447CB11F65F2C19914BC480F3C271E047B6D72BC3469A671BF5A1A4F9C7E6",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "teatro2014omni",
+    "citation_number": 21,
+    "title": "Nonlinear Model Predictive Control for Omnidirectional Robot Motion Planning and Tracking With Avoidance of Moving Obstacles",
+    "doi": "10.1109/CJECE.2014.2328973",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[21] teatro2014omni - Nonlinear Model Predictive Control for Omnidirectional Robot Motion Planning and Tracking With Avoidance of Moving Obstacles.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "BB6E94A9078308E17D1E4E6B985A1D7FC7D4944AF8152601734F8AF628DC3AFF",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "wang2020robust",
+    "citation_number": 22,
+    "title": "A Robust Model Predictive Control Strategy for Trajectory Tracking of Omni-Directional Mobile Robots",
+    "doi": "10.1007/S10846-019-01083-1",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[22] wang2020robust - A Robust Model Predictive Control Strategy for Trajectory Tracking of Omni-Directional Mobile Robots.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "663E7953BBBA410C1E5018F887A810C29CD75ABC79185A80AF616BACFC380138",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "liao2019wheel",
+    "citation_number": 23,
+    "title": "Model-Based Coordinated Control of Four-Wheel Independently Driven Skid Steer Mobile Robot with Wheel--Ground Interaction and Wheel Dynamics",
+    "doi": "10.1109/TII.2018.2869573",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[23] liao2019wheel - Model-Based Coordinated Control of Four-Wheel Independently Driven Skid Steer Mobile Robot with Wheel-Ground Interaction and Wheel Dynamics.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "AE5AC926D5723BDF8635C3169CA0111563D20E0A4B96353FB9B09822AABE97DA",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "li2025mecanum",
+    "citation_number": 24,
+    "title": "Dynamic Modeling and Disturbance-Observer-Enhanced Control for Mecanum-Wheeled Vehicles Under Load and Noise Disturbance",
+    "doi": "10.3390/math13050789",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[24] li2025mecanum - Dynamic Modeling and Disturbance-Observer-Enhanced Control for Mecanum-Wheeled Vehicles Under Load and Noise Disturbance.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "5E98BC63FA408BB49BF5BEF2141FCB8A29A2C43A646F3DF6FAE5DB99200AF682",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "manzl2024friction",
+    "citation_number": 25,
+    "title": "A Mecanum Wheel Model Based on Orthotropic Friction with Experimental Validation",
+    "doi": "10.1016/j.mechmachtheory.2023.105548",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[25] manzl2024friction - A Mecanum Wheel Model Based on Orthotropic Friction with Experimental Validation.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "F3B83E2D955B57968F866C7A27FDA3E5C230A81812926CE66F95243E5A9F7083",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "takanazawa2025fourwheel",
+    "citation_number": 26,
+    "title": "Four-Wheel Independent Steering and Four-Wheel Independent Driving Robot and Its Simultaneous Path and Orientation Tracking Control",
+    "doi": "10.20965/ijat.2025.p0521",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[26] takanazawa2025fourwheel - Four-Wheel Independent Steering and Four-Wheel Independent Driving Robot and Its Simultaneous Path and Orientation Tracking Control.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "9CBA5900F1662FE7963E7E6ECA6789965B56E8A365A22B7F9A63C6E0C7717C00",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "tarantos2024dynamics",
+    "citation_number": 27,
+    "title": "Dynamics-Aware Navigation among Moving Obstacles with Application to Ground and Flying Robots",
+    "doi": "10.1016/j.robot.2023.104582",
+    "in_main_tex": true,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[27] tarantos2024dynamics - Dynamics-Aware Navigation among Moving Obstacles with Application to Ground and Flying Robots.pdf"
+    ],
+    "source_url": null,
+    "retrieved_at": null,
+    "sha256": "E445D209228314F7EDEBCE5CF0CF74EB25488C30F6585C95901472A4CB4D7216",
+    "provenance_status": "legacy-origin-unresolved",
+    "metadata_files": [],
+    "errors": [
+      "PDF-ORIGIN-UNRESOLVED"
+    ]
+  },
+  {
+    "key": "dai2019pchekov",
+    "citation_number": 28,
+    "title": "Chance Constrained Motion Planning for High-Dimensional Robots",
+    "doi": "10.1109/ICRA.2019.8793660",
+    "in_main_tex": false,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[28] dai2019pchekov - Chance Constrained Motion Planning for High-Dimensional Robots.pdf"
+    ],
+    "source_url": "https://arxiv.org/pdf/1811.03073",
+    "retrieved_at": "2026-08-01T20:00:00+07:00",
+    "sha256": "F3EDFC33A4461DDBA777D1B804B0B03EDCF946B231CDFB7C25808480D12243B1",
+    "provenance_status": "verified-download",
+    "metadata_files": [],
+    "errors": []
+  },
+  {
+    "key": "huang2023blstm",
+    "citation_number": 29,
+    "title": "Risk-aware Vehicle Motion Planning Using Bayesian LSTM-Based Model Predictive Control",
+    "doi": "10.48550/arXiv.2301.06201",
+    "in_main_tex": false,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[29] huang2023blstm - Risk-aware Vehicle Motion Planning Using Bayesian LSTM-Based Model Predictive Control.pdf"
+    ],
+    "source_url": "https://arxiv.org/pdf/2301.06201",
+    "retrieved_at": "2026-08-01T20:00:00+07:00",
+    "sha256": "3731C66F9B17FEBA0B97B53FDCEEA1570E8DD83D798E40345E0A562118D8E4A4",
+    "provenance_status": "verified-download",
+    "metadata_files": [],
+    "errors": []
+  },
+  {
+    "key": "zhang2021chance",
+    "citation_number": 30,
+    "title": "Trajectory Generation by Chance-Constrained Nonlinear MPC With Probabilistic Prediction",
+    "doi": "10.1109/TCYB.2020.3032711",
+    "in_main_tex": false,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[30] zhang2021chance - Trajectory Generation by Chance-Constrained Nonlinear MPC With Probabilistic Prediction.pdf"
+    ],
+    "source_url": "https://arxiv.org/pdf/2006.07907",
+    "retrieved_at": "2026-08-01T20:00:00+07:00",
+    "sha256": "2B156ADB717E37FD9B2E24395919741AA65AF940E142CCD5029D3D944D49190C",
+    "provenance_status": "verified-download",
+    "metadata_files": [],
+    "errors": []
+  },
+  {
+    "key": "ren2023multimodal",
+    "citation_number": 31,
+    "title": "Chance-Constrained Trajectory Planning With Multimodal Environmental Uncertainty",
+    "doi": "10.1109/LCSYS.2022.3186269",
+    "in_main_tex": false,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[31] ren2023multimodal - Chance-Constrained Trajectory Planning With Multimodal Environmental Uncertainty.pdf"
+    ],
+    "source_url": "https://arxiv.org/pdf/2503.06779",
+    "retrieved_at": "2026-08-01T21:53:12+07:00",
+    "sha256": "A2F0F4D59A84DA809E0ADFE07672C86947D54DB5E9722C81F47F25DE527BE8B9",
+    "provenance_status": "verified-download",
+    "metadata_files": [],
+    "errors": []
+  },
+  {
+    "key": "ren2025recursive",
+    "citation_number": 32,
+    "title": "Recursively Feasible Chance-Constrained Model Predictive Control Under Gaussian Mixture Model Uncertainty",
+    "doi": "10.1109/TCST.2024.3477089",
+    "in_main_tex": false,
+    "mentioned_in_research_md": true,
+    "source_files": [
+      "citations/[32] ren2025recursive - Recursively Feasible Chance-Constrained Model Predictive Control Under Gaussian Mixture Model Uncertainty.pdf"
+    ],
+    "source_url": "https://arxiv.org/pdf/2401.03799v2",
+    "retrieved_at": "2026-08-01T21:53:12+07:00",
+    "sha256": "CAC052F8EDC4E009526C7050C01CF1781E9B6699B1DB92DA53BF0A48134D2D16",
+    "provenance_status": "verified-download",
+    "metadata_files": [],
+    "errors": []
+  }
+]

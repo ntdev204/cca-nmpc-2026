@@ -1,0 +1,33 @@
+{
+  "schema": "cca-pr10-web-manifest-acquisition-validation-v1",
+  "checked_at_utc": "2026-08-13T23:22:09Z",
+  "paper_edit": false,
+  "status": "PASS",
+  "admission_status": "BLOCKED",
+  "manifest": {
+    "path": "data/raw/web-cohort-20260814/web-image-manifest.json",
+    "sha256": "bab6b3ab2a1ee7d22ff4e427bfee498e8d1e4d6f94489763bb4305f6207a9b79",
+    "asset_count": 7,
+    "approved_count": 0
+  },
+  "checks": {
+    "json_schema": true,
+    "media_hash_size_decode_dimensions": true,
+    "unique_asset_and_sha256": true,
+    "source_group_split_disjoint": true,
+    "real_non_ai_media": true,
+    "rights_and_privacy_fields": true,
+    "annotation_gate": false
+  },
+  "errors": [],
+  "admission_reasons": [
+    "independent blinded annotation and adjudication are not present",
+    "detector pretraining-overlap review is not recorded",
+    "cohort expansion and held-out OOD audit remain open"
+  ],
+  "next_actions": [
+    "perform independent blinded person bounding-box annotation",
+    "record detector pretraining-overlap review",
+    "expand and lock calibration/test_id/test_ood cohort before model selection"
+  ]
+}
