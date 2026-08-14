@@ -152,7 +152,12 @@ không phải đẳng thức, closed-loop probability sau update kế tiếp ho�
 mission-wide. Nếu A-17 đạt cho mọi nhóm, cận model-internal cũng truyền xuống
 hợp các biến cố $C_e$.
 
-## T6 — Giữ tính khả thi trong một lần giải số
+## T6 — Bất biến chọn nghiệm tham chiếu (không phải solver đang chạy)
+
+T6 is retained as a compatibility proposition for a future full numerical
+solver. The current C++ executable does not expose the candidate set
+\(\mathcal C_k\), objective \(J\), residual \(r\), or a nonlinear-program
+selection step; its active invariant is P-PS3 below.
 
 Gọi $z^{(0)}$ là initial guess và $z^{(1)},\ldots,z^{(L)}$ là các candidate do
 solver trả về. Với tolerance $\tau>0$, đặt
@@ -170,9 +175,10 @@ an toàn fallback.
 Ánh xạ: nghĩa vụ PO-011. Derivation:
 [[05_Theory/proofs#Chứng minh T6]].
 
-T6 không ánh xạ vào CLM-T-04. Nó chỉ cung cấp invariant implementation dưới
+T6 không ánh xạ vào CLM-T-04. Nó chỉ là invariant của solver tham chiếu dưới
 PO-011; derivation nằm tại [[05_Theory/proofs#Chứng minh T6]]. Vì vậy T6 không
-được dùng để suy ra cận xác suất, recursive feasibility, deadline hoặc an toàn.
+được dùng để mô tả executable hiện tại hoặc suy ra cận xác suất, recursive
+feasibility, deadline hay an toàn.
 
 ## Property không đánh số
 

@@ -59,11 +59,13 @@ closed-loop safety guarantee.
 
 ### T6, P-PS3 and T-PS1
 
-T6 is a selection invariant: choosing from a nonempty feasible candidate set
-preserves the configured residual tolerance. It does not establish that the set
-is nonempty, that the solver meets its deadline, or that fallback is safe.
-P-PS3 has the same boundary because a reported numerical status describes one
-finite transcription only. T-PS1 correctly composes the causal constant-velocity
+T6 is a reference-only selection invariant: choosing from a nonempty feasible
+candidate set preserves the configured residual tolerance. The current C++
+executable does not expose that candidate set or a nonlinear-program selection
+step, so T6 is not an active implementation result. It does not establish that
+the set is nonempty, that a solver meets its deadline, or that fallback is safe.
+P-PS3 instead describes one finite bounded rollout and its reported diagnostics.
+T-PS1 correctly composes the causal constant-velocity
 internal interface with fixed-budget accounting and a one-update model bound;
 it makes no statement about prediction accuracy, recursive feasibility, or
 physical safety. The internal human-position sequence remains forbidden in
@@ -82,7 +84,7 @@ The following ledger is the single decision table for the current theory package
 | T4 | A-05, A-07, A-08, A-17 | scalar-tail derivation and covariance guards | blocked |
 | T5 | A-01, A-04, A-05, A-08 | mode/Boole derivation and accounting checks | blocked |
 | T6 | A-08 and a feasible candidate | candidate-selection regression | one-solve only |
-| P-PS3 | A-08 and frozen rows | direct-transcription regression | one-solve only |
+| P-PS3 | A-08 and frozen rows | bounded-rollout regression | one-solve only |
 | T-PS1 | T1, T4, T5 and A-08 | composed derivation | blocked |
 
 “Static only” means that the implementation agrees with the stated algebra on
