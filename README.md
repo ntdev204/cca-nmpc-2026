@@ -17,9 +17,11 @@ unregistered and cannot support manuscript claims.
 - The global path is fixed; only a conflict-triggered local path is regenerated.
 - New evidence must compare the declared controller baselines and preserve failed
   runs, metrics, provenance, and uncertainty.
-- The active Python position-state CCA branch uses direct finite-horizon
-  multiple-shooting with explicit velocity/slew and CCA chance-row constraints;
-  solver non-convergence is recorded as a fallback rather than a success.
+- The active position-state CCA branch is a compiled C++ bounded candidate
+  rollout with validated geometry, reduced context-risk correction, command
+  clipping and six-state propagation. The reserved risk-slack field is
+  bookkeeping only; no nonlinear-program residual, optimized slack or chance
+  feasibility certificate is exposed by the current executable.
 
 ## Source-of-truth boundary
 

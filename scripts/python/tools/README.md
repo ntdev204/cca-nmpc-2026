@@ -135,8 +135,9 @@ No ROS/ROS 2 runtime or editable local paper build is required.
     position-state CCA-NMPC solver.
     It writes context, robot state, applied and commanded body velocity, events,
     a copied map and a calibration sidecar.
-    Online event details include solver status, iteration count, deadline,
-    nominal constraint violation and the explicit CCA risk slack (`risk_slack_m`).
+    Online event details include controller status, bounded-rollout diagnostics,
+    deadline, nominal constraint violation and the reserved bookkeeping field
+    `risk_slack_m`; it is not an optimized slack variable or solver residual.
     The command fails closed before opening a device when physical dimensions,
     calibration or YOLO26s-pose TensorRT provenance is missing. The
     `--lstm-checkpoint` argument is optional for the initial context-only
@@ -144,7 +145,8 @@ No ROS/ROS 2 runtime or editable local paper build is required.
     overlay and CSV row records `LSTM=disabled` and
     `LSTM_PATH=<not-configured>`. When supplied, every overlay prints the
     resolved local checkpoint path and distinguishes `warmup`, `active` and
-    `invalid`. Solver non-convergence is recorded as a fallback status. The
+    `invalid`. Bounded candidate-rollout faults and deadline misses are recorded
+    as fallback status. The
     recorder never exports
     or draws the CCA-NMPC internal future-position sequence. Online CCA requires
     `--controller cca_nmpc`, a sealed checkpoint, map settings containing
