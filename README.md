@@ -42,9 +42,11 @@ metadata is retained only for provenance.
 - `reference/robot/`: read-only URDF/sensor/legacy-serial snapshot used for
   hashes and geometry intake; it is not a ROS runtime.
 - `configs/`, `schemas/`: frozen contracts and validation rules.
-- `data/`, `models/`, `artifacts/`, and `experiments/`: empty registries after
-  the 2026-08-14 clean reset. No dataset, model, result, or run payload is
-  retained. A future acquisition must use a new protocol freeze and run ID.
+- `data/`, `models/`, `artifacts/`, and `experiments/`: tracked registries are
+  empty after the 2026-08-14 clean reset. Ignored candidate outputs may remain
+  on the local research workstation, but they are not evidence, are not part
+  of the GitHub deployment snapshot, and cannot be promoted without a new
+  protocol freeze and run ID.
 - `research/obsidian/`: linked research knowledge graph, starting at
   `[[00_MOC/project-map]]`.
 - `references/zotero/`: citation exports and Zotero provenance.

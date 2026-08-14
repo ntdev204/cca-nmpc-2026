@@ -61,11 +61,13 @@ real-offline data converter for a future mechanics exercise. No candidate
 payload is currently retained after the 2026-08-14 reset; a new source must be
 provided explicitly and must never export or draw a human future path.
 
-The `experiments/runs/` directory and all four registries are empty after the
-2026-08-14 clean reset. Superseded data, model, result and human-trajectory
-payloads were removed; only the paper snapshot under
-`backup/paper-current-2026-08-01/` is retained. The exact-path purge audit is
-`research/metadata/development-purge-20260814.json`.
+The four tracked registries are empty after the 2026-08-14 clean reset.
+Candidate run outputs can remain in the local ignored `experiments/runs/`
+directory for internal diagnosis, but they are not committed, are not evidence,
+and are excluded from the Jetson deployment snapshot. Superseded data, model,
+result and human-trajectory payloads were removed; only the paper snapshot under
+`backup/paper-current-2026-08-01/` is retained for archival reference. The
+exact-path purge audit is `research/metadata/development-purge-20260814.json`.
 
 Each entry point bootstraps the repository source paths, so it can be invoked
 directly from the repository root with `python -B scripts/python/tools/<tool>.py`.
