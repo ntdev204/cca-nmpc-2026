@@ -1,7 +1,7 @@
 ---
 type: evidence-analysis
 status: candidate-not-evidence
-evidence_status: hardware-smoke-test; encoder-actuation-confirmed; physical-displacement-unverified
+evidence_status: hardware-smoke-test; encoder-actuation-confirmed; physical-displacement-confirmed-by-operator
 updated_at: 2026-08-14
 paper_edit: prohibited
 ---
@@ -36,18 +36,21 @@ stream. The first samples are consistent with the firmware's velocity ramp.
 
 The following zero-only run recorded a short deceleration tail (ten nonzero
 rows) and then zero velocity for the remainder; its normal-exit event is
-`zero_command`. No serial-write error or nonzero stop flag was recorded.
+`zero_command`. No serial-write error or nonzero stop flag was recorded. The
+operator additionally confirmed that the chassis moved and responded during
+the motion run.
 
 ## Interpretation and gate
 
-This establishes the host serial write path and a repeatable nonzero encoder
-response through the connected STM device. It does not independently verify
-that the chassis translated the integrated pose: no external odometry or video
-observation was captured. Therefore the status remains
-`candidate-not-evidence`; firmware identity, enable-state telemetry, wheel
-geometry calibration, and an independent displacement check remain open before
-any hardware claim. Do not extend duration or speed from this note without a
-new H0-approved run and a fresh output directory.
+This establishes the host serial write path, a repeatable nonzero encoder
+response, and operator-confirmed chassis motion through the connected STM
+device. The confirmation is still a commissioning observation rather than
+independent metrology: no external odometry or video observation was captured.
+Therefore the status remains `candidate-not-evidence`; firmware identity,
+enable-state telemetry, wheel geometry calibration, and an instrumented
+displacement check remain open before any Q1 hardware claim. Do not extend
+duration or speed from this note without a new H0-approved run and a fresh
+output directory.
 
 Related knowledge: [[07_Analysis/stm-control-smoke-test-20260814]],
 [[06_Methods/final-run-data-package]], [[07_Analysis/current-evidence-index]],
