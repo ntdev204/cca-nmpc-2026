@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from ai.ctx_lstm import MAX_CONTEXT_SPEED_MPS
+try:
+    from ai.ctx_lstm import MAX_CONTEXT_SPEED_MPS
+except ImportError:
+    MAX_CONTEXT_SPEED_MPS = 2.0
 from shared import (
     CCA_CAN_APPLIED_ID,
     CCA_CAN_COMMAND_PAYLOAD_ID,

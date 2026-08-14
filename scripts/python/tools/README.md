@@ -283,6 +283,32 @@ No ROS/ROS 2 runtime or editable local paper build is required.
     when motion is requested it also validates `--safety-record`. `record`
     repeats this validation immediately before device access.
 
+13. `manual_map.py` is the no-ROS commissioning entrypoint for hand driving
+the robot while the N10P LiDAR scans. It uses the C++ STM transport when the
+shared library is available, integrates STM body-velocity telemetry into a
+local pose, updates a 2-D occupancy grid from N10P scans, and saves
+`map.json`, `map.pgm`, `map.yaml`, `lidar.csv`, `robot_state.csv`,
+`control.csv`, `context.csv`, `events.csv` and a provenance manifest. The map
+is dead-reckoned from STM telemetry; it has no loop-closure or scan-matching
+claim.
+
+On the Jetson, after confirming the emergency-stop area is clear:
+
+```bash
+PYTHONPATH=src:scripts/python python3 -B scripts/python/tools/manual_map.py \
+  --stm /dev/rai_controller --lidar /dev/rai_lidar \
+  --stm-baud 115200 --lidar-baud 460800 \
+  --output experiments/runs/manual-map-<run-id>
+```
+
+Use `w/s/a/d` or the arrow keys for forward/back/lateral motion, `q/e` for
+rotation, `x` or space for a zero command, and Escape to finish and save. A
+keyboard watchdog sends zero velocity after the configured timeout. The
+default LiDAR mount is 0.10 m forward of the robot centre; override
+`--lidar-x`, `--lidar-y` or `--lidar-yaw-deg` if the measured mount differs.
+Run `--self-test` before a hardware session to validate the decoder and grid
+writer without opening devices.
+
 The active workflow has nine primary entry points: `ctx_run.py`, `map_run.py`,
 `det_eval.py`, `stm_experiment.py`, `hardware_entry.py`, `record_hardware.py`,
 `final_pack.py`, `analyze_run.py`, and `repo_check.py`; the two
