@@ -41,11 +41,12 @@ generator placed the shared object in a configuration subdirectory.
   feature vector and score matched the explicit Python fallback to machine
   precision. A 64-case finite random parity sweep had maximum absolute error
   `4.44e-16`.
-- Windows Python suite: `239` tests pass; Ruff and repository contract checks
-  pass (`24` schemas, `15` instances, no issues).
-- Hardware preflight: `PASS` interface checks, `BLOCKED` admission because
-  physical specification, calibration, safety approval and a sealed direct
-  run are absent.
+- Windows Python suite: `194` tests pass; Ruff and repository contract checks
+  pass (`24` schemas, `16` instances, `115` notes, `1,026` wikilinks, no
+  issues).
+- Hardware preflight: `PASS` interface checks, `BLOCKED` admission because the
+  user-supplied geometry is recorded but independent dimensional/sensor
+  calibration, safety approval and a sealed direct run are still pending.
 
 ## Interpretation
 
