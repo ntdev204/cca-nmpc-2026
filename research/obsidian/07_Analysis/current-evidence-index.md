@@ -2,11 +2,17 @@
 type: evidence-index
 status: candidate-development-campaign
 evidence_status: candidate-development-only; no-admitted-results
-updated_at: 2026-08-14
+updated_at: 2026-08-15
 paper_edit: prohibited
 ---
 
 # Chỉ mục artifact hiện hành
+
+**Reset boundary (2026-08-15):** all local payloads under `experiments/runs/`
+and `data/raw/`, plus generated build/test caches, were deleted. The rows below
+that reference deleted paths are retained for provenance navigation only; they
+are not current files, datasets, metrics, models, or evidence. See
+[[07_Analysis/development-payload-reset-20260815]].
 
 Chỉ mục này liệt kê artifact còn tồn tại sau lần reset. Các payload detector và
 MATLAB output **legacy** đã bị xóa; hash trong
@@ -40,14 +46,14 @@ claim.
 | `matlab/+cca/Simulation.m` + `matlab/+cca/StudyRunner.m` | Position-state comparator source with separate bounded MPC, NMPC, DWA, MPPI and CCA-NMPC branches under the shared body-velocity contract | `source/software QA; development export recorded separately` |
 | `experiments/runs/simulation-position-state-20260814/` | bounded MATLAB position-state benchmark before the clean learning campaign | `purged 2026-08-14; provenance-only` |
 | `experiments/runs/map-context-development-20260814/` | direct-adapter map pilot before the clean learning campaign | `purged 2026-08-14; provenance-only` |
-| `experiments/runs/simulation-learning-20260814/manifest.json` | fresh 9600-row simulation-only context package, frozen episode groups, self-supervised LSTM (5 seeds), score/penalty tabular Q-learning and Python map benchmark | `candidate-development-only; no hardware or paper claim` |
-| `experiments/runs/matlab-position-learning-20260814/manifest.json` | fresh bounded MATLAB position-state/body-velocity comparison for MPC, NMPC, DWA, MPPI and CCA-NMPC over four scenarios; source/configuration hashes retained | `candidate-development-only; hardwareValidated=false` |
-| `experiments/runs/simulation-learning-20260814/model/metrics.json` | LSTM group-disjoint train/validation/calibration/test-ID/test-OOD evaluation, 1176 windows per split, fitted temperature `0.426`, test-ID score `0.837`, test-OOD score `0.792`; direction labels were not used for training | `candidate-development-only; simulation-only calibration; real-data gate open` |
-| `experiments/runs/simulation-learning-20260814/rl_policy.json` | tabular Q-learning with score/penalty reward; 81 episodes, best rolling score `0.859`, learned lateral offset `1.70 m` | `candidate-development-only; policy not hardware validated` |
-| `experiments/runs/simulation-learning-20260814/benchmark/manifest.json` + `summary.json` | paired MPC/NMPC/DWA/MPPI/CCA-NMPC map benchmark, 5 replicates × 3 dynamic-context scenarios using the calibrated simulation checkpoint; fixed global path and trigger-only local path | `candidate-development-only; descriptive diagnostics only` |
-| `experiments/runs/simulation-benchmark-400mm-20260814/manifest.json` + `summary.json` | independent 10-replicate (30 paired units) development benchmark bound to `configs/physical_robot.json`; fixed global path, trigger-only local path, hash-bound LSTM and Q-learning policy, score tuning disabled | `candidate-development-only; no confirmatory or hardware claim` |
+| `experiments/runs/simulation-learning-20260814/manifest.json` | historical 9600-row simulation-only context package, frozen episode groups, self-supervised LSTM (5 seeds), score/penalty tabular Q-learning and Python map benchmark | `purged 2026-08-15; provenance-only` |
+| `experiments/runs/matlab-position-learning-20260814/manifest.json` | historical bounded MATLAB position-state/body-velocity comparison for MPC, NMPC, DWA, MPPI and CCA-NMPC over four scenarios; source/configuration hashes retained | `purged 2026-08-15; provenance-only` |
+| `experiments/runs/simulation-learning-20260814/model/metrics.json` | historical LSTM group-disjoint train/validation/calibration/test-ID/test-OOD evaluation; direction labels were not used for training | `purged 2026-08-15; provenance-only; metrics not retained` |
+| `experiments/runs/simulation-learning-20260814/rl_policy.json` | historical tabular Q-learning with score/penalty reward | `purged 2026-08-15; provenance-only; policy not retained` |
+| `experiments/runs/simulation-learning-20260814/benchmark/manifest.json` + `summary.json` | historical paired MPC/NMPC/DWA/MPPI/CCA-NMPC map benchmark | `purged 2026-08-15; provenance-only` |
+| `experiments/runs/simulation-benchmark-400mm-20260814/manifest.json` + `summary.json` | historical independent 10-replicate development benchmark bound to `configs/physical_robot.json` | `purged 2026-08-15; provenance-only` |
 | `configs/physical_robot.json` | user-supplied 400 x 400 mm total footprint, interpreted 50 mm wheel radius, LiDAR/camera heights and front-edge offsets, and downward camera pitch; source hash is bound into the map contract | `user-supplied geometry input; independent dimensional and calibration verification pending` |
-| `experiments/runs/matlab-position-learning-20260814/manifest.json` | bounded MATLAB position-state comparison over MPC, NMPC, DWA, MPPI and CCA-NMPC | `candidate-development-only; no hardware claim` |
+| `experiments/runs/matlab-position-learning-20260814/manifest.json` | historical bounded MATLAB position-state comparison over MPC, NMPC, DWA, MPPI and CCA-NMPC | `purged 2026-08-15; provenance-only` |
 | `experiments/runs/stm-motion-test-jetson/` (Jetson, remote) | one-second C++ STM smoke test with `vx_cmd=0.02 m/s`; serial loop completed, but applied telemetry remained zero | `candidate-not-evidence; superseded by controlled follow-up` |
 | `experiments/runs/stm-motion-test-010-jetson/` + `experiments/runs/stm-stop-verification-jetson/` (Jetson, remote) | one-second `vx_cmd=0.10 m/s` direct C++ STM run followed by two-second zero-only stop verification; measured encoder response, clean zero tail, and operator-confirmed chassis motion | `candidate-not-evidence; commissioning motion confirmed by encoder and operator, independent metrology pending` |
 | `experiments/runs/stm-motion-test-030-jetson/` + `experiments/runs/stm-stop-verification-030-jetson/` (Jetson, remote) | one-second `vx_cmd=0.30 m/s` direct C++ STM run followed by two-second zero-only stop verification; measured ramp to `0.211 m/s`, integrated `x=0.08316 m`, and zero final tail | `candidate-not-evidence; higher-speed commissioning response and stop verified, calibration/metrology pending` |
@@ -68,6 +74,7 @@ claim.
 | `data/raw/coco8-pose-20260814/coco8-pose-manifest.json` + `coco8-pose-bbox-annotations.json` + `research/metadata/coco8_pose_preflight_20260814.json` | four public COCO8-pose validation images with provider bounding boxes; manifest/media/annotation schema and hash checks pass | `candidate-not-evidence; provider labels are not independent annotation; admission BLOCKED` |
 | `experiments/runs/coco8-pose-inference-20260814/` | fresh YOLO26s-pose CPU box diagnostic at confidence `0.25`, IoU `0.5`: TP `11`, FP `1`, FN `3`, P/R/F1 `0.9167/0.7857/0.8462`, mean matched IoU `0.8562`, P50/P95/max `324.91/573.17/603.18` ms | `candidate-not-evidence; four-image descriptive diagnostic only` |
 | `research/metadata/simulation-reset-20260814.json` | exact inventory and deletion audit: 51 files, 36,288,151 bytes; backup retained | `reset-complete; provenance-only` |
+| `research/metadata/development-payload-reset-20260815.json` | exact local purge audit: 405 files, 58,148,030 bytes; run/data/build/test payloads removed and backup/source preserved | `reset-complete; clean-before-real-data; provenance-only` |
 
 ## Quy tắc đọc
 

@@ -1,0 +1,38 @@
+{
+  "schema": "cca-development-payload-reset-v1",
+  "schema_version": "1.0.0",
+  "reset_date": "2026-08-15",
+  "reason": "User-requested deletion of old experiment runs, test outputs, datasets and generated run data before real-hardware data collection.",
+  "paper_edit": false,
+  "preserved": [
+    "backup/",
+    "source code under src/, scripts/, matlab/ and tests/",
+    "reference/ and references/",
+    "research/obsidian/ and research/metadata/",
+    "configs/, schemas/, protocols/ and all four empty registries"
+  ],
+  "removed": [
+    {"path": "experiments/runs/", "file_count": 67, "byte_count": 51648905, "kind": "old experiment and hardware run payloads"},
+    {"path": "data/raw/", "file_count": 32, "byte_count": 4082715, "kind": "old image/dataset payloads"},
+    {"path": "build/", "file_count": 247, "byte_count": 893193, "kind": "local native build and test output"},
+    {"path": ".pytest_cache/", "file_count": 5, "byte_count": 21264, "kind": "test cache"},
+    {"path": ".ruff_cache/", "file_count": 8, "byte_count": 2290, "kind": "lint cache"},
+    {"path": "src/**/__pycache__/ and scripts/**/__pycache__/ and tests/**/__pycache__/", "file_count": 46, "byte_count": 1499663, "kind": "Python bytecode cache"}
+  ],
+  "removed_total": {"file_count": 405, "byte_count": 58148030},
+  "empty_or_absent_targets": [
+    "experiments/commands/",
+    "data/processed/",
+    "data/manifests/",
+    "models/candidates/",
+    "artifacts/payload/",
+    "artifacts/generated/"
+  ],
+  "recreated_empty_directories": [
+    "experiments/runs/",
+    "data/raw/",
+    "data/processed/",
+    "data/manifests/"
+  ],
+  "status": "clean-before-real-data"
+}
