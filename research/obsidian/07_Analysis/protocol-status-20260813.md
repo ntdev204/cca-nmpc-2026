@@ -3,7 +3,7 @@ type: protocol-status
 status: active
 evidence_status: knowledge-and-historical-ledger
 paper_edit: prohibited
-updated_at: 2026-08-14
+updated_at: 2026-08-15
 ---
 
 # Protocol status ledger — current snapshot after clean reset (2026-08-14)
@@ -46,6 +46,12 @@ is bound by `configs/study_contract.json`. The read-only robot snapshot is
 under `reference/robot/`; historical `src/ros2`, `src/python/` and `src/matlab/`
 paths below are retained only as audit provenance and are not active entry
 points.
+
+The compact `scripts/python/tools/robot_console.py` is now the operator surface
+for PR30 commissioning: one Jetson service streams STM32/N10P/Astra-S state to
+one laptop window and saves the direct CSV/map package. Its self-test and
+repository checks pass, but the protocol remains `REVIEWED` and hardware
+admission remains blocked until an approved physical run is sealed.
 
 ## Evidence pointers
 

@@ -54,7 +54,7 @@ deliberately outside the vault.
 [[06_Methods/simulation-protocol]] · [[06_Methods/execution-roadmap]] ·
 [[06_Methods/protocol-index]] ·
 [[06_Methods/evaluation-protocol]] · [[06_Methods/statistical-analysis]] ·
-[[06_Methods/final-run-data-package]] · [[03_Literature/hardware-sensor-sources]] ·
+[[06_Methods/final-run-data-package]] · [[06_Methods/robot-console-architecture]] · [[03_Literature/hardware-sensor-sources]] ·
 [[08_Decisions/decision-register]]
 
 Protocol status is maintained in [[07_Analysis/protocol-status-20260813]];

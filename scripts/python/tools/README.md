@@ -309,6 +309,18 @@ default LiDAR mount is 0.10 m forward of the robot centre; override
 Run `--self-test` before a hardware session to validate the decoder and grid
 writer without opening devices.
 
+14. `robot_console.py` is the single operator app. Run the service on the Jetson
+with `python3 -B scripts/python/tools/robot_console.py --server`; it discovers
+the STM32, N10P and the ARM64 OpenNI2 directory automatically. Open the same
+file on the laptop without arguments, enter the Jetson address, and press
+Connect. The window provides an explicit motion-enable latch, an emergency
+stop, keyboard teleoperation, a live 2-D occupancy view, a lightweight 3-D
+sensor view, Astra-S frames, and scan controls. Start scan creates one ignored
+run directory; Save map writes `map.json`, `map.pgm`, `map.yaml`, the four CSV
+streams and a manifest. The service watchdog sends zero velocity when command
+updates stop. The app is a transport and commissioning surface; it does not
+change the locked manuscript or manufacture research evidence.
+
 The active workflow has nine primary entry points: `ctx_run.py`, `map_run.py`,
 `det_eval.py`, `stm_experiment.py`, `hardware_entry.py`, `record_hardware.py`,
 `final_pack.py`, `analyze_run.py`, and `repo_check.py`; the two

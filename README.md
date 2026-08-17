@@ -86,6 +86,23 @@ library on Linux. The same library supplies the fixed-width CCA CAN codec
 through `shared.py`; set `CCA_STM_BACKEND=python` or
 `CCA_CAN_BACKEND=python` only for an explicit compatibility fallback.
 
+### Laptop robot console
+
+The compact operator app is `scripts/python/tools/robot_console.py`. On the
+Jetson run one short service command:
+
+```bash
+PYTHONPATH=src:scripts/python python3 -B scripts/python/tools/robot_console.py --server
+```
+
+On the laptop open the same file without arguments, enter the Jetson address,
+and press **Connect**. The app provides motion enable/E-stop, keyboard
+teleoperation, 2-D map and laser display, a lightweight 3-D sensor view,
+Astra-S preview, scan start/stop, and map/data saving. The service discovers
+`openni2_redist/arm64` automatically and keeps the watchdog beside the STM32
+transport. Saved runs remain ignored until the physical package is checked by
+the existing evidence gates.
+
 ```bash
 export PYTHONPATH=src:scripts/python
 python3 -B scripts/python/tools/hardware_entry.py inspect \

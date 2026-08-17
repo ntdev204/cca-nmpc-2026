@@ -50,7 +50,7 @@ Never promote evidence from one stage to another.
 [[06_Methods/dataset-protocol]] · [[06_Methods/perception-protocol]] ·
 [[06_Methods/lstm-protocol]] · [[06_Methods/simulation-protocol]] ·
 [[06_Methods/evaluation-protocol]] · [[06_Methods/statistical-analysis]] ·
-[[06_Methods/final-run-data-package]]
+[[06_Methods/final-run-data-package]] · [[06_Methods/robot-console-architecture]]
 
 Related: [[04_Research_Gap/research-gap]], [[05_Theory/system-model]],
 [[06_Methods/execution-roadmap]].
