@@ -1,15 +1,26 @@
 import net from "node:net";
+import { inflateSync } from "node:zlib";
 
 export type RobotMessage = Record<string, unknown>;
 
 const ROBOT_HOST = process.env.ROBOT_HOST ?? "100.69.39.18";
 const ROBOT_PORT = Number(process.env.ROBOT_PORT ?? "8765");
+const WIRE_ENCODING = "zlib+base64";
+
+function decodeWireMessage(value: RobotMessage): RobotMessage {
+  if (value.encoding !== "zlib+base64") return value;
+  if (typeof value.payload !== "string") throw new Error("compressed robot message has no payload");
+  const decoded = JSON.parse(inflateSync(Buffer.from(value.payload, "base64")).toString("utf8")) as RobotMessage;
+  if (String(decoded.type ?? "") !== String(value.type ?? "")) throw new Error("compressed robot message type mismatch");
+  return decoded;
+}
 
 function collect(payload: RobotMessage, timeoutMs = 450): Promise<RobotMessage[]> {
   return new Promise((resolve, reject) => {
     const messages: RobotMessage[] = [];
     let buffer = "";
     let settled = false;
+    const wirePayload = { ...payload, compression: [WIRE_ENCODING] };
     const socket = net.createConnection({ host: ROBOT_HOST, port: ROBOT_PORT });
     const finish = (error?: Error) => {
       if (settled) return;
@@ -19,7 +30,11 @@ function collect(payload: RobotMessage, timeoutMs = 450): Promise<RobotMessage[]
       else resolve(messages);
     };
     const timer = setTimeout(() => finish(), timeoutMs);
-    socket.once("connect", () => socket.write(`${JSON.stringify(payload)}\n`));
+    socket.once("connect", () => {
+      socket.setNoDelay(true);
+      socket.setKeepAlive(true, 5000);
+      socket.write(`${JSON.stringify(wirePayload)}\n`);
+    });
     socket.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
       const lines = buffer.split("\n");
@@ -28,7 +43,7 @@ function collect(payload: RobotMessage, timeoutMs = 450): Promise<RobotMessage[]
         if (!line.trim()) continue;
         try {
           const value = JSON.parse(line) as RobotMessage;
-          messages.push(value);
+          messages.push(decodeWireMessage(value));
         } catch {
           // Ignore a partial or malformed stream item; the next poll retries.
         }

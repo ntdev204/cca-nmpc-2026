@@ -100,7 +100,10 @@ On the laptop run `app/desktop/operator.py`; the web dashboard is
 when STM32 is online, and provides emergency stop, keyboard teleoperation,
 2-D map and laser display with map-frame robot pose, Astra-S preview,
 scan start/stop, saved-map viewing, and map/data saving. The 2-D view can
-follow the robot while scanning or stay fixed for whole-map inspection. The service discovers
+follow the robot while scanning or stay fixed for whole-map inspection. State,
+LiDAR and map stream frames use fast zlib framing when smaller than raw JSON;
+camera frames are resized/JPEG-compressed, and TCP_NODELAY keeps control packets
+responsive. The service discovers
 `openni2_redist/arm64` automatically and keeps the watchdog beside the STM32
 transport. Saved runs remain ignored until the physical package is checked by
 the existing evidence gates.

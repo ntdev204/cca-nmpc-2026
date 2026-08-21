@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import io
 import json
 import math
@@ -12,6 +13,7 @@ import signal
 import socket
 import threading
 import time
+import zlib
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,9 +34,12 @@ MAP_PERIOD_S = 1.0
 # The camera is a monitoring stream, not the control loop. Keep it light enough
 # for a Wi-Fi/VPN link and let Peer retain only the newest frame.
 CAMERA_PERIOD_S = 0.33
-CAMERA_MAX_SIZE = (480, 360)
-CAMERA_JPEG_QUALITY = 55
+CAMERA_MAX_SIZE = (384, 288)
+CAMERA_JPEG_QUALITY = 45
 STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map", "camera"})
+COMPRESS_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
+WIRE_ENCODING = "zlib+base64"
+COMPRESS_MIN_BYTES = 220
 POSE_DISPLAY_TIME_CONSTANT_S = 0.18
 DISPLAY_VIEW_SPAN_M = 6.0
 MOVE_DIRECTIONS: dict[str, tuple[int, int, int]] = {
@@ -126,8 +131,42 @@ def compact_points(points: Any, limit: int = MAX_POINTS) -> list[list[float]]:
     return result
 
 
-def encode_json(payload: dict[str, Any]) -> bytes:
-    return (json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+def _json_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def encode_json(payload: dict[str, Any], *, compress: bool = True) -> bytes:
+    raw = _json_bytes(payload)
+    message_type = str(payload.get("type", ""))
+    if compress and message_type in COMPRESS_MESSAGE_TYPES and len(raw) >= COMPRESS_MIN_BYTES:
+        compressed = zlib.compress(raw, level=3)
+        envelope = _json_bytes(
+            {
+                "type": message_type,
+                "encoding": WIRE_ENCODING,
+                "payload": base64.b64encode(compressed).decode("ascii"),
+            }
+        )
+        if len(envelope) < len(raw):
+            return envelope + b"\n"
+    return raw + b"\n"
+
+
+def decode_json_line(line: bytes) -> dict[str, Any]:
+    value = json.loads(line.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("wire message must be a JSON object")
+    if value.get("encoding") != WIRE_ENCODING:
+        return value
+    encoded = value.get("payload")
+    if not isinstance(encoded, str):
+        raise ValueError("compressed wire message has no payload")
+    decoded = json.loads(zlib.decompress(base64.b64decode(encoded, validate=True)).decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("compressed wire payload must be a JSON object")
+    if str(decoded.get("type", "")) != str(value.get("type", "")):
+        raise ValueError("compressed wire message type mismatch")
+    return decoded
 
 
 def direction_velocity(direction: str, speed_mps: float, yaw_radps: float) -> tuple[float, float, float]:
@@ -189,6 +228,7 @@ class Peer:
     latest_stream: dict[str, bytes] = field(default_factory=dict)
     writer_stop: threading.Event = field(default_factory=threading.Event)
     writer_thread: threading.Thread | None = None
+    compression_enabled: bool = False
     closed: bool = False
 
     def start_writer(self) -> None:
@@ -196,7 +236,7 @@ class Peer:
         self.writer_thread.start()
 
     def enqueue(self, payload: dict[str, Any]) -> bool:
-        packet = encode_json(payload)
+        packet = encode_json(payload, compress=self.compression_enabled)
         message_type = str(payload.get("type", "event"))
         with self.outgoing_condition:
             if self.closed:
@@ -382,7 +422,7 @@ class RobotService:
         image = Image.fromarray(rgb)
         image.thumbnail(CAMERA_MAX_SIZE)
         stream = io.BytesIO()
-        image.save(stream, format="JPEG", quality=CAMERA_JPEG_QUALITY, optimize=False)
+        image.save(stream, format="JPEG", quality=CAMERA_JPEG_QUALITY, optimize=True)
         return base64.b64encode(stream.getvalue()).decode("ascii")
 
     def start_scan(self) -> None:
@@ -707,11 +747,15 @@ class RobotService:
                 if not line.strip():
                     continue
                 try:
-                    message = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
+                    message = decode_json_line(line)
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError, binascii.Error, zlib.error):
                     peer.enqueue({"type": "event", "event": "error", "message": "invalid message"})
                     continue
                 if isinstance(message, dict):
+                    requested = message.get("compression")
+                    if isinstance(requested, str):
+                        requested = [requested]
+                    peer.compression_enabled = isinstance(requested, list) and WIRE_ENCODING in requested
                     self.handle(peer, message)
         except (ConnectionError, OSError):
             pass
@@ -866,6 +910,8 @@ class RobotService:
                     if self.stop_event.is_set():
                         break
                     raise
+                connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 peer = Peer(connection, f"{address[0]}:{address[1]}")
                 with self.state_lock:
                     busy = bool(self.peers)
@@ -1086,13 +1132,15 @@ class ConsoleApp:
         self.disconnect()
         try:
             sock = socket.create_connection((self.host.get().strip(), int(self.port.get())), timeout=3.0)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             sock.settimeout(None)
             self.sock = sock
             self.reader_stop.clear()
             self.reader_thread = threading.Thread(target=self._reader, args=(sock,), name="console-reader", daemon=True)
             self.reader_thread.start()
             self.connection_text.set(f"Connected to {self.host.get().strip()}:{self.port.get()}")
-            self.send({"command": "ping"})
+            self.send({"command": "ping", "compression": [WIRE_ENCODING]})
         except Exception as error:
             self.connection_text.set(f"Connection failed: {error}")
             self.sock = None
@@ -1128,10 +1176,10 @@ class ConsoleApp:
                     break
                 if line.strip():
                     try:
-                        message = json.loads(line.decode("utf-8"))
+                        message = decode_json_line(line)
                         if isinstance(message, dict):
                             self.messages.put(message)
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, binascii.Error, zlib.error):
                         self.messages.put({"type": "event", "event": "error", "message": "invalid server message"})
         except (ConnectionError, OSError):
             self.messages.put(

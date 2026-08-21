@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import math
+import json
 from types import SimpleNamespace
 
 import pytest
 
 from hardware import Stm32Telemetry
-from app.backend.robot_console import ConsoleApp, RobotService, copy_pose_for_mapping, smooth_display_pose
+from app.backend.robot_console import ConsoleApp, RobotService, copy_pose_for_mapping, decode_json_line, encode_json, smooth_display_pose
 from app.backend.manual_map import Pose
 
 
@@ -82,3 +83,11 @@ def test_state_payload_exposes_map_frame_pose_separately() -> None:
 
     assert payload["pose"] == pytest.approx([0.20, -0.10, 0.10])
     assert payload["map_pose"] == pytest.approx([0.35, -0.05, 0.08])
+
+
+def test_stream_wire_compression_round_trips_and_reduces_repetitive_map() -> None:
+    payload = {"type": "map", "map": {"width": 120, "height": 80, "occupancy": [0] * 9600}}
+    raw_size = len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) + 1
+    packet = encode_json(payload)
+    assert len(packet) < raw_size
+    assert decode_json_line(packet) == payload

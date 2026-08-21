@@ -12,4 +12,10 @@ PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server --bind 0.0.0
 ```
 
 The backend sends both the live odometry pose (`pose`) and the map-frame pose
-used to place the latest scan (`map_pose`).
+used to place the latest scan (`map_pose`). Stream messages for state, LiDAR and
+map are zlib-compressed and Base64-framed when that is smaller than JSON;
+camera frames are resized and JPEG-encoded for the constrained link. TCP
+keep-alive and `TCP_NODELAY` are enabled so short control packets are not held
+behind a stale stream frame. Compression is negotiated by the client in the
+initial `ping`; clients that do not advertise it continue to receive ordinary
+JSON lines.
