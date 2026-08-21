@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "continuous-cca-nmpc"
 version = "0.1.0"
 description = "Control-centered simulation and validation contracts for Continuous CCA-NMPC"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
   "jsonschema[format]>=4.23",
   "matplotlib>=3.9",
@@ -24,6 +24,7 @@ validation = [
   "PyYAML>=6.0",
 ]
 hardware = [
+  "primesense>=2.2.0.30.post5",
   "pyserial>=3.5",
   "python-can>=4.4",
 ]

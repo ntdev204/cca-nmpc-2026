@@ -6,7 +6,9 @@ import json
 import math
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -447,7 +449,11 @@ def inspect(args: argparse.Namespace) -> int:
         "serial_ports": ports(),
         "runtime": {
             "python": sys.version.split()[0],
-            "openni2_importable": _importable("openni2") or _importable("openni.openni2"),
+            "openni2_importable": (
+                _importable("openni2")
+                or _importable("openni.openni2")
+                or _importable("primesense.openni2")
+            ),
             "pyserial_importable": _importable("serial"),
             "ultralytics_importable": _importable("ultralytics"),
         },

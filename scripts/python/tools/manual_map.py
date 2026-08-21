@@ -140,6 +140,24 @@ class Pose:
         return self.x_m, self.y_m, self.yaw_rad
 
 
+@dataclass(frozen=True)
+class ScanMatchResult:
+    """Quality record for the bounded scan-to-map correction.
+
+    This is deliberately a local matcher only.  It does not maintain a pose
+    graph or perform loop closure, so a successful result must not be treated
+    as global-SLAM evidence.
+    """
+
+    accepted: bool
+    score: float
+    inliers: int
+    point_count: int
+    correction_m: float
+    correction_yaw_rad: float
+    reason: str
+
+
 def bresenham(start: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, int], ...]:
     x0, y0 = start
     x1, y1 = end
@@ -163,6 +181,18 @@ def bresenham(start: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, 
 
 
 class OccupancyMap:
+    # The matcher is intentionally small and bounded so the no-ROS console
+    # remains usable on Jetson-class hardware.  The STM odometry remains the
+    # prediction; these limits only correct short-term drift between scans.
+    SCAN_MATCH_MIN_OCCUPIED_CELLS = 16
+    SCAN_MATCH_MIN_POINTS = 20
+    SCAN_MATCH_MAX_POINTS = 120
+    SCAN_MATCH_TRANSLATION_WINDOW_M = 0.10
+    SCAN_MATCH_TRANSLATION_STEP_M = 0.05
+    SCAN_MATCH_YAW_WINDOW_RAD = math.radians(6.0)
+    SCAN_MATCH_YAW_STEP_RAD = math.radians(2.0)
+    SCAN_MATCH_MIN_INLIER_RATIO = 0.20
+
     def __init__(
         self,
         resolution_m: float,
@@ -173,6 +203,7 @@ class OccupancyMap:
         min_range_m: float,
         max_range_m: float,
         padding_cells: int,
+        scan_matching: bool = True,
     ) -> None:
         if not math.isfinite(resolution_m) or resolution_m <= 0.0:
             raise ValueError("map resolution must be positive and finite")
@@ -187,16 +218,108 @@ class OccupancyMap:
         self.min_range_m = float(min_range_m)
         self.max_range_m = float(max_range_m)
         self.padding_cells = int(padding_cells)
+        self.scan_matching_enabled = bool(scan_matching)
         self.free: set[tuple[int, int]] = set()
         self.occupied: set[tuple[int, int]] = set()
         self.poses: list[tuple[float, float, float]] = []
         self.scans = 0
         self.points = 0
+        self.scan_match_attempts = 0
+        self.scan_match_accepted = 0
+        self.last_scan_match = ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "not_run")
 
     def cell(self, x_m: float, y_m: float) -> tuple[int, int]:
         return math.floor(x_m / self.resolution_m), math.floor(y_m / self.resolution_m)
 
+    def _scan_match_points(self, scan: LidarScan) -> tuple[tuple[float, float], ...]:
+        points: list[tuple[float, float]] = []
+        for point in scan.points:
+            distance = finite(point.range_m)
+            if distance is None or distance < self.min_range_m or distance >= self.max_range_m:
+                continue
+            angle = self.lidar_yaw_rad + point.angle_rad
+            points.append(
+                (
+                    self.lidar_x_m + distance * math.cos(angle),
+                    self.lidar_y_m + distance * math.sin(angle),
+                )
+            )
+        if len(points) <= self.SCAN_MATCH_MAX_POINTS:
+            return tuple(points)
+        stride = math.ceil(len(points) / self.SCAN_MATCH_MAX_POINTS)
+        return tuple(points[::stride][: self.SCAN_MATCH_MAX_POINTS])
+
+    def _scan_match_inliers(
+        self,
+        points: tuple[tuple[float, float], ...],
+        candidate: tuple[float, float, float],
+    ) -> int:
+        x_m, y_m, yaw_rad = candidate
+        cosine = math.cos(yaw_rad)
+        sine = math.sin(yaw_rad)
+        return sum(
+            self.cell(x_m + cosine * point_x - sine * point_y, y_m + sine * point_x + cosine * point_y)
+            in self.occupied
+            for point_x, point_y in points
+        )
+
+    def _scan_match(
+        self,
+        scan: LidarScan,
+        pose: Pose,
+    ) -> tuple[ScanMatchResult, tuple[float, float, float]]:
+        base = pose.as_tuple()
+        if not self.scan_matching_enabled:
+            return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "disabled"), base
+        if len(self.occupied) < self.SCAN_MATCH_MIN_OCCUPIED_CELLS:
+            return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "insufficient_map"), base
+        points = self._scan_match_points(scan)
+        if len(points) < self.SCAN_MATCH_MIN_POINTS:
+            return ScanMatchResult(False, 0.0, 0, len(points), 0.0, 0.0, "insufficient_points"), base
+
+        self.scan_match_attempts += 1
+        best = base
+        best_inliers = self._scan_match_inliers(points, base)
+        best_distance = 0.0
+        translation_steps = round(self.SCAN_MATCH_TRANSLATION_WINDOW_M / self.SCAN_MATCH_TRANSLATION_STEP_M)
+        yaw_steps = round(self.SCAN_MATCH_YAW_WINDOW_RAD / self.SCAN_MATCH_YAW_STEP_RAD)
+        for yaw_index in range(-yaw_steps, yaw_steps + 1):
+            candidate_yaw = base[2] + yaw_index * self.SCAN_MATCH_YAW_STEP_RAD
+            for x_index in range(-translation_steps, translation_steps + 1):
+                candidate_x = base[0] + x_index * self.SCAN_MATCH_TRANSLATION_STEP_M
+                for y_index in range(-translation_steps, translation_steps + 1):
+                    candidate_y = base[1] + y_index * self.SCAN_MATCH_TRANSLATION_STEP_M
+                    candidate = (candidate_x, candidate_y, candidate_yaw)
+                    inliers = self._scan_match_inliers(points, candidate)
+                    distance = math.hypot(candidate_x - base[0], candidate_y - base[1]) + abs(yaw_index) * self.resolution_m
+                    if inliers > best_inliers or (inliers == best_inliers and distance < best_distance):
+                        best = candidate
+                        best_inliers = inliers
+                        best_distance = distance
+
+        score = best_inliers / len(points)
+        minimum_inliers = max(8, math.ceil(self.SCAN_MATCH_MIN_INLIER_RATIO * len(points)))
+        if best_inliers < minimum_inliers:
+            return (
+                ScanMatchResult(False, score, best_inliers, len(points), 0.0, 0.0, "low_inlier_ratio"),
+                base,
+            )
+        correction_m = math.hypot(best[0] - base[0], best[1] - base[1])
+        correction_yaw = math.atan2(
+            math.sin(best[2] - base[2]),
+            math.cos(best[2] - base[2]),
+        )
+        return (
+            ScanMatchResult(True, score, best_inliers, len(points), correction_m, correction_yaw, "accepted"),
+            best,
+        )
+
     def update(self, scan: LidarScan, pose: Pose) -> None:
+        match, corrected = self._scan_match(scan, pose)
+        self.last_scan_match = match
+        if match.accepted:
+            self.scan_match_accepted += 1
+            pose.x_m, pose.y_m, pose.yaw_rad = corrected
         sensor_x = pose.x_m + math.cos(pose.yaw_rad) * self.lidar_x_m - math.sin(pose.yaw_rad) * self.lidar_y_m
         sensor_y = pose.y_m + math.sin(pose.yaw_rad) * self.lidar_x_m + math.cos(pose.yaw_rad) * self.lidar_y_m
         start_cell = self.cell(sensor_x, sensor_y)
@@ -244,12 +367,23 @@ class OccupancyMap:
             "origin": [min_x * self.resolution_m, min_y * self.resolution_m, 0.0],
             "occupancy": occupancy,
             "metadata": {
-                "map_source": "manual_teleop_n10p",
+                "map_source": "manual_teleop_n10p_scan_to_map",
                 "scans": self.scans,
                 "points": self.points,
                 "row_order": "y_increasing_from_origin",
                 "lidar_mount_m": [self.lidar_x_m, self.lidar_y_m],
                 "lidar_yaw_rad": self.lidar_yaw_rad,
+                "scan_matching": {
+                    "enabled": self.scan_matching_enabled,
+                    "method": "bounded_correlative_scan_to_map",
+                    "attempts": self.scan_match_attempts,
+                    "accepted": self.scan_match_accepted,
+                    "last_score": self.last_scan_match.score,
+                    "last_inliers": self.last_scan_match.inliers,
+                    "last_point_count": self.last_scan_match.point_count,
+                    "last_correction_m": self.last_scan_match.correction_m,
+                    "last_correction_yaw_rad": self.last_scan_match.correction_yaw_rad,
+                },
             },
         }
 
@@ -445,7 +579,16 @@ def write_manifest(root: Path, args: argparse.Namespace, mapper: OccupancyMap, t
         "baudrate": {"stm": args.stm_baud, "lidar": args.lidar_baud},
         "transport": transport,
         "lidar_protocol_profile": N10P_PROTOCOL_PROFILE,
-        "map": {"resolution_m": args.resolution, "lidar_mount_m": [args.lidar_x, args.lidar_y], "lidar_yaw_rad": math.radians(args.lidar_yaw_deg), "scans": mapper.scans, "points": mapper.points},
+        "map": {
+            "resolution_m": args.resolution,
+            "lidar_mount_m": [args.lidar_x, args.lidar_y],
+            "lidar_yaw_rad": math.radians(args.lidar_yaw_deg),
+            "scans": mapper.scans,
+            "points": mapper.points,
+            "scan_matching": mapper.scan_matching_enabled,
+            "scan_match_attempts": mapper.scan_match_attempts,
+            "scan_match_accepted": mapper.scan_match_accepted,
+        },
         "control": {"keyboard": "w/s/a/d or arrows; q/e rotate; x/space stop; escape exit", "max_speed_mps": args.speed, "max_yaw_speed_radps": args.yaw_speed, "command_timeout_s": args.command_timeout},
         "files": files,
     }
@@ -459,6 +602,24 @@ def self_test() -> None:
     payload = mapper.payload()
     if payload["width"] < 3 or payload["height"] < 3 or 100 not in payload["occupancy"] or 0 not in payload["occupancy"]:
         raise AssertionError("occupancy map self-test failed")
+    landmarks = tuple(
+        LidarPoint(
+            2,
+            math.atan2(y_m, x_m),
+            math.hypot(x_m, y_m),
+            20,
+            0,
+        )
+        for x_m in (0.8, 1.2, 1.6, 2.0)
+        for y_m in (-1.0, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1.0)
+    )
+    reference_scan = LidarScan(2, landmarks)
+    matcher = OccupancyMap(0.05, lidar_x_m=0.0, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
+    matcher.update(reference_scan, Pose())
+    drifted_pose = Pose(x_m=0.10)
+    matcher.update(reference_scan, drifted_pose)
+    if not matcher.last_scan_match.accepted or drifted_pose.x_m > 0.05:
+        raise AssertionError(f"scan-to-map self-test failed: {matcher.last_scan_match}")
     if N10PDecoder(N10P_PROTOCOL_PROFILE).packet_size != 108:
         raise AssertionError("N10P profile self-test failed")
     print("manual_map self-test: PASS")

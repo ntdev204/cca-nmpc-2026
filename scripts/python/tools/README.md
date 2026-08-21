@@ -289,8 +289,13 @@ shared library is available, integrates STM body-velocity telemetry into a
 local pose, updates a 2-D occupancy grid from N10P scans, and saves
 `map.json`, `map.pgm`, `map.yaml`, `lidar.csv`, `robot_state.csv`,
 `control.csv`, `context.csv`, `events.csv` and a provenance manifest. The map
-is dead-reckoned from STM telemetry; it has no loop-closure or scan-matching
-claim.
+uses STM body-velocity telemetry as its prediction and applies a bounded
+correlative scan-to-map correction when enough occupied cells and valid LiDAR
+returns are available. This is local scan matching only: it has no pose graph,
+global relocalisation, loop closure, or ROS map-server publication. The map
+manifest and `map.json` metadata record matcher attempts, inliers and the last
+accepted correction so a run can be audited before it is used for controller
+experiments.
 
 On the Jetson, after confirming the emergency-stop area is clear:
 
@@ -310,20 +315,63 @@ Run `--self-test` before a hardware session to validate the decoder and grid
 writer without opening devices.
 
 14. `robot_console.py` is the single operator app. Run the service on the Jetson
-with `python3 -B scripts/python/tools/robot_console.py --server`; it discovers
-the STM32, N10P and the ARM64 OpenNI2 directory automatically. Open the same
-file on the laptop without arguments, enter the Jetson address, and press
-Connect. The window provides an explicit motion-enable latch, an emergency
-stop, keyboard teleoperation, a live 2-D occupancy view, a lightweight 3-D
-sensor view, Astra-S frames, and scan controls. Start scan creates one ignored
-run directory; Save map writes `map.json`, `map.pgm`, `map.yaml`, the four CSV
-streams and a manifest. The service watchdog sends zero velocity when command
-updates stop. The app is a transport and commissioning surface; it does not
-change the locked manuscript or manufacture research evidence.
+    with `python3 -B scripts/python/tools/robot_console.py --server`; it discovers
+    the STM32, N10P and the ARM64 OpenNI2 directory automatically. Open the same
+    file on the laptop without arguments, enter the Jetson address, and press
+    Connect. After the server handshake the laptop client arms the live session
+    automatically when the STM32 is available; there is no separate motion-enable
+    button or keyboard key. Hold `W/S/A/D` or the arrow keys for forward, reverse,
+    lateral and four diagonal directions; hold `Q/E` or the rotate buttons to
+    turn. The 3x3 pad exposes all eight planar directions plus stop. Press `X` or
+    `Space` (or the visible button) for emergency stop. The server also accepts
+    `{"command":"move","direction":"forward_left","speed_mps":0.2,"yaw_radps":0}`
+    and the directions `forward`, `backward`, `left`, `right`,
+    `forward_left`, `forward_right`, `backward_left`, `backward_right`,
+    `rotate_left`, `rotate_right` and `stop`. The window
+    also provides a live 2-D occupancy view, a lightweight 3-D sensor view,
+    reduced-rate Astra-S frames, and scan controls. Camera/state updates use a
+    newest-frame queue so a slow Wi-Fi/VPN link cannot delay keyboard commands.
+    A new client receives the current map snapshot even when no scan cell has
+    changed. **View last saved map** requests the newest saved `map.json` from
+    Jetson; **Open local map.json** displays a package copied to the laptop.
+    Left-click the map to choose a goal, then press **Plan shortest
+    path (A*)**; the Jetson uses the existing `simulation.planning.astar_plan`
+    through `src/simulation/occupancy_astar.py`, draws the returned route, and
+    saves `navigation_plan.json`. Unknown cells are fail-closed and the frozen
+    robot footprint radius is used for inflation. Planning is preview-only and
+    never sends a velocity command.
+    Start scan creates one ignored run
+    directory; Save map writes `map.json`, `map.pgm`, `map.yaml`, the four CSV
+    streams and a manifest. The service watchdog sends zero velocity during a
+    short GUI/network stall without disabling the session; disconnect and
+    emergency-stop paths still disarm the service; reconnect after an emergency
+    stop to start a new automatically armed session. The app accepts one control
+    client at a time so stale GUI sessions cannot overwrite keyboard commands;
+    reconnect waits for the previous reader to close before opening a new peer. It
+    is a transport and commissioning surface; it does not change the locked
+    manuscript or manufacture research evidence.
 
-The active workflow has nine primary entry points: `ctx_run.py`, `map_run.py`,
+15. `plan_map.py` converts a saved `map.json` plus `--start X Y --goal X Y` to
+    a controller-ready JSON containing `global_path_xy`. It wraps the result
+    in the existing `FixedGlobalLocalPath`; no CCA/NMPC formula is changed. If
+    the source map already has `cca_nmpc` settings they are retained; otherwise
+    pass `--cca-settings <settings.json>`. The output is consumed by the
+    existing `record_hardware.py --controller cca_nmpc` command, which still
+    requires its normal STM32, LSTM, `--allow-actuation` and H0 safety gates.
+
+    Example (plan only; no device is opened):
+
+    ```powershell
+    python -B scripts/python/tools/plan_map.py `
+      --map experiments/runs/<scan>/map.json `
+      --start 0 0 --goal 2 1 `
+      --output experiments/runs/<scan>/navigation-controller-map.json `
+      --cca-settings configs/cca_nmpc-settings.json
+    ```
+
+The active workflow has ten primary entry points: `ctx_run.py`, `map_run.py`,
 `det_eval.py`, `stm_experiment.py`, `hardware_entry.py`, `record_hardware.py`,
-`final_pack.py`, `analyze_run.py`, and `repo_check.py`; the two
+`plan_map.py`, `final_pack.py`, `analyze_run.py`, and `repo_check.py`; the two
 preflight validators (`validate_web_cohort.py` and
 `validate_hardware_entry.py`) are support gates, not research workloads.
 Pre-reset timing, trajectory, synthetic-data, supervised-learning,

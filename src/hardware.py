@@ -1027,8 +1027,15 @@ class AstraSSource:
         except ImportError:
             try:
                 import openni2
-            except ImportError as error:
-                raise RuntimeError("OpenNI2 Python bindings are required for Astra-S capture") from error
+            except ImportError:
+                try:
+                    # Orbbec's legacy SDK commonly ships the same bindings
+                    # under the ``primesense`` package name.
+                    from primesense import openni2
+                except ImportError as primesense_error:
+                    raise RuntimeError(
+                        "OpenNI2 Python bindings are required for Astra-S capture"
+                    ) from primesense_error
         self._openni = openni2
         try:
             self._openni.initialize(self.sdk_path) if self.sdk_path else self._openni.initialize()
@@ -1038,8 +1045,23 @@ class AstraSSource:
                 self._device = self._openni.Device.open_any()
             self._depth_stream = self._device.create_depth_stream()
             self._color_stream = self._device.create_color_stream()
+            # Ask the Astra driver for depth-to-colour registration and
+            # hardware timestamp synchronisation when those capabilities are
+            # exposed.  Older firmware may not implement either method, so
+            # keep the acquisition path compatible and let timing metadata
+            # report the observed result.
             self._depth_stream.start()
             self._color_stream.start()
+            try:
+                registration = self._openni.IMAGE_REGISTRATION_DEPTH_TO_COLOR
+                if self._device.is_image_registration_mode_supported(registration):
+                    self._device.set_image_registration_mode(registration)
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+            try:
+                self._device.set_depth_color_sync_enabled(True)
+            except (AttributeError, RuntimeError, TypeError):
+                pass
         except Exception:
             self.stop()
             raise

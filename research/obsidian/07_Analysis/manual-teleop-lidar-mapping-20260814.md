@@ -34,11 +34,14 @@ sends a zero command when no command key is received within the timeout.
 
 Each run contains `map.json` (validated occupancy values `-1/0/100`),
 `map.pgm`, `map.yaml`, `lidar.csv`, `robot_state.csv`, `control.csv`,
-`context.csv`, `events.csv`, and `manifest.json`. The map uses the STM
-telemetry dead-reckoned pose and ray insertion; it does not perform scan
-matching, loop closure, or ROS map-server publication. Consequently, drift
-and mount-angle errors must be checked before the map is used for controller
-experiments.
+`context.csv`, `events.csv`, and `manifest.json`. The map uses STM telemetry as
+an odometry prediction, then applies a bounded correlative scan-to-map
+correction when the prior occupancy grid has enough returns. It does not
+maintain a pose graph, perform global relocalisation or loop closure, or
+publish through a ROS map server. Each map artifact records the matcher
+method, attempts, accepted corrections, inlier score and last correction, so
+drift and mount-angle errors must still be checked before the map is used for
+controller experiments.
 
 The decoder/grid path passed a local self-test on 2026-08-14. A real map run
 still requires a clear emergency-stop area, measured LiDAR extrinsics, and an
