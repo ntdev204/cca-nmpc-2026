@@ -58,6 +58,7 @@ claim.
 | `experiments/runs/stm-motion-test-010-jetson/` + `experiments/runs/stm-stop-verification-jetson/` (Jetson, remote) | one-second `vx_cmd=0.10 m/s` direct C++ STM run followed by two-second zero-only stop verification; measured encoder response, clean zero tail, and operator-confirmed chassis motion | `candidate-not-evidence; commissioning motion confirmed by encoder and operator, independent metrology pending` |
 | `experiments/runs/stm-motion-test-030-jetson/` + `experiments/runs/stm-stop-verification-030-jetson/` (Jetson, remote) | one-second `vx_cmd=0.30 m/s` direct C++ STM run followed by two-second zero-only stop verification; measured ramp to `0.211 m/s`, integrated `x=0.08316 m`, and zero final tail | `candidate-not-evidence; higher-speed commissioning response and stop verified, calibration/metrology pending` |
 | `/dev/rai_lidar -> /dev/ttyACM1` (Jetson, remote) | N10P raw-stream and repository decoder check at `460800` baud; 92 valid packets in one second and 1032 decoded points in the class check | `candidate-not-evidence; LiDAR transport confirmed, full recorder dependency open` |
+| `experiments/runs/physical-preflight-20260821-1/sensor_preflight.json` (Jetson, remote) | passive no-ROS preflight: 41 STM32 telemetry samples, 12 Astra-S frames, and 41 N10P stream messages with zero decoded points; robot remained disarmed with zero command | `preflight blocked; no motion/map/scientific evidence` |
 | `app/backend/manual_map.py` | no-ROS keyboard teleoperation, STM-telemetry dead-reckoned 2-D occupancy insertion, and CSV/JSON/PGM/YAML output path; local self-test passed | `software-validated; hardware map run pending; no scan-matching or loop-closure claim` |
 | `src/hardware.py` + `scripts/python/tools/record_hardware.py` | Recorder trực tiếp Astra-S/OpenNI2, explicit N10P profile, CCA CAN/STM32 serial, pre-command STM stop latch, per-frame context overlay và online position-state CCA candidate rollout; overlay labels LSTM `disabled/active/warmup/invalid` and prints the resolved local checkpoint path; checkpoint optional for initial capture; CCA prediction remains internal and is not drawn; events expose status, iterations, reduced violation, risk bound and reserved zero-slack field | code QA only; chưa mở thiết bị |
 | `src/shared.py` + `src/control/src/can.cpp` + `src/control/src/stm_c_api.cpp` | Shared CCA CAN boundary: C++ CRC/frame codec selected on Linux through the Python interface, with explicit Python fallback; schema/provenance functions remain Python | C ABI/CTest and Python parity QA; no device or result |
@@ -119,6 +120,7 @@ claim.
 [[00_MOC/project-map]] · [[07_Analysis/pr10-preflight-20260813]] ·
 [[07_Analysis/pr10-web-source-candidates-20260813]] ·
 [[07_Analysis/pr30-entry-preflight-20260813]] ·
+[[07_Analysis/physical-hardware-preflight-20260821]] ·
 [[07_Analysis/theory-parity-audit-20260813]] ·
 [[07_Analysis/protocol-status-20260813]] ·
 [[07_Analysis/web-cohort-acquisition-20260814]] ·
