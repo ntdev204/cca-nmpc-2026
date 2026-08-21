@@ -300,7 +300,7 @@ experiments.
 On the Jetson, after confirming the emergency-stop area is clear:
 
 ```bash
-PYTHONPATH=src:scripts/python python3 -B scripts/python/tools/manual_map.py \
+PYTHONPATH=src:app python3 -B app/backend/manual_map.py \
   --stm /dev/rai_controller --lidar /dev/rai_lidar \
   --stm-baud 115200 --lidar-baud 460800 \
   --output experiments/runs/manual-map-<run-id>
@@ -314,13 +314,12 @@ default LiDAR mount is 0.10 m forward of the robot centre; override
 Run `--self-test` before a hardware session to validate the decoder and grid
 writer without opening devices.
 
-14. `robot_console.py` is the single operator app. Run the service on the Jetson
-    with `python3 -B scripts/python/tools/robot_console.py --server`; it discovers
-    the STM32, N10P and the ARM64 OpenNI2 directory automatically. Open the same
-    file on the laptop without arguments, enter the Jetson address, and press
-    Connect. After the server handshake the laptop client arms the live session
-    automatically when the STM32 is available; there is no separate motion-enable
-    button or keyboard key. Hold `W/S/A/D` or the arrow keys for forward, reverse,
+14. The operator runtime is under `app/`. Run the Jetson service with
+    `PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server`; it
+    discovers the STM32, N10P and the ARM64 OpenNI2 directory automatically. Run
+    `app/desktop/operator.py` on the laptop or start the Next.js dashboard in
+    `app/web`. After the server handshake the desktop client arms the live session
+    automatically when the STM32 is available. Hold `W/S/A/D` or the arrow keys for forward, reverse,
     lateral and four diagonal directions; hold `Q/E` or the rotate buttons to
     turn. The 3x3 pad exposes all eight planar directions plus stop. Press `X` or
     `Space` (or the visible button) for emergency stop. The server also accepts

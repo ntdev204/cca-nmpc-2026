@@ -21,9 +21,9 @@ except ImportError:
     tty = None
 
 try:
-    from tools._bootstrap import PROJECT_ROOT
+    from app.backend.bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
-    from _bootstrap import PROJECT_ROOT
+    from bootstrap import PROJECT_ROOT
 
 from hardware import (
     N10P_PROTOCOL_PROFILE,

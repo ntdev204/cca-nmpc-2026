@@ -86,17 +86,17 @@ library on Linux. The same library supplies the fixed-width CCA CAN codec
 through `shared.py`; set `CCA_STM_BACKEND=python` or
 `CCA_CAN_BACKEND=python` only for an explicit compatibility fallback.
 
-### Laptop robot console
+### Robot application
 
-The compact operator app is `scripts/python/tools/robot_console.py`. On the
-Jetson run one short service command:
+The runtime is under `app/`, not under the utility directory. On the Jetson
+run the backend service:
 
 ```bash
-PYTHONPATH=src:scripts/python python3 -B scripts/python/tools/robot_console.py --server
+PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server --bind 0.0.0.0 --port 8765
 ```
 
-On the laptop open the same file without arguments, enter the Jetson address,
-and press **Connect**. The app automatically arms motion after the handshake
+On the laptop run `app/desktop/operator.py`; the web dashboard is
+`app/web` and uses Next.js 16.3.1. The desktop app automatically arms motion after the handshake
 when STM32 is online, and provides emergency stop, keyboard teleoperation,
 2-D map and laser display with map-frame robot pose, Astra-S preview,
 scan start/stop, saved-map viewing, and map/data saving. The 2-D view can

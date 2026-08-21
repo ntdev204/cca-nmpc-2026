@@ -827,8 +827,9 @@ This refresh changes no protocol status and does not admit any result.
 
 ### PR30 operator-console implementation — 2026-08-15
 
-`scripts/python/tools/robot_console.py` now provides the single Jetson service
-and laptop operator surface for STM32, N10P, Astra-S preview, 2-D/3-D sensor
+`app/backend/robot_console.py` now provides the Jetson service and
+`app/desktop/operator.py` provides the laptop operator surface for STM32, N10P,
+Astra-S preview and 2-D sensor
 display, teleoperation, watchdog, and map/data saving. Static self-test,
 repository contracts, and the Python test suite pass. PR30 remains
 `REVIEWED` with hardware admission `BLOCKED`: no device was opened and no

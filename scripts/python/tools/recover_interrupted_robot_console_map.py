@@ -22,7 +22,7 @@ except ModuleNotFoundError:
     from _bootstrap import PROJECT_ROOT
 
 from hardware import LidarPoint, LidarScan
-from manual_map import EVENT_FIELDS, OccupancyMap, Pose
+from app.backend.manual_map import EVENT_FIELDS, OccupancyMap, Pose
 
 
 def sha256(path: Path) -> str:

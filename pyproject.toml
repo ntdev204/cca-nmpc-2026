@@ -39,7 +39,7 @@ package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python/tests"]
-pythonpath = ["src", "scripts/python"]
+pythonpath = ["src", "app", "scripts/python"]
 addopts = "-q"
 
 [tool.ruff]

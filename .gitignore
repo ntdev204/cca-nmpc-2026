@@ -31,6 +31,12 @@ __pycache__/
 htmlcov/
 .venv*/
 
+# Next.js web build output
+app/web/node_modules/
+app/web/node_modules.partial/
+app/web/.next/
+app/web/out/
+
 # MATLAB/Simulink transient output
 *.asv
 *.autosave

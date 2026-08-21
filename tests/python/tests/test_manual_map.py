@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from tools.manual_map import OccupancyMap, Pose
+from app.backend.manual_map import OccupancyMap, Pose
 from hardware import LidarPoint, LidarScan
 
 

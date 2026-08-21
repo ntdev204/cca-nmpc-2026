@@ -1,0 +1,22 @@
+import { NextResponse } from "next/server";
+
+import { sendRobotCommand, snapshot } from "@/lib/robot";
+
+const ALLOWED = new Set(["arm", "velocity", "emergency_stop", "scan_start", "scan_save", "scan_stop", "map_load"]);
+
+export async function POST(request: Request) {
+  try {
+    const payload = (await request.json()) as Record<string, unknown>;
+    const command = String(payload.command ?? "");
+    if (!ALLOWED.has(command)) {
+      return NextResponse.json({ error: "command is not allowed" }, { status: 400 });
+    }
+    const messages = await sendRobotCommand(payload);
+    return NextResponse.json({ backend: "online", ...snapshot(messages) });
+  } catch (error) {
+    return NextResponse.json(
+      { backend: "offline", error: error instanceof Error ? error.message : "robot backend unavailable" },
+      { status: 503 },
+    );
+  }
+}

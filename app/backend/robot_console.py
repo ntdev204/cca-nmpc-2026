@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools._bootstrap import PROJECT_ROOT
+    from app.backend.bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
-    from _bootstrap import PROJECT_ROOT
+    from bootstrap import PROJECT_ROOT
 
 
 ZERO = (0.0, 0.0, 0.0)
@@ -60,9 +60,9 @@ def copy_pose_for_mapping(pose: Any) -> Any:
     """Copy live odometry before a mapper is allowed to correct it."""
 
     try:
-        from manual_map import Pose
+        from app.backend.manual_map import Pose
     except ModuleNotFoundError:
-        from tools.manual_map import Pose
+        from manual_map import Pose
 
     return Pose(
         x_m=float(pose.x_m),
@@ -386,7 +386,7 @@ class RobotService:
         return base64.b64encode(stream.getvalue()).decode("ascii")
 
     def start_scan(self) -> None:
-        from manual_map import OccupancyMap, Pose, RunFiles
+        from app.backend.manual_map import OccupancyMap, Pose, RunFiles
 
         with self.state_lock:
             if self.scan_active:
@@ -1646,7 +1646,7 @@ class ConsoleApp:
 
 def self_test() -> None:
     from hardware import LidarPoint, LidarScan, N10PDecoder, N10P_PROTOCOL_PROFILE
-    from manual_map import OccupancyMap, Pose
+    from app.backend.manual_map import OccupancyMap, Pose
     from simulation.occupancy_astar import plan_occupancy_map
 
     direction_cases = {

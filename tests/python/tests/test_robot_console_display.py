@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from hardware import Stm32Telemetry
-from tools.robot_console import ConsoleApp, RobotService, copy_pose_for_mapping, smooth_display_pose
-from tools.manual_map import Pose
+from app.backend.robot_console import ConsoleApp, RobotService, copy_pose_for_mapping, smooth_display_pose
+from app.backend.manual_map import Pose
 
 
 def test_display_pose_filter_does_not_jump_to_a_new_sample() -> None:

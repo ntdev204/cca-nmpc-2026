@@ -19,7 +19,7 @@ paper.
 
 ## Entry point
 
-`python3 -B scripts/python/tools/manual_map.py` uses
+`PYTHONPATH=src:app python3 -B app/backend/manual_map.py` uses
 `/dev/rai_controller` at `115200` and `/dev/rai_lidar` at `460800` by default.
 The C++ STM transport is selected automatically when its shared library is
 available. The default LiDAR mount is `x=0.10 m`, `y=0`, yaw `0` relative to
