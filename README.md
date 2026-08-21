@@ -98,8 +98,9 @@ PYTHONPATH=src:scripts/python python3 -B scripts/python/tools/robot_console.py -
 On the laptop open the same file without arguments, enter the Jetson address,
 and press **Connect**. The app automatically arms motion after the handshake
 when STM32 is online, and provides emergency stop, keyboard teleoperation,
-2-D map and laser display, a lightweight 3-D sensor view, Astra-S preview,
-scan start/stop, saved-map viewing, and map/data saving. The service discovers
+2-D map and laser display with map-frame robot pose, Astra-S preview,
+scan start/stop, saved-map viewing, and map/data saving. The 2-D view can
+follow the robot while scanning or stay fixed for whole-map inspection. The service discovers
 `openni2_redist/arm64` automatically and keeps the watchdog beside the STM32
 transport. Saved runs remain ignored until the physical package is checked by
 the existing evidence gates.

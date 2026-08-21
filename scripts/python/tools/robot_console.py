@@ -266,6 +266,7 @@ class RobotService:
         self.camera: Any = None
         self.camera_thread: threading.Thread | None = None
         self.pose: Any = None
+        self.map_pose: Any = None
         self.mapper: Any = None
         self.files: Any = None
         self.run_root: Path | None = None
@@ -409,6 +410,7 @@ class RobotService:
                 padding_cells=5,
             )
             self.pose = Pose()
+            self.map_pose = Pose()
             self.files = RunFiles(root)
             self.run_root = root
             self.scan_started_ns = now_ns()
@@ -733,7 +735,10 @@ class RobotService:
                 self.last_telemetry_ns = telemetry.t_ns
                 if self.files is not None:
                     self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"))
+            if self.pose is not None and self.map_pose is None:
+                self.map_pose = copy_pose_for_mapping(self.pose)
             pose = [0.0, 0.0, 0.0] if self.pose is None else list(self.pose.as_tuple())
+            map_pose = pose if self.map_pose is None else list(self.map_pose.as_tuple())
             telemetry_payload = None
             if telemetry is not None:
                 telemetry_payload = {
@@ -748,6 +753,7 @@ class RobotService:
                 "type": "state",
                 "t_ns": now_ns(),
                 "pose": pose,
+                "map_pose": map_pose,
                 "telemetry": telemetry_payload,
                 "status": self.status_payload(),
                 "command": list(self.last_command),
@@ -770,6 +776,7 @@ class RobotService:
                         # pose object shared with _state_payload().
                         map_pose = copy_pose_for_mapping(self.pose)
                         self.mapper.update(scan, map_pose)
+                        self.map_pose = map_pose
                         if self.files is not None:
                             self.files.scan(scan)
                             self.files.context(scan.t_ns, self.pose, scan)
@@ -956,7 +963,10 @@ class ConsoleApp:
         self.map_goal_xy: tuple[float, float] | None = None
         self.planned_path: list[tuple[float, float]] = []
         self.plan_status = "No A* plan"
+        self.follow_robot = tk.BooleanVar(value=True)
+        self.map_view_text = tk.StringVar(value="LIVE MAP · MAP-FRAME ROBOT POSE")
         self.target_pose: tuple[float, float, float] | None = None
+        self.target_map_pose: tuple[float, float, float] | None = None
         self.display_pose: tuple[float, float, float] | None = None
         self.last_display_mono = time.monotonic()
         self.keys: set[str] = set()
@@ -1050,6 +1060,15 @@ class ConsoleApp:
         self.info.pack(fill="both", expand=True)
         views = ttk.Frame(outer)
         views.pack(side="left", fill="both", expand=True)
+        view_toolbar = ttk.Frame(views)
+        view_toolbar.pack(fill="x", pady=(0, 5))
+        ttk.Label(view_toolbar, textvariable=self.map_view_text, font=("Segoe UI", 10, "bold")).pack(side="left")
+        ttk.Checkbutton(
+            view_toolbar,
+            text="Follow robot",
+            variable=self.follow_robot,
+            command=self._reset_map_view,
+        ).pack(side="right")
         upper = ttk.Frame(views)
         upper.pack(fill="both", expand=True)
         map_frame = ttk.LabelFrame(upper, text="2D map / lidar / robot pose", padding=4)
@@ -1092,6 +1111,7 @@ class ConsoleApp:
         self.keys.clear()
         self.button_keys.clear()
         self.target_pose = None
+        self.target_map_pose = None
         self.display_pose = None
         self.saved_map_view = False
         self.trace.clear()
@@ -1149,6 +1169,10 @@ class ConsoleApp:
     def clear_goal(self) -> None:
         self.map_goal_xy = None
         self.clear_plan()
+
+    def _reset_map_view(self) -> None:
+        self.map_view_initialized = False
+        self.view_bounds = None
 
     def _screen_to_world(self, x: float, y: float) -> tuple[float, float]:
         canvas_width = max(10, self.map_canvas.winfo_width())
@@ -1286,18 +1310,24 @@ class ConsoleApp:
         dt_s = max(0.0, min(now - self.last_display_mono, 1.0))
         self.last_display_mono = now
         self.display_pose = smooth_display_pose(self.display_pose, self.target_pose, dt_s)
-        if self.display_pose is not None:
+        trace_pose = self.target_map_pose or self.display_pose
+        if trace_pose is not None:
             if not self.trace or math.hypot(
-                self.display_pose[0] - self.trace[-1][0],
-                self.display_pose[1] - self.trace[-1][1],
+                trace_pose[0] - self.trace[-1][0],
+                trace_pose[1] - self.trace[-1][1],
             ) > 0.01:
-                self.trace.append(self.display_pose[:2])
+                self.trace.append(trace_pose[:2])
                 self.trace = self.trace[-1000:]
 
     def _update_info(self) -> None:
         status = self.state.get("status") or {}
         telemetry = self.state.get("telemetry") or {}
-        pose = self.display_pose or self.target_pose or (0.0, 0.0, 0.0)
+        pose = self.target_map_pose or self.display_pose or self.target_pose or (0.0, 0.0, 0.0)
+        odom_pose = self.target_pose or pose
+        self.map_view_text.set(
+            f"{'SAVED MAP' if self.saved_map_view else 'LIVE MAP'} · "
+            f"MAP POSE ({'follow' if self.follow_robot.get() else 'fixed view'})"
+        )
         map_payload = self.map_payload or {}
         map_metadata = map_payload.get("metadata") or {}
         map_scans = map_metadata.get("scans")
@@ -1320,7 +1350,8 @@ class ConsoleApp:
             f"Astra-S: {status.get('camera', 'disabled')}",
             f"Motion: {'armed' if status.get('armed', self.armed) else 'disarmed'}",
             f"Scan: {status.get('scan', 'idle')}",
-            f"Pose: {float(pose[0]):.2f}, {float(pose[1]):.2f}, {float(pose[2]):.2f}",
+            f"Map pose: {float(pose[0]):.2f}, {float(pose[1]):.2f}, {float(pose[2]):.2f}",
+            f"Odom pose: {float(odom_pose[0]):.2f}, {float(odom_pose[1]):.2f}, {float(odom_pose[2]):.2f}",
             f"Velocity: {float(telemetry.get('vx_mps', 0.0)):.2f}, {float(telemetry.get('vy_mps', 0.0)):.2f}, {float(telemetry.get('wz_radps', 0.0)):.2f}",
             f"Command: {command[0]:.2f}, {command[1]:.2f}, {command[2]:.2f}",
             f"Battery: {float(telemetry.get('voltage_v', 0.0)):.2f} V",
@@ -1344,6 +1375,12 @@ class ConsoleApp:
                     self.target_pose = (float(pose[0]), float(pose[1]), float(pose[2]))
                 except (TypeError, ValueError):
                     self.target_pose = None
+            map_pose = message.get("map_pose") or pose
+            if len(map_pose) >= 3:
+                try:
+                    self.target_map_pose = (float(map_pose[0]), float(map_pose[1]), float(map_pose[2]))
+                except (TypeError, ValueError):
+                    self.target_map_pose = self.target_pose
         elif kind == "lidar":
             self.lidar = message.get("points") or []
         elif kind == "map":
@@ -1466,6 +1503,13 @@ class ConsoleApp:
                 center_y + 0.5 * span_y,
             )
 
+        pose = self.target_map_pose or self.display_pose or self.target_pose or (0.0, 0.0, 0.0)
+        if self.follow_robot and pose is not None:
+            self.map_view_initialized = False
+            px, py = float(pose[0]), float(pose[1])
+            span = DISPLAY_VIEW_SPAN_M
+            return px - 0.5 * span, py - 0.5 * span, px + 0.5 * span, py + 0.5 * span
+
         if self.map_payload:
             width = int(self.map_payload.get("width", 1))
             height = int(self.map_payload.get("height", 1))
@@ -1496,7 +1540,6 @@ class ConsoleApp:
                 return self.view_bounds
 
         self.map_view_initialized = False
-        pose = self.display_pose or self.target_pose or (0.0, 0.0, 0.0)
         px, py = float(pose[0]), float(pose[1])
         span = DISPLAY_VIEW_SPAN_M
         if self.view_bounds is None:
@@ -1570,11 +1613,10 @@ class ConsoleApp:
                 tags="goal",
             )
             canvas.create_text(gx + 10, gy - 10, anchor="sw", fill="#d9c9ff", text="A* goal", tags="goal")
-        # Render the same display-only filtered pose used by the trace and
-        # status text.  The controller/map continue to use the raw odometry;
-        # this only prevents the robot marker from visibly jumping between
-        # telemetry packets.
-        pose = list(self.display_pose or self.target_pose or self.state.get("pose", [0.0, 0.0, 0.0]))
+        # The marker must use the same map-frame pose that placed the latest
+        # lidar scan.  Using raw odometry here makes the marker disagree with
+        # a scan-matched map and can make a moving robot appear stationary.
+        pose = list(self.target_map_pose or self.display_pose or self.target_pose or self.state.get("pose", [0.0, 0.0, 0.0]))
         px, py, yaw = (float(value) for value in (pose + [0.0, 0.0, 0.0])[:3])
         rx, ry = point(px, py)
         corners = []
@@ -1591,7 +1633,7 @@ class ConsoleApp:
                 canvas.create_line(rx, ry, *point(lx, ly), fill="#48d597", width=1, tags="lidar")
         else:
             canvas.create_text(18, 38, anchor="nw", fill="#b9dcff", text="saved map · live pose overlay", tags="label")
-        canvas.create_text(18, 16, anchor="nw", fill="#d6e4ef", text=f"pose  x={px:.2f}  y={py:.2f}  yaw={yaw:.2f}", tags="label")
+        canvas.create_text(18, 16, anchor="nw", fill="#d6e4ef", text=f"map pose  x={px:.2f}  y={py:.2f}  yaw={yaw:.2f}", tags="label")
 
     def close(self) -> None:
         self.emergency_stop()

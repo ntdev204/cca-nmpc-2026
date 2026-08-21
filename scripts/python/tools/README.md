@@ -328,7 +328,7 @@ writer without opening devices.
     and the directions `forward`, `backward`, `left`, `right`,
     `forward_left`, `forward_right`, `backward_left`, `backward_right`,
     `rotate_left`, `rotate_right` and `stop`. The window
-    also provides a live 2-D occupancy view, a lightweight 3-D sensor view,
+    also provides a live 2-D occupancy view with a map-frame robot marker,
     reduced-rate Astra-S frames, and scan controls. Camera/state updates use a
     newest-frame queue so a slow Wi-Fi/VPN link cannot delay keyboard commands.
     A new client receives the current map snapshot even when no scan cell has

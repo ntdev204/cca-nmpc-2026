@@ -69,8 +69,9 @@ The service searches [[03_Literature/hardware-sensor-sources]]-related runtime
 assets under `openni2_redist/arm64` on Jetson and `openni2_redist/x64` on a
 Windows laptop. Astra-S capture is optional at startup so a missing Python
 binding cannot hide STM/N10P faults; the status panel reports the exact camera
-failure. A camera frame is displayed as RGB; the 3-D panel shows the lidar plane
-and camera frustum, not a fabricated depth point cloud.
+failure. A camera frame is displayed as RGB. The 2-D marker uses the same
+map-frame pose that placed the latest lidar scan, and a follow toggle keeps the
+moving robot visible during a scan.
 
 ## Saved package
 

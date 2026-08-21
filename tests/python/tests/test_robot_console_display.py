@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import pytest
 
-from tools.robot_console import ConsoleApp, copy_pose_for_mapping, smooth_display_pose
+from hardware import Stm32Telemetry
+from tools.robot_console import ConsoleApp, RobotService, copy_pose_for_mapping, smooth_display_pose
 from tools.manual_map import Pose
 
 
@@ -52,3 +54,31 @@ def test_mapping_pose_copy_keeps_live_odometry_independent() -> None:
     map_pose.yaw_rad = 0.0
     assert live_pose.as_tuple() == (1.0, -0.5, 0.2)
     assert map_pose.last_t_ns == live_pose.last_t_ns
+
+
+def test_state_payload_exposes_map_frame_pose_separately() -> None:
+    service = RobotService("127.0.0.1", 0)
+    service.pose = Pose(x_m=0.20, y_m=-0.10, yaw_rad=0.10)
+    service.map_pose = Pose(x_m=0.35, y_m=-0.05, yaw_rad=0.08)
+    service.stm = SimpleNamespace(
+        backend="python",
+        latest=Stm32Telemetry(
+            t_ns=1,
+            flag_stop=0,
+            vx_mps=0.0,
+            vy_mps=0.0,
+            wz_radps=0.0,
+            accel_x_mps2=0.0,
+            accel_y_mps2=0.0,
+            accel_z_mps2=9.81,
+            gyro_x_radps=0.0,
+            gyro_y_radps=0.0,
+            gyro_z_radps=0.0,
+            voltage_v=24.0,
+        ),
+    )
+
+    payload = service._state_payload()
+
+    assert payload["pose"] == pytest.approx([0.20, -0.10, 0.10])
+    assert payload["map_pose"] == pytest.approx([0.35, -0.05, 0.08])
