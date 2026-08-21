@@ -22,4 +22,6 @@ Open `http://localhost:3000`. Keep only one motion-capable client connected at
 a time; use the web dashboard or the desktop operator app, not both for motion.
 The server-side TCP bridge decodes the compressed state/LiDAR/map frames and
 keeps the newest stream item, so a slow link cannot build a queue behind
-control traffic.
+control traffic. It uses a lossless zlib decode and a JSON-bigint parser so
+nanosecond timestamps are not rounded by JavaScript before the data reaches
+the UI.
