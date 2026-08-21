@@ -1,6 +1,6 @@
 ---
 type: hardware-preflight
-status: blocked
+status: preflight-passed_motion-pending
 date: 2026-08-21
 capture_source: hardware
 middleware: direct_tcp_backend_no_ros
@@ -66,3 +66,19 @@ decoded **0 packets**. The second record is
 This rules out a transient TCP/backend display issue for this attempt; the
 current immediate gate is the physical N10P stream (power, motor/spin state,
 USB/serial wiring, or the measured baud/protocol identity).
+
+## Successful retry after full power-on
+
+After the complete sensor stack was powered, the backend stream was checked
+again without arming the robot. The third record is
+`experiments/runs/physical-preflight-20260821-3/sensor_preflight.json`.
+
+- STM32: 49 telemetry samples; latest body velocity remained zero and voltage
+  was `22.909 V`.
+- Astra-S: 15 frames at `640x480`.
+- N10P: 48 non-empty scans, with `200--214` decoded points per scan.
+- Safety: `armed=false`, command `[0,0,0]`.
+
+The sensor gate now passes. This record is still a preflight only; no map or
+motion trial has been started. The next action is a separately identified
+motion run after the speed, duration and path are explicitly fixed.
