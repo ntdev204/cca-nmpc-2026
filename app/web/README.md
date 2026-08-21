@@ -1,7 +1,8 @@
 # Web operator dashboard
 
 This is a Next.js 16.3.1 App Router dashboard. It polls the Next.js route
-handlers, which bridge to the no-ROS TCP backend on Jetson.
+handlers, which bridge to the no-ROS TCP backend on Jetson. The interface uses
+the CLI-installed shadcn/ui base-nova components with a light, cold-blue theme.
 
 The project was bootstrapped with the official CLI:
 
