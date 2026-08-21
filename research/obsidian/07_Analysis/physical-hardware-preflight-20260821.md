@@ -53,3 +53,16 @@ and the measured baud/protocol for the supplied unit. Then repeat the same
 passive check and require at least one non-empty decoded scan before opening a
 fresh experiment run. Existing historical runs remain separate and are not
 used as evidence for this preflight.
+
+## Retry after robot power-on
+
+After the robot was powered on and SSH connectivity was confirmed, the passive
+check was repeated through the backend and then directly on `/dev/rai_lidar`.
+The direct attempt issued the repository start/stop frame at `460800` baud for
+five seconds while the robot remained stationary. It received **0 bytes** and
+decoded **0 packets**. The second record is
+`experiments/runs/physical-preflight-20260821-2/sensor_preflight.json`.
+
+This rules out a transient TCP/backend display issue for this attempt; the
+current immediate gate is the physical N10P stream (power, motor/spin state,
+USB/serial wiring, or the measured baud/protocol identity).
