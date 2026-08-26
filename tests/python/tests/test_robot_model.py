@@ -1,11 +1,11 @@
 import numpy as np
 
 from runtime.controller import CompiledController
-from simulation.model import position_state_step
+from simulations.python.model import position_step
 
 
 def test_position_state_step_uses_body_velocity_command() -> None:
-    next_state = position_state_step(np.zeros(6), np.asarray((0.4, 0.1, 0.2)), 0.1)
+    next_state = position_step(np.zeros(6), np.asarray((0.4, 0.1, 0.2)), 0.1)
     assert next_state.shape == (6,)
     assert next_state[0] > 0.0
     assert next_state[1] > 0.0

@@ -317,12 +317,11 @@ writer without opening devices.
 14. The operator runtime is under `app/`. Run the Jetson service with
     `PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server`; it
     discovers the STM32, N10P and the ARM64 OpenNI2 directory automatically. Run
-    `app/desktop/operator.py` on the laptop or start the Next.js dashboard in
-    `app/web`. After the server handshake the desktop client arms the live session
-    automatically when the STM32 is available. Hold `W/S/A/D` or the arrow keys for forward, reverse,
-    lateral and four diagonal directions; hold `Q/E` or the rotate buttons to
-    turn. The 3x3 pad exposes all eight planar directions plus stop. Press `X` or
-    `Space` (or the visible button) for emergency stop. The server also accepts
+    the Next.js dashboard in `app/web`. Motion is ready automatically when the
+    STM32 is available. Hold a direction button (or
+    use the keyboard controls) for forward, reverse, lateral and diagonal
+    motion; release sends zero velocity. The emergency-stop button is always
+    available. The server also accepts
     `{"command":"move","direction":"forward_left","speed_mps":0.2,"yaw_radps":0}`
     and the directions `forward`, `backward`, `left`, `right`,
     `forward_left`, `forward_right`, `backward_left`, `backward_right`,
@@ -334,8 +333,8 @@ writer without opening devices.
     changed. **View last saved map** requests the newest saved `map.json` from
     Jetson; **Open local map.json** displays a package copied to the laptop.
     Left-click the map to choose a goal, then press **Plan shortest
-    path (A*)**; the Jetson uses the existing `simulation.planning.astar_plan`
-    through `src/simulation/occupancy_astar.py`, draws the returned route, and
+    path (A*)**; the Jetson uses `src/runtime/map_planner.py`, draws the returned
+    route, and
     saves `navigation_plan.json`. Unknown cells are fail-closed and the frozen
     robot footprint radius is used for inflation. Planning is preview-only and
     never sends a velocity command.

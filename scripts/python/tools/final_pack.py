@@ -35,7 +35,14 @@ REQUIRED = {
     ],
     "events.csv": ["t_ns", "event_type"],
 }
-OPTIONAL = ("map.yaml", "map.pgm", "calibration.json", "lidar.csv")
+OPTIONAL = (
+    "reference.csv",
+    "constraints.csv",
+    "map.yaml",
+    "map.pgm",
+    "calibration.json",
+    "lidar.csv",
+)
 PACKAGE_META = ("manifest.json", "checksums.sha256")
 CONTROL_SIGNAL_GROUPS = (
     ("vx_cmd_mps", "vy_cmd_mps", "wz_cmd_radps"),

@@ -1,17 +1,4 @@
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 #include "system.h"
 
 #define START_TASK_PRIO	1

@@ -5,8 +5,8 @@ import pytest
 
 from ai.ctx_lstm import direction_context_to_heading_observation
 from ai.heading import HumanHeadingObservation, estimate_heading_observation
-from simulation.planning import astar_plan
-from simulation.context_replanner import (
+from runtime.map_planner import astar_plan
+from runtime.local_path import (
     FixedGlobalLocalPath,
     context_footprint_points,
     evaluate_context_replan,

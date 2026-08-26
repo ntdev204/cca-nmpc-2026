@@ -29,11 +29,6 @@ def parse_args() -> argparse.Namespace:
         default=repository_root(),
         help="Repository root containing schemas/, configs/, registries, and research/obsidian/.",
     )
-    parser.add_argument(
-        "--require-focused-audit-complete",
-        action="store_true",
-        help="Fail unless the active focused-literature-audit record is COMPLETE.",
-    )
     return parser.parse_args()
 
 
@@ -41,7 +36,6 @@ def main() -> None:
     args = parse_args()
     report = validate_repository(
         args.workspace_root,
-        require_focused_audit_complete=args.require_focused_audit_complete,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report["status"] != "PASS":

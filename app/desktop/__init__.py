@@ -1,1 +1,0 @@
-"""Laptop operator application launchers."""

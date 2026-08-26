@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from simulation.occupancy_astar import occupancy_obstacles, plan_occupancy_map
+from runtime.map_planner import occupancy_obstacles, plan_occupancy_map
 
 
 def _map_payload() -> dict[str, object]:

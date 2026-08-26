@@ -1,170 +1,125 @@
-# PR00 — Phạm vi, câu hỏi nghiên cứu và hợp đồng claim
+# PR00 — Research scope and claim contract
 
-> **Trạng thái:** `REVIEWED` — scope/claim logic đã qua focused-audit review;
-> chưa phải claim được chứng minh và chưa mở holdout.  
-> **Phụ thuộc:** focused literature audit quyết định ranh giới novelty; PR02 quyết định claim lý thuyết;
-> PR10--PR40 quyết định claim thực nghiệm.
+**Status:** `FROZEN — THEORY ONLY`
+**Version:** 4.0
+**Date:** 2026-08-23
 
-## 1. Phạm vi khoa học bất biến
+## 1. Fixed scope
 
-Nghiên cứu xét robot Mecanum điều khiển theo trạng thái vị trí trong môi trường
-có người. Trạng thái gồm `[x,y,theta,vx,vy,omega]`; lệnh cấp thấp là vận tốc
-thân. LSTM nén lịch sử quan sát thành context gồm vị trí, tốc độ, hướng và độ
-tin cậy; Continuous Context-Aware (CCA) phân bổ mức thận trọng/rủi ro trong bài toán NMPC. Đóng góp
-trọng tâm ứng viên là một allocator CCA đóng dạng/không huấn luyện trong một so
-sánh matched, không phải YOLO, tracking, LSTM tiêu chuẩn, global planner hoặc
-việc ghép nhiều module có sẵn. Claim rộng về context-aware fixed-budget risk
-adaptation đã bị nearest work 2025--2026 bác; focused audit phải ghi rõ liệu delta
-hẹp còn đủ cho `GO-ALGORITHM` hay chỉ phù hợp `PIVOT-EMPIRICAL`/`STOP`.
+The study concerns position-state control of a Mecanum robot among moving
+people. Its active architecture is
 
-Không được mở rộng sang transformer, reinforcement learning, foundation model,
-nhận dạng danh tính, social scoring hay một bộ điều khiển hoàn toàn mới nếu
-không có amendment được duyệt. Một baseline hiện đại được thêm chỉ để so sánh
-không trở thành một nhánh đóng góp.
+```text
+fixed global path
+  + robot state + current context + obstacles
+  -> CCA (Continuous Context-Aware: LSTM + GA)
+  -> robot local path
+  -> terminal NMPC motion control
+```
 
-## 2. Câu hỏi nghiên cứu
+The state and command are
 
-- **RQ-01 — cơ chế:** Khi mô hình robot, predictor, tổng risk budget, đường đi,
-  horizon và solver budget được giữ matched, CCA có phân bổ sự thận trọng đúng
-  cho tương tác quan trọng hơn so với phân bổ uniform/permuted, heuristic
-  risk-adaptive và learned-risk hay không?
-- **RQ-02 — hiệu quả closed-loop:** CCA-NMPC + LSTM có cải thiện trade-off giữa
-  an toàn, hoàn thành nhiệm vụ và độ ổn định bám đường mà không tạo mức fallback
-  hoặc deadline miss không chấp nhận được hay không?
-- **RQ-03 — vai trò LSTM:** Context LSTM tự giám sát có cải thiện direction
-  macro-F1, speed error, validity/calibration và quyết định local-path trigger
-  so với constant-speed-direction/Kalman speed-direction trong các miền ID/OOD
-  hay không?
-- **RQ-04 — chuyển miền:** Kết luận nào còn giữ từ mô phỏng sang robot thật dưới
-  perception, delay, actuator và hành vi người không lý tưởng?
+$$
+X=[x,y,\theta,v_x,v_y,\omega]^T,
+\qquad
+u=[v_x^{cmd},v_y^{cmd},\omega^{cmd}]^T.
+$$
 
-## 3. Giả thuyết tiền đăng ký
+GA is the only active search mechanism. Reinforcement learning, torque control,
+identity recognition, global-path replanning, and a new low-level controller are
+outside scope. Human motion is used internally as context; CCA generates only
+the robot local path.
 
-Các margin định lượng, estimand và cỡ mẫu được đóng băng trong PR40 trước khi
-mở confirmatory holdout.
+## 2. Research questions
 
-- **H-01:** CCA matched-budget cải thiện context-weighted physical margin so
-  với uniform allocation, đồng thời collision rate không xấu hơn quá margin
-  non-inferiority đã định trước.
-- **H-02:** CCA đúng ngữ nghĩa tốt hơn permuted-context trên paired seeds; nếu
-  không, tín hiệu context chưa chứng minh giá trị nhân quả.
-- **H-03:** Context LSTM đã calibration cải thiện direction macro-F1, speed MAE
-  và timing/validity của trigger so với baseline context, không giả định ưu thế
-  ở mọi miền.
-- **H-04:** Full CCA-NMPC không vượt budget về actuator, wheel speed, fallback
-  và deadline so với ngưỡng đã khóa.
-- **H-05:** Xu hướng chính lặp lại trên robot thật với CI phù hợp; nếu không, bài
-  báo báo sim-to-real gap thay vì giữ claim mô phỏng như claim vật lý.
-- **H-06:** Ở cùng tổng budget và physical clearance, allocator đóng dạng không
-  thua kém quá margin khóa trước về safety so với nearest risk-adaptive methods,
-  đồng thời cải thiện ít nhất một thuộc tính auditability, runtime hoặc OOD đã
-  định nghĩa trước.
+- **RQ1 — context utility:** Does the registered causal current-context estimator
+  improve speed and coarse-direction estimates over matched constant-velocity
+  and Kalman baselines, and does any gain survive downstream evaluation?
+- **RQ2 — continuous-update mechanism:** With the same fixed-weight LSTM, GA,
+  observations, planning events, and local-path contract, does updating recurrent
+  context at every valid observation improve local-path generation over updating
+  it only when a planning event occurs?
+- **RQ3 — motion control:** Under the stated nominal assumptions, does terminal
+  NMPC preserve feasibility and local asymptotic tracking for an admitted
+  reference, and how does it compare with matched linear MPC and nominal NMPC?
+- **RQ4 — system effect:** Under identical maps, paths, observations, limits,
+  scenarios, and compute budget, how does CCA-NMPC compare with DWA, MPPI,
+  linear MPC, and nominal NMPC on navigation and latency outcomes?
 
-Không hợp nhất các kết quả trên thành một điểm “overall superiority”. An toàn,
-bám đường, tiến độ, độ mượt, feasibility và computation là các kết quả riêng.
+## 3. Candidate contribution
 
-## 4. Hợp đồng mô hình tối giản
+No novelty is claimed for LSTM, GA, NMPC, reference governors, deterministic
+repair, homotopy, or planner/controller separation individually. PathFG already
+combines planning, a feasibility governor, and NMPC.
 
-Mô hình chi tiết nằm ở PR02, nhưng bản chất không đổi:
+The candidate technical contribution is restricted to the continuous
+context-to-Mecanum-local-path mechanism and its measured downstream effect. The
+terminal-NMPC construction is standard control
+theory adapted transparently to the accepted six-state model; it supports the
+system study but is not claimed as a new theorem family.
 
-\[
-s_k=[x_k,y_k,\theta_k,v_{x,k},v_{y,k},\omega_k]^\top,
-\qquad u_k=[v^{\rm cmd}_{x,k},v^{\rm cmd}_{y,k},\omega^{\rm cmd}_k]^\top .
-\]
+## 4. Candidate hypotheses and rejection rules
 
-Mô hình cập nhật pose dùng vận tốc thân và nhiễu/bất định được nêu rõ; không
-yêu cầu mô-men hoặc dòng điện. LSTM là một thành phần của CCA, cung cấp vector ngữ cảnh
-theo thời gian (vị trí, tốc độ, hướng) cùng độ tin cậy và trạng thái hợp lệ.
-CCA chỉ dùng score liên tục \(c\in[0,1]\) để điều chỉnh khoảng an toàn, trọng số
-hoặc risk allocation đã định nghĩa; không sửa global path. Với người động,
-chỉ CCA-NMPC được phép tích phân context velocity thành chuỗi vị trí tương lai
-nội bộ cho chance rows. Chuỗi này không được xuất thành artifact hoặc vẽ lên
-ảnh; các baseline chỉ dùng snapshot hiện tại.
+- **H1 — continuous-update effect:** The observation-rate cell P improves at
+  least one preregistered local-path or downstream endpoint over GLT, which uses
+  the same frozen LSTM and GA but updates recurrent state only at planning
+  events.
+- **H2 — context value:** P is evaluated against GCV and G0 to separate the
+  learned current-context estimator from constant-velocity and no-context
+  alternatives.
+- **H3 — nominal motion control:** For one admitted dynamically feasible
+  reference and its shifts, the terminal-NMPC sequence remains feasible and its
+  value decreases under the exact assumptions in PR02.
+- **H4 — system and embodiment effects:** End-to-end comparisons and the value
+  of lateral Mecanum motion are secondary empirical hypotheses.
 
-Mọi “guarantee” phải nói rõ điều kiện. T1--T5 của PR02 chỉ là các mệnh đề hợp
-đồng sơ cấp, không phải novelty lý thuyết. Chance constraint cục bộ trước hết chỉ
-cho cận dưới predictive measure $\Pr_{\mathrm{model}}$, điều kiện theo thông tin
-$\mathcal F_k$ và active set đóng băng của một solve. Chỉ được nói về phân phối
-vận hành $\Pr_\star$ khi calibration one-sided độc lập đúng tail, đầy đủ mode,
-horizon/context, ID/OOD và sample support đã đạt. Thiếu calibration/provenance,
-frame/time/age, geometry parity, zero slack hoặc solver residual thì claim xác
-suất fail closed.
+Exact endpoints, effect thresholds, sample size, seeds, timing budgets,
+multiplicity correction, decoder/repair ablations, and rejection rules are
+future preregistration items in `IMPLEMENTATION_PLAN.md`. Failure of H1 rejects
+the candidate CCA contribution but does not invalidate the architecture or the
+conditional NMPC theorem. Deterministic repair is not the primary contribution.
 
-Mô hình sáu trạng thái hiện chưa ánh xạ đầy đủ actuator lag, command delay và
-miền bị chặn của $w_k$. Vì vậy CLM-T-03 được rút/giữ ngoài
-phạm vi analytic; soft constraint và fallback chỉ được báo như kết quả thực
-nghiệm, không được trình bày như recursive feasibility hoặc stability.
+## 5. Claim ledger
 
-## 5. Claim ledger ban đầu
-
-| Claim ID | Câu được phép kiểm chứng | Bằng chứng tối thiểu | Câu bị cấm trước khi có bằng chứng |
+| ID | Permitted claim | Minimum evidence | Current status |
 |---|---|---|---|
-| CLM-NOV-01 | Claim rộng “context-aware adaptive fixed-budget risk allocation là mới” đã bị bác | PA-06/PA-10/PA-11 full-text equation/experiment matrix | Không được hồi sinh claim bằng đổi tên/platform |
-| CLM-NOV-02 | Delta ứng viên chỉ còn allocator đóng dạng, không huấn luyện, theo human--step trong position-state Mecanum CCA-NMPC, giữ clearance cố định | Focused Zotero/Obsidian audit + nearest-work matrix + đọc chéo novelty | “Lần đầu tiên” hoặc “novel adaptive allocation” khi cổng chưa đạt |
-| CLM-EMP-01 | Allocator minh bạch có trade-off thực dụng/nhân quả so với uniform, optimized non-context, heuristic và learned fixed-budget allocation | Paired benchmark, OOD/runtime/failure analysis, CI/effect size | Dùng baseline yếu hoặc platform khác làm bằng chứng novelty |
-| CLM-T-01 | T1--T3 kiểm bảo toàn fixed budget, thứ tự context và trường hợp uniform dưới active set cố định | PR02 PO-014 + property/numerical tests | Gọi các đẳng thức sơ cấp là novelty/theorem mới hoặc “an toàn tuyệt đối” |
-| CLM-T-02 | T4 kiểm scalar Gaussian surrogate và geometry containment dưới $\Pr_{\mathrm{model}}$ | PR02 PO-001/011/013; PO-003 nếu nói về $\Pr_\star$ | Đánh tráo model-internal surrogate với xác suất vận hành |
-| CLM-T-04 | T5 kiểm accounting predictive-mode và cận Boole open-loop one-solve | PR02 PO-002/008/015; PO-003 nếu nói về $\Pr_\star$ | “Joint safety toàn horizon/closed-loop/mission-wide” |
-| CLM-T-03 (`WITHDRAWN/HELD`) | Không có claim recursive feasibility/practical stability cho controller hiện tại | Chỉ mở lại bằng amendment đóng PO-005/006/009 trên augmented actuator model | Suy stability/recursive feasibility từ nominal six-state model, simulation hoặc fallback |
-| CLM-EMP-02 | Báo empirical solve feasibility, fallback, constraint và tracking trên miền thử đã khóa | PR20/PR21/PR30/PR40, đầy đủ mẫu số và CI | Đổi tên các tỷ lệ đo được thành theorem stability/feasibility |
-| CLM-ML-01 | Context LSTM tốt hơn baseline cụ thể trên holdout đã khóa về direction/speed/validity | PR11--PR12, ≥5 training seeds, CI/effect size, OOD | “Hiểu ý định người”, ADE/FDE hoặc “generalizes” vô điều kiện |
-| CLM-ML-02 | Detector cung cấp đo lường người trong các domain thật đã kiểm | PR10, detection AP/PR/miss metrics; presence confusion matrix chỉ khi task đó được tiền đăng ký | Gọi một vài ảnh minh họa là robust detection |
-| CLM-ML-03 | Ngữ cảnh LSTM (vị trí, tốc độ, hướng) được đồng bộ đúng với frame ảnh/video thật | Calibration/frame-transform audit, timestamp audit và overlay có parent hash | Overlay vẽ tay hoặc thiếu frame/scale |
-| CLM-SIM-01 | CCA cải thiện một estimand closed-loop trong simulator/configuration đã nêu | PR20--PR21, paired seeds, CI, ablation | “Tốt nhất” dựa vào một seed hoặc RMSE |
-| CLM-SIM-02 | Full method đáp ứng budget software trên host được ghi | P50/P95/P99/max, misses, hardware/software manifest | “Hard real-time” |
-| CLM-SIM-03 | Lợi ích an toàn không che degradation không chấp nhận được về tracking, fallback hoặc runtime | Multi-outcome trade-off, failure analysis và non-inferiority margins khóa trước | “Overall superior” từ một metric |
-| CLM-HW-01 | Xu hướng và giới hạn trên robot thật | PR30, ethics, ground truth độc lập, repeated trials | Dùng simulation hoặc video minh họa để claim hardware |
+| GAP-01 | A focused DOI audit supports a bounded, falsifiable question | closest-work matrix and Q1 gap review | theory boundary locked; benefit candidate |
+| T-01 | The six-state nominal Mecanum model is defined coherently | equation and notation review | theory locked |
+| T-02 | Terminal NMPC has conditional nominal recursive feasibility and tracking convergence | analytic proof and independent theory review | theory locked |
+| CCA-01 | CCA updates recurrent context independently of planning events and outputs only a robot local path | architecture and CCA equation review | theory locked; effect candidate |
+| G-01 | Observation-rate updating improves local-path generation over trigger-rate updating | future matched P--GLT study | not tested |
+| G-02 | CCA-GA improves downstream navigation | frozen paired end-to-end runs | not tested |
+| S-01 | Full CCA-NMPC outperforms named navigation baselines | matched DWA/MPPI/MPC/NMPC benchmark | not tested |
+| RT-01 | A component meets its computation deadline | target-device p50/p95/p99/max and miss rate | not tested |
+| HW-01 | The method is effective on the physical robot | registered repeated hardware trials | paused |
 
-Với khuyến nghị hiện tại `PIVOT-EMPIRICAL-PROVISIONAL`, CLM-T chỉ là contract
-validation hỗ trợ cho empirical characterization. Không thay từ ngữ để biến
-allocator, Gaussian quantile hoặc Boole bound chuẩn thành novelty lý thuyết.
+No aggregate "overall superiority" score is permitted. Prediction, generation,
+tracking, navigation, computation, and hardware outcomes remain separate.
 
-## 6. Đối tượng và biến số
+## 6. Evidence and language limits
 
-- **Đơn vị ML:** recording/context episode, không phải mỗi sliding window độc
-  lập.
-- **Đơn vị mô phỏng:** một scene--seed--controller run hoàn chỉnh.
-- **Đơn vị vật lý:** participant/scene/order block; frame không phải replicate.
-- **Biến can thiệp chính:** risk allocation/context semantics và predictor.
-- **Primary outcomes:** collision/safe completion, signed physical margin,
-  completion/time-to-goal và deadline/fallback theo PR21/PR40.
-- **Secondary outcomes:** tracking error, path length, stopped fraction, command
-  variation, wheel/constraint violations, calibration và qualitative behavior.
+- A focused search supports only "the focused DOI audit did not identify"; it
+  does not support "first" or universal priority.
+- The locked formulation does not prove that a future numerical solver will
+  return a feasible witness for every state.
+- Lyapunov tracking is not collision safety.
+- Mean solve time is not real-time evidence.
+- Historical parity or Simulink smoke tests are not evidence for this
+  theory-only freeze.
+- Development runs cannot be reported as confirmatory results.
 
-## 7. Phân tầng bằng chứng và cách viết
+## 7. Freeze gate
 
-| Tầng | Nguồn | Cách diễn đạt tối đa |
-|---|---|---|
-| E0 | Derivation/unit test | “đúng dưới các giả định đã nêu” |
-| E1 | Synthetic/open-loop | “trên dataset/simulator synthetic này” |
-| E2 | Internet/public recorded data | “trên các source/recording đã nêu” |
-| E3 | Closed-loop simulation | “trong các kịch bản mô phỏng đã khóa” |
-| E4 | Robot thật, target hardware | “trong cấu hình robot/site/participant đã thử” |
-| E5 | External multi-site replication | Chỉ khi thật sự có replication độc lập |
+PR00 is `FROZEN — THEORY ONLY` when:
 
-Không nâng claim từ E1/E3 lên E4. “Real-time” chỉ dùng khi deadline, target
-hardware, jitter, worst-case và tỷ lệ miss đã được đo; nếu không dùng “measured
-software latency”. “Safety” luôn kèm định nghĩa metric và miền kiểm chứng.
+1. the focused DOI boundary and component-level prior-art exclusions are locked;
+2. the CCA architecture, six-state model, NMPC formulation, assumptions,
+   conditional theorem, and claim limits are locked;
+3. the candidate contribution is P versus GLT rather than component novelty or
+   deterministic repair;
+4. every future implementation and empirical gate is routed to
+   `IMPLEMENTATION_PLAN.md` without execution; and
+5. no numerical, real-time, safety, robustness, or hardware claim is admitted.
 
-## 8. Quy tắc đóng băng và chấp nhận
-
-### Focused-audit checkpoint — 2026-08-13
-
-The 2026-08-13 publisher refresh and Google Scholar discovery-only spot-check
-added no directly matched primary record that changes the bounded gap. Risk-aware
-MPPI, Mecanum MPC/hardware disturbance rejection and uncertainty-aware predictive
-safety remain explicit nearest-work boundaries. PR00 is now `REVIEWED` for scope
-and claim logic; the audit is not claimed to be systematic or exhaustive. The
-review record is
-`research/obsidian/07_Analysis/focused-audit-review-20260813.md`. A versioned
-preregistration freeze is still required before confirmatory holdout execution.
-
-PR00 được `FROZEN` khi:
-
-1. Focused literature audit đã xác định nearest prior art, giới hạn claim và
-   hướng `PIVOT-EMPIRICAL`/`STOP` nếu delta không đủ;
-2. mỗi claim có estimand, protocol, artifact dự kiến và câu giới hạn;
-3. primary/secondary/exploratory outcomes được gắn nhãn;
-4. không có novelty claim cho YOLO/LSTM tiêu chuẩn hoặc integration đơn thuần;
-5. hội đồng nội bộ ký scope version trước khi mở test;
-6. SHA-256 của PR00 và claim ledger được ghi trong preregistration manifest.
+Review record:
+`research/reviews/q1-gap-review-20260823.md` (`Weak Accept`, gap/protocol only).

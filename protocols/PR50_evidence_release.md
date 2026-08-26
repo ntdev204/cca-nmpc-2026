@@ -1,6 +1,7 @@
 # PR50 — Đóng băng bằng chứng, phát hành và cổng phản biện Q1
 
-> **Trạng thái:** `DRAFT-DESIGN`; không được phát hành như completed evidence.  
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `DRAFT-DESIGN`; không được phát hành như completed evidence.  
 > **Điều kiện vào:** với profile `comprehensive_q1`, PR00, PR02, PR10,
 > PR11, PR12, PR20, PR21, PR30 và PR40 đều phải `VERIFIED`. `NOT RUN` không
 > phải đường thoát. Chỉ một scope amendment do chủ nhiệm nghiên cứu duyệt trước

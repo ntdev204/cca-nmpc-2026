@@ -35,7 +35,7 @@ from tools.map_run import (
     validate_benchmark_pairs,
 )
 from runtime.controller import CompiledController
-from simulation.model import NmpcPrediction
+from runtime.controller import NmpcPrediction
 from ai.context import ContextScorer
 
 

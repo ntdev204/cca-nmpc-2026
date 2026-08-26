@@ -23,11 +23,11 @@ from hardware import (
     STM32_FRAME_TAIL,
     STM32_GYROSCOPE_RATIO,
     STM32_TELEMETRY_SIZE,
-    Odometry,
     Stm32SerialSource,
     encode_stm32_velocity_command,
     utc_ns,
 )
+from runtime.kalman import SixStateKalman
 from shared import sha256_file
 
 
@@ -60,6 +60,11 @@ STATE_FIELDS = (
     "gyro_y_radps",
     "gyro_z_radps",
     "voltage_v",
+    "state_estimator",
+    "kalman_cov_trace",
+    "kalman_position_std_m",
+    "kalman_heading_std_rad",
+    "kalman_velocity_std_mps",
     "transport",
 )
 EVENT_FIELDS = ("t_ns", "event", "detail")
@@ -308,7 +313,7 @@ def run(args: argparse.Namespace) -> int:
         timeout_s=args.timeout_s,
         mode=args.mode,
     )
-    odometry = Odometry()
+    estimator = SixStateKalman()
     sequence = 0
     last_telemetry_ns: int | None = None
     last_missing_ns = 0
@@ -349,8 +354,12 @@ def run(args: argparse.Namespace) -> int:
             sequence += 1
             latest = source.latest
             if latest is not None and latest.t_ns != last_telemetry_ns:
-                odometry.update(latest.t_ns, (latest.vx_mps, latest.vy_mps, latest.wz_radps))
-                state = odometry.state
+                state = estimator.step(
+                    latest.t_ns,
+                    (latest.vx_mps, latest.vy_mps, latest.wz_radps),
+                    acceleration_body_mps2=(latest.accel_x_mps2, latest.accel_y_mps2),
+                    gyro_z_radps=latest.gyro_z_radps,
+                )
                 states.writerow(
                     {
                         "t_ns": latest.t_ns,
@@ -368,6 +377,7 @@ def run(args: argparse.Namespace) -> int:
                         "gyro_y_radps": latest.gyro_y_radps,
                         "gyro_z_radps": latest.gyro_z_radps,
                         "voltage_v": latest.voltage_v,
+                        **estimator.diagnostics(),
                         "transport": "stm32_serial",
                     }
                 )
@@ -431,6 +441,11 @@ def run(args: argparse.Namespace) -> int:
         ),
         "control_interface": "body_velocity",
         "state_definition": list(POSITION_STATE_FIELDS),
+        "state_estimator": "six_state_ekf",
+        "kalman": {
+            "measurement": ["vx_mps", "vy_mps", "omega_radps"],
+            "position_source": "dead_reckoning_from_body_velocity",
+        },
         "physical_geometry_status": "pending_measurement",
         "protocol": {
             "frame_header": f"0x{STM32_FRAME_HEADER:02X}",

@@ -1,134 +1,189 @@
-# PR21 — Benchmark và ablation controller
+# PR21 — Matched benchmark và ablation CCA–NMPC
 
-> **Trạng thái:** `DEVELOPMENT-EXECUTED / UNRELEASED`; fairness/estimand design
-> đã qua review và một campaign development mới đã chạy; chưa phải benchmark
-> confirmatory. Campaign confirmatory chỉ chạy sau focused audit, PR20 và
-> protocol freeze được duyệt.
-> **Nguyên tắc:** cùng map, plant, global path và context; chỉ thay controller.
-> **Phiên bản hợp đồng máy:** `1.1.0`.
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `PROPOSED / AWAITING-APPROVAL / CONFIRMATORY-NOT-RUN`.
+> **Nguyên tắc:** so sánh trong cùng causal layer; không dùng số công bố trên
+> robot, map, predictor hoặc compute platform khác làm baseline định lượng.
 
-## 1. So sánh chính
+## 1. Shared conditions
 
-| ID | Controller | Mục đích |
+Trong mỗi layer, mọi method dùng cùng map, fixed global path, robot footprint,
+plant, initial state, causal observation stream, physical constraints, sample
+time, target device, thread count, warm-up, tuning allowance và denominator.
+Physical look-ahead time được giữ chung khi có cùng ý nghĩa; discretization và
+decision variable riêng của từng algorithm được freeze trước holdout. Context
+chỉ gồm current position, current speed, coarse direction, confidence và age.
+Global path không replan. Trong hệ P, chỉ CCA sinh robot local path; các
+end-to-end baseline giữ nguyên native local decision và command semantics.
+
+Ba namespace seed tách biệt: năm `training_seed` của LSTM, mười
+`scenario_seed` của truth/observation stream và `algorithm_seed` của stochastic
+search. Cùng package dùng cùng scenario seed cho mọi method; algorithm seed được
+freeze riêng và GA ablations dùng paired search streams. Tối thiểu 300 package
+được tạo bởi 3 scenario families × 10 frozen templates/family × 10 scenario
+seeds. Timestep, candidate và decoder call không phải đơn vị độc lập.
+
+## 2. Prediction layer
+
+So sánh constant velocity, Kalman constant velocity và self-supervised LSTM.
+Mọi phương pháp xuất cùng context interface, dùng participant/recording-disjoint
+splits và OOD rule của PR11. Kết luận OOD suy diễn cần ít nhất hai held-out site;
+một site chỉ cho phép kết quả exploratory. PR12 định nghĩa metrics và năm training
+seeds. Inference có nominal budget 10 ms và hard deadline 15 ms.
+
+## 3. CCA local-path layer
+
+Primary comparison chỉ thay local-path generator. Mọi pipeline dùng cùng fixed
+global path, robot state, causal observation stream, obstacles, scenarios,
+constraints, compute budget và cùng terminal NMPC backend:
+
+| ID | Pipeline |
+|---|---|
+| A0 | fixed global path → terminal NMPC |
+| A1 | DWA local path → terminal NMPC |
+| A2 | GA without context → terminal NMPC |
+| A3 | constant-velocity context + GA → terminal NMPC |
+| P | LSTM continuous context + GA → terminal NMPC |
+
+DWA trong A1 chỉ sinh local path, không phát command theo native DWA. Continuous
+context nghĩa là LSTM cập nhật ở mỗi valid observation, độc lập với event kích
+hoạt GA. CCA chứa LSTM và GA, chỉ xuất geometric robot local path. Mọi GA cell
+dùng paired algorithm seeds và cùng candidate, decoder, wall-clock budgets.
+
+Primary causal contrasts là P−A3 và P−A2; P−A1 và P−A0 là matched architecture
+contrasts. Metrics gồm package-level safe completion, collision, signed
+swept-footprint clearance, valid-local-path yield, rejoin error, path length,
+integrated curvature, tracking error, p50/p95/p99 latency và deadline miss.
+
+DWA–MPC đã có matched architecture prior art
+([10.3390/s25072014](https://doi.org/10.3390/s25072014)); planner–MPC cascade
+không phải novelty.
+
+## 4. Motion-control layer
+
+Mọi controller nhận chính xác cùng tracking reference được motion-control layer
+time-parameterize từ cùng local path:
+
+| ID | Method | Vai trò |
 |---|---|---|
-| B0 | MPC | baseline tuyến tính/đơn giản |
-| B1 | position-state NMPC | baseline phi tuyến không phân bổ context |
-| B2 | DWA | baseline local-velocity phổ biến |
-| B3 | MPPI | baseline sampling-based |
-| P | CCA-NMPC | phương pháp mục tiêu, dùng context score |
+| C0 | linearized MPC | constrained linear baseline |
+| C1 | nominal NMPC | nonlinear baseline không terminal ingredients |
+| C2 | terminal NMPC | proposed motion-control formulation |
 
-Mọi controller nhận cùng robot Mecanum, map, state đầu, global path cố định,
-context position/speed/direction, footprint, clearance, horizon, thời gian mẫu,
-solver budget và scenario--seed. Global path không được replan. Chỉ local path
-của robot được tạo lại khi footprint context xung đột hoặc hướng thay đổi.
-Người là đối tượng động: chỉ CCA-NMPC được phép dùng chuỗi vị trí tương lai
-nội bộ do LSTM/context velocity cung cấp trong chance rows. Baseline không được
-nhận chuỗi tương lai; chúng dùng snapshot hiện tại và direction/speed cho policy
-local của mình. Chuỗi CCA không được xuất ra ảnh hoặc raw context CSV.
-Manifest mỗi campaign phải ghi implementation class, control domain, context
-usage và risk strategy của từng controller; thiếu mapping thì campaign không
-được promote. Nếu campaign dùng LSTM, manifest phải ghi checkpoint hash cùng
-hash/source của sealed `context.csv` capture; checkpoint diagnostic hoặc không
-có provenance không được vào confirmatory comparison.
+So thêm unchecked-path và feasibility-checked-path như secondary interface
+sensitivity. Một deterministic equilibrium-progression adapter inspired by
+PathFG không phải drop-in reproduction hoặc primary matched baseline.
+Terminal-NMPC proof
+chỉ áp dụng với fixed admitted reference, nominal model, feasible initial state
+và các step thuộc miền giả thiết của theorem. Switching, fallback và rejected
+updates được đánh giá riêng, không suy rộng Lyapunov claim.
 
-## 2. Hợp đồng CCA và clearance
+Các anchors gần gồm scenario-based NMPC với human prediction
+([10.1016/j.conengprac.2023.105769](https://doi.org/10.1016/j.conengprac.2023.105769))
+và set-terminal NMPC có recursive-feasibility/stability results
+([10.1016/j.conengprac.2024.106155](https://doi.org/10.1016/j.conengprac.2024.106155)).
+Vì vậy HRI-NMPC, terminal constraint và stability không phải novelty riêng.
 
-Với $M$ context event đang hoạt động, tổng budget $\bar\epsilon$ và floor
-$\epsilon_{\min}$, baseline uniform (nếu được bật trong ablation) dùng
+## 5. End-to-end layer
 
-\[
-\epsilon_e=\epsilon_{\min}+
-\frac{\bar\epsilon-M\epsilon_{\min}}{M}.
-\]
+Secondary system-level comparators:
 
-CCA dùng score $c_e\in[0,1]$ từ context branch:
+| ID | System |
+|---|---|
+| S0 | native DWA |
+| S1 | native MPPI |
+| P | Continuous Context-Aware (LSTM + GA) local path + terminal NMPC |
 
-\[
-w_e=\frac{\exp(-\beta c_e)}{\sum_{j=1}^{M}\exp(-\beta c_j)},
-\qquad
-\epsilon_e=\epsilon_{\min}+
-(\bar\epsilon-M\epsilon_{\min})w_e.
-\]
+DWA/MPPI giữ native sampling, local rollout và command-selection semantics; chúng
+không nhận CCA local path. Chúng dùng cùng environment, fixed global path, causal
+observations, footprint, command/wheel limits, target compute và tuning allowance
+và chỉ được so ở task/safety/runtime outcomes. Do khác decision authority, S0/S1
+không được dùng để quy kết hiệu quả cho CCA, LSTM hoặc GA và không được cứu một
+primary A0–A3 failure. Một ablation riêng so full Mecanum với `$v_y=0$` trên P để
+cô lập giá trị holonomic.
 
-LSTM chỉ cung cấp context position/speed/direction và confidence/validity.
-Người là đối tượng động; chỉ CCA-NMPC được phép tích phân context velocity
-thành chuỗi vị trí tương lai nội bộ cho chance rows. Chuỗi này không được
-lưu, xuất hoặc vẽ lên ảnh. Một giá trị physical
-clearance $d_0$ (m) được khóa cho toàn bộ primary comparison; thay đổi clearance
-chỉ thuộc factorial phụ.
+Residual-learning MPC trên Mecanum đã có experimental evidence
+([10.1016/j.conengprac.2025.106587](https://doi.org/10.1016/j.conengprac.2025.106587)),
+và HRI model-predictive planning với participant-calibrated interaction model
+đã được báo cáo
+([10.1016/j.ejcon.2026.101572](https://doi.org/10.1016/j.ejcon.2026.101572)).
+Do đó learning-plus-Mecanum-MPC và model-predictive HRI không phải gap tự thân.
 
-## 3. Fairness ledger
+## 6. Primary outcomes và Holm families
 
-Mỗi method có equation ID, semantic version, hash, tuning budget và failure
-ledger. Giữ cố định dynamics, actuator limits, collision geometry, reference,
-sample time/horizon, solver/deadline, environment, random seeds và thứ tự paired
-scenario. DWA/MPPI được ghi rõ khác biệt thuật toán; không dùng chúng làm causal
-contrast nếu không thể ghép cùng state/reference contract.
+### Family A — CCA mechanism
 
-## 4. Primary estimands
+Family A có đúng bốn primary hypotheses: paired safe-completion difference
+P−A0, P−A1, P−A2 và P−A3. P−A3 cô lập learned continuous context so với
+constant-velocity context; P−A2 cô lập context so với no-context GA.
 
-- **E-01:** paired difference P--B1 về minimum signed clearance, collision và
-  safe completion.
-- **E-02:** P--B0/B2/B3 về completion, progress, path length và stopped fraction.
-- **E-03:** P với context permutation/context-off để kiểm tra giá trị semantic
-  của context.
-- **E-04:** non-inferiority của P về tracking và runtime dưới cùng deadline,
-  fallback và actuator limits.
-- **E-05:** độ nhạy với context dropout, stale frame, sai hướng và OOD map.
+### Family B — motion control
 
-Không tạo composite score thay cho các estimand trên. Nếu safety tăng nhưng
-tracking, latency hoặc fallback xấu đi, báo trade-off riêng.
+Family B có đúng ba hypotheses:
 
-## 5. Metrics bắt buộc
+1. fixed-reference feasibility-rate difference C2−C1;
+2. tracking RMSE ratio C2/C1;
+3. nominal-budget-overrun risk difference C2−C1 tại 60 ms.
 
-### Safety và task
+### Family C — end-to-end
 
-Collision rate, safe completion, minimum signed clearance, near-miss count,
-completion time, timeout, path length, progress và stopped-time fraction. The
-development runner defines a near miss as a non-collision margin in
-`[0, 0.10) m`; this threshold must be frozen before confirmatory execution.
+Family C là secondary system-level family gồm safe-completion difference P−S0
+và P−S1. Holm correction ở $\alpha=0.05$ trong từng family. Family C chỉ hỗ trợ
+system-level context; không hỗ trợ mechanism attribution. OOD contrasts ở family
+riêng và không được dùng để cứu primary failure.
 
-### Tracking và control
+## 7. Timing budgets và metrics chung
 
-Position/yaw RMSE, cross-track error, command variation, jerk,
-wheel-speed saturation, constraint residual và local-path generation count. The
-map runner records path length, progress ratio, cross-track RMSE, yaw RMSE,
-mean/total command variation and fallback duration per episode; these
-are descriptive outputs until the full metric contract is frozen.
+- LSTM nominal/hard: 10/15 ms;
+- asynchronous CCA regeneration nominal/hard: 100/150 ms;
+- NMPC solve nominal/hard: 60/90 ms;
+- full governed control step tại $T_s=0.1$ s có hard deadline 100 ms;
+- báo p50/p95/p99/max, nominal-overrun và hard-deadline miss, không chỉ mean;
+- safety/task: collision, safe completion, signed clearance, near miss
+  `[0,0.10)` m, progress, completion time và stopped fraction;
+- tracking/control: position/yaw RMSE, cross-track error, command variation,
+  wheel saturation, constraints và fallback;
+- mọi timeout, collision, infeasible và incomplete ở trong denominator.
 
-### Context và computation
+CCA không được chạy đồng bộ nối tiếp với NMPC trong control step 100 ms. Active
+fallback/reference tiếp tục được NMPC điều khiển trong khi CCA chạy ở event rate;
+proposal hoàn thành được revalidate ở state hiện tại trước admission. Synchronous
+MATLAB harness hiện tại chỉ là development evidence và không thể đóng timing gate
+cho đến khi rate separation này được thực thi và log độc lập.
 
-Direction confusion matrix, macro-F1, speed MAE, context-valid rate, stale/dropout
-rate, solver status, iterations, P50/P95/P99/max latency, deadline miss và
-fallback rate/duration.
+## 8. Cổng chấp nhận chính xác
 
-## 6. Execution và báo cáo
+### CCA mechanism gate
 
-Giữ paired seeds, randomize/interleave controller order, freeze tune/test scenes
-tách biệt và giữ mọi failed/incomplete/collision run trong mẫu số. Báo per-scene
-distribution, paired confidence interval/effect size, failure taxonomy và một
-figure đại diện cho mỗi controller; không vẽ toàn bộ đường lặp lên hình chính.
+Tất cả điều kiện phải đúng:
 
-## 7. Cổng chấp nhận
+1. P−A3 và P−A2 safe completion tăng ít nhất 5 percentage points, với lower
+   paired 95% CI > 0;
+2. P không kém A0 hoặc A1 quá 2 percentage points về safe completion: lower
+   paired 95% CI của P−A0 và P−A1 $\geq-0.02$;
+3. P−A3 tăng median minimum signed clearance ít nhất 0.05 m, lower paired 95% CI
+   > 0, và không tăng collision risk;
+4. p95 CCA $\leq100$ ms, p99 $\leq150$ ms và hard-deadline miss tại 150 ms
+   $\leq1\%$;
+5. Family-A Holm-adjusted tests pass.
 
-PR21 đạt `VERIFIED` khi fairness/tuning ledger đầy đủ, năm strategy trong
-`schemas/simulation-config.schema.json` khớp manifest, ablation cô lập từng
-claim, metrics/failures được báo đầy đủ và phân tích PR40 tái sinh được. Không
-gọi kết quả mô phỏng là bằng chứng perception thật, an toàn vật lý hoặc hard
-real-time.
+### Motion-control gate
 
-## 8. Development execution checkpoint — 2026-08-14
+1. không state/input/footprint violation trên admitted fixed-reference runs;
+2. numerical Lyapunov residual $\Delta V+\ell\leq10^{-8}$ chỉ tại step có fixed
+   admitted reference, nominal model và thỏa toàn bộ theorem assumptions;
+3. fixed-reference feasible rate $\geq99\%$;
+4. p95 solve $\leq60$ ms, p99 $\leq90$ ms, hard-deadline miss tại 90 ms
+   $\leq1\%$, và full-step miss tại 100 ms $\leq1\%$;
+5. upper 95% CI tracking-RMSE ratio C2/C1 $\leq1.10$ và Family-B tests pass.
 
-The fresh development benchmark is bound to the self-supervised LSTM checkpoint
-and the tabular score/penalty Q-learning policy under
-`experiments/runs/simulation-benchmark-400mm-20260814/`. It contains the five
-predeclared strategies (MPC, NMPC, DWA, MPPI and CCA-NMPC), 10 paired
-replicates for each of three dynamic-context scenarios, a fixed global path and
-trigger-only local-path generation. The separate MATLAB position-state export
-uses the same six-state/body-velocity interface.
+### Secondary system-level gate
 
-The raw-to-summary replay and controller pairing pass, but score tuning is
-development-only, the source context is simulated, and no protocol-freeze or
-independent review is attached. The benchmark therefore remains
-`candidate-development-only`; no superiority, safety, real-time or sim-to-real
-claim is released.
+P−S0 và P−S1 được báo cáo với paired 95% CI và Holm adjustment trên cùng paired
+packages. Pass/fail ở đây chỉ giới hạn system-level superiority wording; không
+thay đổi kết luận mechanism từ A0–A3.
+
+Failure của CCA mechanism gate bác bỏ research-gap mechanism claim. Failure
+secondary system-level gate chỉ cấm broad system-superiority wording. Failure
+timing cấm từ `real-time`; failure motion gate cấm stability/constraint wording
+vượt fixed-reference theorem. Không composite score.

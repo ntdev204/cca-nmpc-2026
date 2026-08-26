@@ -3,7 +3,6 @@
 The operator surface is isolated from research utilities:
 
 - `backend/` — the no-ROS Jetson service and direct sensor/STM integration.
-- `desktop/` — the laptop Tk operator app, which is a client of the backend.
 - `web/` — the Next.js 16.3.1 dashboard and its server-side TCP bridge.
 
 The web project is a CLI-generated Next.js application; its reproducible

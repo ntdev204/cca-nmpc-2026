@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +10,29 @@ import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[2]
 _KINDS = {"mpc": 0, "nmpc": 1, "dwa": 2, "mppi": 3, "cca_nmpc": 4}
+
+
+@dataclass(frozen=True)
+class NmpcPrediction:
+    mean_xy: np.ndarray
+    velocity_xy: np.ndarray
+    relative_covariance_xy: np.ndarray
+    probability: np.ndarray
+    context: np.ndarray
+    nominal_robot_xy: np.ndarray
+    omitted_probability_mass: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    human_yaw_rad: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    calibration_provenance_sha256: str = ""
+    calibration_domain: str = ""
+    calibration_tail_verified: bool = False
+    frame_time_age_verified: bool = False
+    mode_partition_verified: bool = False
+    covariance_provenance_verified: bool = False
+    geometry_containment_verified: bool = False
 
 
 class _Input(ctypes.Structure):

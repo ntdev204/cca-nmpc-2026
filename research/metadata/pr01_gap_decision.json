@@ -25,10 +25,7 @@
       "path": "references/zotero/export/receipt.json",
       "sha256": "8DEC029BCB94B461E252FF62C2707471976B8FD26057D5BA3A3767B843BF37E6"
     },
-    "nearest_work_matrix": {
-      "path": "research/obsidian/03_Literature/nearest-work-matrix.md",
-      "sha256": "56F0775538F833EC49F40DC39F258425AEEF27CA0D2D38D1F07F2CE66C769D4E"
-    },
+    "nearest_work_matrix": null,
     "backward_forward_snowball_log": null,
     "correction_retraction_check": null
   },

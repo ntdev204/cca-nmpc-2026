@@ -20,11 +20,11 @@ The registries are intentionally empty, but their future entries must satisfy:
 | Frozen context recording/episode split | `context-split-manifest.schema.json` |
 | Short-history human heading observation | `human-heading-observation.schema.json` |
 | Frozen protocol suite | `protocol-freeze-manifest.schema.json` |
-| Focused literature audit | `focused-literature-audit.schema.json` |
+| Focused literature audit (historical) | `focused-literature-audit.schema.json` |
 | PR01 gap decision | `pr01-gap-decision.schema.json` |
 | Frozen PR01 search plan | `pr01-search-manifest.schema.json` |
 | PR01 raw-search exports | `pr01-raw-search-export-manifest.schema.json` |
-| Claim-to-evidence matrix | `claim-evidence-matrix.schema.json` |
+| Claim-to-evidence matrix (historical) | `claim-evidence-matrix.schema.json` |
 | Zotero source-PDF provenance manifest | `zotero-source-manifest.schema.json` |
 | Zotero deterministic-export receipt | `zotero-export-receipt.schema.json` |
 | Evidence release candidate/freeze | `release-manifest.schema.json` |
@@ -50,15 +50,10 @@ frame/calibration hashes and independent visual review. Release validators must 
 accounting totals and ensure that every referenced ID resolves to exactly one immutable
 registry entry.
 
-The canonical draft claim ledger is
-`research/metadata/claim_evidence_matrix.draft.json`. Its pinned contract sources and
-all evidence `file` references must resolve and match their SHA-256 values. Under claim
-matrix schema `2.0.0`, a blocked or withdrawn row must state at least one explicit
-blocker. A `CLM-T-*` row cannot become `supported` or `approved` unless it contains
-`PR02`, at least one canonical assumption ID, at least one proof-obligation ID, at least
-one evidence file reference with SHA-256, and a verified verifier record. Cross-file
-validation must also reject duplicate claim IDs and unresolved assumption, proof-
-obligation, protocol, or artifact IDs.
+The former draft claim ledger and focused-audit instance were retired from the active
+repository contract because they belong to the superseded research-governance phase.
+Their schemas remain only as historical migration references; no active code gate reads
+those records. Current research notes and implementation evidence are kept separately.
 
 Schema changes require a new `schema_version`, a migration note in `CHANGELOG.md`, and
 revalidation of every existing entry. Never weaken a schema merely to admit a failed or
@@ -72,12 +67,11 @@ dataset-registry and model-registry contracts are at `2.0.0`. Context overlays a
 validated through the evaluation, model and artifact contracts; no human-trajectory
 overlay schema is active.
 
-The claim-to-evidence schema is at `2.0.0`; this incompatible clean-slate revision adds
-pinned contract sources, mandatory blockers for blocked/withdrawn rows, and fail-closed
-theory admission. There were no earlier matrix instances to migrate. The protocol-freeze
-schema is at `1.3.0` and binds a focused-literature audit record rather than a PR01
-database decision. Confirmatory work requires the focused audit record and an immutable
-protocol-freeze record; it does not require Scopus, Web of Science or IEEE Xplore export.
+The claim-to-evidence and focused-audit schemas are retained at their historical
+versions; no active instance is required. The protocol-freeze schema remains available
+for future research governance, but the current code-only implementation gate does not
+bind a literature-audit record and does not require Scopus, Web of Science or IEEE Xplore
+export.
 The simulation, evaluation and physical-experiment schemas were migrated to `1.2.0`, the
 experiment registry and run manifest to `1.2.0`, the release schema to `1.1.0`, and the
 focused-audit schema is `1.1.0` and hashes the research-gap note alongside the
@@ -109,8 +103,8 @@ The PR01 search-plan schema is at `1.2.0` and the raw-export schema is at `1.1.0
 Those schemas are historical provenance only: their plan retains five databases and
 six concept blocks with 30 exact database-specific queries, but none of those
 database exports is an active requirement for the original research paper.
-The current active condition is the focused-literature-audit schema above; it does
-not require Scopus, Web of Science or IEEE Xplore accounts or exports.
+The focused-audit schema above is historical only; it does not define an active
+condition and does not require Scopus, Web of Science or IEEE Xplore accounts or exports.
 Crossref is explicitly a non-exhaustive top-1000 relevance-ranked supplement;
 Semantic Scholar is complete only when continuation-token pagination terminates.
 The raw manifest records policy satisfaction and hashes every retained response without

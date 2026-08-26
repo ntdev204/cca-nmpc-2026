@@ -531,4 +531,4 @@ def test_position_state_entrypoints_use_compiled_controller_boundary() -> None:
         source = (root / relative).read_text(encoding="utf-8")
         assert "simulation.realtime_nmpc" not in source
         assert "CompiledController" in source
-    assert "class NmpcPrediction" in (root / "src/simulation/model.py").read_text(encoding="utf-8")
+    assert "class NmpcPrediction" in (root / "src/runtime/controller.py").read_text(encoding="utf-8")

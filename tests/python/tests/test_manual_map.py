@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.backend.manual_map import OccupancyMap, Pose
+from app.backend.manual_map import OccupancyMap, Pose, clean_saved_map_payload
 from hardware import LidarPoint, LidarScan
 
 
@@ -64,3 +64,60 @@ def test_scan_matching_can_be_disabled_without_changing_pose() -> None:
     assert pose.as_tuple() == (0.0, 0.0, 0.0)
     assert mapper.last_scan_match.reason == "disabled"
     assert mapper.scan_match_attempts == 0
+
+
+def test_mapping_keeps_nearest_valid_return_per_angle() -> None:
+    points = (
+        LidarPoint(1, 0.5, 2.0, 100, 0),
+        LidarPoint(1, 0.5, 0.0, 0, 1),
+        LidarPoint(1, 0.5, 1.0, 20, 1),
+    )
+    mapper = OccupancyMap(
+        0.05,
+        lidar_x_m=0.0,
+        lidar_y_m=0.0,
+        lidar_yaw_rad=0.0,
+        min_range_m=0.05,
+        max_range_m=8.0,
+        padding_cells=2,
+        scan_matching=False,
+    )
+    mapper.update(LidarScan(1, points), Pose())
+
+    assert mapper.points == 1
+    assert mapper.cell(1.0 * math.cos(0.5), 1.0 * math.sin(0.5)) in mapper.occupied
+
+
+def test_payload_removes_isolated_occupied_cells() -> None:
+    mapper = OccupancyMap(
+        0.05,
+        lidar_x_m=0.0,
+        lidar_y_m=0.0,
+        lidar_yaw_rad=0.0,
+        min_range_m=0.05,
+        max_range_m=8.0,
+        padding_cells=1,
+        scan_matching=False,
+    )
+    mapper.occupied.update({(0, 0), (3, 3), (3, 4), (4, 3)})
+    mapper.log_odds.update({cell: mapper.OCCUPIED_THRESHOLD for cell in mapper.occupied})
+
+    payload = mapper.payload()
+    cleaning = payload["metadata"]["cleaning"]
+
+    assert cleaning["removed_occupied_cells"] == 1
+    assert cleaning["clean_occupied_cells"] == 3
+
+
+def test_saved_map_payload_is_cleaned_before_display() -> None:
+    payload = {
+        "width": 5,
+        "height": 2,
+        "occupancy": [100, -1, -1, -1, -1, -1, -1, 100, 100, 100],
+        "metadata": {"scans": 1},
+    }
+
+    cleaned = clean_saved_map_payload(payload)
+
+    assert cleaned["occupancy"] == [-1, -1, -1, -1, -1, -1, -1, 100, 100, 100]
+    assert cleaned["metadata"]["cleaning"]["removed_occupied_cells"] == 1

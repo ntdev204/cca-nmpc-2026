@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0.0",
+  "status": "released_theory_only",
+  "synchronized_at": "2026-08-23T14:35:44+07:00",
+  "overleaf": {
+    "project_id": "6a6dd22be3ab13b78d949879",
+    "project_title": "CCA-NMPC Q1 Final English 2026",
+    "project_url": "https://www.overleaf.com/project/6a6dd22be3ab13b78d949879",
+    "revision_id": "history-version@2026-08-23T14:31:00+07:00",
+    "history_display": "23rd August, 2:31 pm"
+  },
+  "manuscript": {
+    "file": "main.tex",
+    "sha256": "03C5C74A84B6D6DF5AA6CAD7EA156D5B999D9F78C7927C821CC8E13380B81A4C",
+    "characters": 30917,
+    "language": "English",
+    "sections": [
+      "Introduction",
+      "Related Work",
+      "Architecture and Nominal Robot Model",
+      "Continuous Context-Aware Local-Path Generation",
+      "NMPC Motion Control",
+      "Conditional Lyapunov Analysis",
+      "Conclusion"
+    ]
+  },
+  "bibliography": {
+    "file": "references.bib",
+    "sha256": "0B3A6D047E6BEC01BA41E7E0BB92B51AE1D9D5C295940405C8E1DD89642F8416",
+    "entries": 34,
+    "source": "curated DOI-bearing items from Zotero collection CCA-NMPC and the focused non-systematic audit"
+  },
+  "citation_audit": {
+    "citation_commands": 44,
+    "unique_citation_keys": 34,
+    "missing_keys": 0,
+    "unused_bibliography_entries": 0,
+    "entries_without_doi": 0,
+    "abstract_unique_sources": 9,
+    "introduction_unique_sources": 24,
+    "related_work_unique_sources": 29,
+    "theory_unique_sources_by_section": {
+      "Architecture and Nominal Robot Model": 6,
+      "Continuous Context-Aware Local-Path Generation": 14,
+      "NMPC Motion Control": 7,
+      "Conditional Lyapunov Analysis": 3
+    }
+  },
+  "overleaf_compile": {
+    "pages": 6,
+    "errors": 0,
+    "warnings": 0,
+    "info": 0,
+    "local_build_performed": false
+  },
+  "claim_boundary": {
+    "contains_theory_and_mathematical_model": true,
+    "contains_candidate_hypothesis_only": true,
+    "contains_numerical_results": false,
+    "contains_simulation_results": false,
+    "contains_hardware_results": false,
+    "claims_realtime_or_collision_safety": false
+  },
+  "local_sources": {
+    "architecture": "3B6BED0888D3B26CB7FBD57E30845F9A9791A6D8F481B450D64FB6C2D7DD84FA",
+    "mathematical_model": "2B151AD81EAE05B198236BAAC1E63DE9B5B041706F2F4F4D317BF8895A9239FA",
+    "cca_local_path": "A113C7C4E5D5F48E368F36681BF283C8AE6F94B6AA1EDCBC479BD8A3F0DA4DC2",
+    "nmpc_motion_control": "D41D25145F2A7D67C54D9052DF253E6570EF4685CC7CA1175CA0BA88628CC78A",
+    "lyapunov_stability": "13E38542E98D345B0DCB430DC6007F1A2F7CA455FD0BFC5B10569D4E3C628A2A",
+    "protocol_pr02": "1F298E79B120E2B84EE33C06C197493E79C64DD500AA46CF5B9C03327B7E88B7",
+    "core_doi_sources": "1F950B561B5A216B3B54A4270A580EFFAE0AF31637F7D14F12AA730DE5AFE447",
+    "evidence_synthesis": "8F010B62916645FB494DAC26AB27A18B3F80AB430B91821AF8ABA87F6956D1E6",
+    "closest_work": "28A62B78016E8F156DB93A3D1FAC2D9AD8B93DB6D8CCC99B79A6AE0CACC8C69A",
+    "research_gap": "4278179ADF60F17BA105DEE72ED13791C8171643ECE4D5F839E94BF9A60A37C2"
+  }
+}

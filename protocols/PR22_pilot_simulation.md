@@ -1,6 +1,7 @@
 # PR22 — Pilot mô phỏng CCA-NMPC theo ngữ cảnh
 
-> **Trạng thái:** `PURGED` (development-only); pilot cũ đã bị xóa trước campaign
+> **Trạng thái goal hiện tại:** `ARCHIVED`.  
+> **Trạng thái lịch sử:** `PURGED` (development-only); pilot cũ đã bị xóa trước campaign
 > mới vì không phải bằng chứng xác nhận và không được dùng để viết số liệu cho
 > bài báo. Purge record: `research/metadata/development-purge-20260813.json`.
 

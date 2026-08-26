@@ -1,6 +1,7 @@
 # PR30 — Thực nghiệm robot vật lý
 
-> **Trạng thái:** `REVIEWED`; static no-ROS hardware-entry preflight đã
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `REVIEWED`; static no-ROS hardware-entry preflight đã
 > `PASS` và design đã qua review, nhưng physical admission vẫn `BLOCKED` và
 > chỉ được thực thi sau phê duyệt an toàn/đạo đức.  
 > **Mục tiêu:** kiểm sim-to-real trong miền cụ thể, không trình diễn để thay dữ liệu.

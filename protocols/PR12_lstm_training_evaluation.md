@@ -1,217 +1,126 @@
 # PR12 — Huấn luyện và đánh giá LSTM context
 
-> **Trạng thái:** `DEVELOPMENT-EXECUTED / UNRELEASED`; self-supervised
-> score-loop và fail-closed provenance design đã qua review, và một checkpoint
-> simulation-only mới đã được huấn luyện từ đầu; chưa có kết quả admissible.
-> **Ranh giới:** LSTM là một thành phần của CCA-NMPC, không phải bộ điều khiển
-> độc lập và không dự đoán quỹ đạo tương lai của người.
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `PROPOSED / AWAITING-APPROVAL / NOT-EXECUTED`.
+> **Ranh giới:** LSTM nằm trong tầng CCA và chỉ ước lượng context hiện tại; nó
+> không sinh reference, không điều khiển robot và không xuất tọa độ người tương lai.
 
-## 1. Giao diện cố định
+## 1. Giao diện toán học
 
-LSTM nhận cửa sổ lịch sử causal gồm vị trí tương đối, vận tốc sai phân và cờ
-validity. Encoder xuất một vector vận tốc context $\hat v_k\in\mathbb R^2$;
-tốc độ là $\hat s_k=\|\hat v_k\|_2$. Bốn score hướng được tính bằng tích vô
-hướng với các trục trái/phải/tiến/lùi:
+Đầu vào là cửa sổ causal của vị trí robot-local, vận tốc sai phân, confidence,
+validity và age. Với đặc trưng chuẩn hóa $z_t$, LSTM dùng recurrence chuẩn:
 
 \[
-q_{k,j}=\frac{\hat v_k^{\mathsf T}a_j}
-{\max(\|\hat v_k\|_2,\delta)},
-\qquad
-a_j\in\{(-1,0),(1,0),(0,1),(0,-1)\}.
-\]
-
-Đầu ra runtime là `position`, `speed`, `direction`, `confidence` và
-`context_valid`. Không có decoder vị trí tương lai, future human coordinates,
-mode probability hoặc human-path overlay.
-Tốc độ context phải nằm trong bound `max_speed_mps=2.0` đã khóa trong study
-contract; output vượt bound là OOD, bị fail-closed và không được truyền vào
-chance rows.
-
-### 1.1 Recurrence tối giản dùng để mô tả LSTM
-
-Với đầu vào chuẩn hóa $z_t$, encoder dùng recurrence chuẩn
-
-$$
 \begin{aligned}
- i_t&=\sigma(W_i z_t+U_i h_{t-1}+b_i), &
- f_t&=\sigma(W_f z_t+U_f h_{t-1}+b_f),\\
- o_t&=\sigma(W_o z_t+U_o h_{t-1}+b_o), &
- \tilde c_t&=\tanh(W_c z_t+U_c h_{t-1}+b_c),\\
- c_t&=f_t\odot c_{t-1}+i_t\odot\tilde c_t, &
- h_t&=o_t\odot\tanh(c_t).
+i_t&=\sigma(W_i z_t+U_i h_{t-1}+b_i),&
+f_t&=\sigma(W_f z_t+U_f h_{t-1}+b_f),\\
+o_t&=\sigma(W_o z_t+U_o h_{t-1}+b_o),&
+\tilde c_t&=\tanh(W_c z_t+U_c h_{t-1}+b_c),\\
+c_t&=f_t\odot c_{t-1}+i_t\odot\tilde c_t,&
+h_t&=o_t\odot\tanh(c_t).
 \end{aligned}
-$$
-
-Từ biểu diễn cuối cửa sổ, đầu ra active là
-
-$$
-\hat v_k=W_vh_T+b_v,\qquad
-\hat s_k=\|\hat v_k\|_2,\qquad
-q_{k,j}=\frac{\hat v_k^{\mathsf T}a_j}
-{\max(\|\hat v_k\|_2,\delta)}.
-$$
-
-Phần này chỉ đặc tả giao diện toán học của encoder trong `ctx_lstm.py`; nó
-không thêm decoder vị trí hoặc một nhánh điều khiển mới.
-
-Mỗi model có `model_id` ánh xạ tới dataset hash, split manifest, code/config,
-seed, environment và checkpoint hash. Chỉ checkpoint được chọn bằng validation
-rule đã khóa mới được đưa vào runtime.
-
-## 2. Học tự giám sát theo score loop
-
-Không dùng nhãn hướng thủ công trong optimizer. Target tự giám sát là vận tốc
-quan sát ở bước kế tiếp. Loss tối giản là
-
-\[
-\mathcal L=\lambda_v\|\hat v_k-v_{k+1}\|_2^2
- +\lambda_s|\|\hat v_k\|_2-\|v_{k+1}\|_2|.
 \]
 
-Vòng score chỉ dùng tập validation để chọn checkpoint và ngưỡng validity. Mỗi
-iteration ghi score, seed, learning rate, thời gian và failure reason; dừng khi
-đạt target score hoặc plateau theo protocol. Không mở test để chỉnh model.
+Đầu ra nội bộ $\hat v_k=W_vh_T+b_v$ ước lượng vận tốc hiện tại. `position` và
+`age_ms` là pass-through từ observation hiện tại đã kiểm tra timestamp; LSTM
+không dự đoán hai trường này. `speed` bằng $\|\hat v_k\|_2$. Với bốn vector đơn
+vị $u_d$ theo thứ tự cố định `left/right/forward/backward` và scale khóa trước
+$s_0=1\ \mathrm{m/s}$, logits không thứ nguyên là
 
-## 3. Baselines và công bằng
+\[
+\ell_{k,d}=\frac{u_d^{\mathsf T}\hat v_k}{s_0},\qquad
+p_{k,d}=\operatorname{softmax}(\ell_k/T)_d.
+\]
 
-Baseline bắt buộc là constant-speed-direction và Kalman speed-direction. Mọi
-phương pháp dùng cùng history, frame, train/validation/test split, chuẩn hóa và
-ngân sách inference. Scaler chỉ fit trên train; calibration tách riêng. Ít nhất
-năm training seeds độc lập cho LSTM; failed seed được giữ trong ledger.
+Temperature $T>0$ và ngưỡng reject $\tau_{\mathrm{unk}}$ chỉ được fit trên
+`calibration`: $T$ tối thiểu hóa multiclass negative log-likelihood trên các
+sample có hướng xác định, còn $\tau_{\mathrm{unk}}$ tối đa hóa macro-F1 năm lớp
+trên grid khóa trước; hòa điểm chọn ngưỡng thấp hơn. `confidence` bằng
+$\max_d p_{k,d}$; `coarse_direction` là argmax khi confidence
+$\geq\tau_{\mathrm{unk}}$, ngược lại là `unknown`. Output runtime vẫn đúng sáu
+trường `position`, `speed`, `coarse_direction`, `confidence`, `age_ms` và
+`context_valid`. Context invalid, confidence dưới ngưỡng hoặc `age_ms > 150`
+làm CCA chuyển sang fallback đã đăng ký.
 
-## 4. Đánh giá định lượng
+## 2. Học tự giám sát và lựa chọn checkpoint
 
-### Context classification
+Target là vận tốc current-context $v^{\mathrm{ref}}_k$ tại timestamp $k$ từ
+reference độc lập quy định trong PR11; không dùng $v_{k+1}$ hoặc future
+coordinate. Nhãn direction đánh giá được suy ra từ $v^{\mathrm{ref}}_k$ theo
+cùng bốn trục và dead zone khóa trước. Loss tính sau khi đưa vận tốc về đơn vị
+m/s và khóa trước:
 
-Direction accuracy, macro-F1, per-class precision/recall/support và confusion
-matrix trên `test_id` và `test_ood`. Nhãn đánh giá được sinh từ vận tốc quan sát
-độc lập, không lấy tên scenario làm nhãn.
+\[
+\mathcal L=\|\hat v_k-v^{\mathrm{ref}}_k\|_2^2
++0.25\bigl(\|\hat v_k\|_2-\|v^{\mathrm{ref}}_k\|_2\bigr)^2.
+\]
 
-### Context regression và validity
+Hai số hạng đều có đơn vị $(\mathrm{m/s})^2$ và hệ số 0.25 không thứ nguyên.
+Train đúng năm `lstm_training_seed` riêng `[11, 23, 37, 53, 71]`; namespace này
+không dùng lại split seed hoặc simulation-scenario seed. Mọi seed, kể cả seed
+lỗi, ở trong ledger. Mỗi seed chọn một checkpoint bằng validation loss của chính
+seed đó; không chọn seed thắng cuộc, và cả năm checkpoint đi vào phân tích.
+Temperature $T$ và $\tau_{\mathrm{unk}}$ chỉ fit trên `calibration`. Không mở
+`test_id`/`test_ood` trước khi model, preprocessing, calibrator và checkpoint
+hash được freeze.
 
-Speed MAE/RMSE, position error của frame hiện tại, context-valid rate, stale/dropout
-rate và calibration error của confidence. Báo median, IQR, 95% CI và subgroup
-theo direction, density, occlusion và site.
+## 3. Đơn vị thống kê và chống leakage
 
-### Runtime
+Split tuân PR11: participant/recording disjoint trong mọi split, còn `test_ood`
+giữ site hoàn toàn chưa thấy. Recording là đơn vị độc lập; window là repeated
+observation. CI dùng hierarchical bootstrap site → participant → recording, sau
+đó tổng hợp qua năm training seed. Không báo window count như sample size.
+Cỡ mẫu eligible tối thiểu là 60 train, 20 validation, 20 calibration, 30 test ID
+và 30 test OOD recording. OOD inferential cần ít nhất hai site chưa thấy; nếu
+chỉ có một site, mọi metric OOD phải mang nhãn exploratory.
 
-Parameter count, model size, memory, warm/cold latency P50/P95/P99/max,
-throughput và deadline-miss rate trên phần cứng mục tiêu. Host timing không được
-gọi là embedded hoặc hard real-time.
+## 4. Baseline công bằng
 
-## 5. Ablation và kiểm định lỗi
+So sánh `constant velocity`, `Kalman constant velocity` và LSTM trên cùng causal
+history, split, transform, scaler, age rule và target-hardware thread budget.
+Mỗi phương pháp xuất cùng sáu trường context. CV và Kalman dùng cùng phép ánh xạ
+bốn logits, temperature scaling và unknown-reject rule đã đăng ký cho LSTM.
+Calibrator có cùng dạng và cùng calibration split, nhưng tham số $T$ và
+$\tau_{\mathrm{unk}}$ được fit riêng cho từng phương pháp rồi freeze trước test.
+Không cấp thêm feature, future coordinate hoặc test-derived threshold cho bất
+kỳ phương pháp nào.
 
-Mỗi ablation chỉ thay một thành phần: position-only, box-derived, pose-aware,
-history length, không calibration, context-off và direction permutation. Giữ
-cùng seed/budget và không dùng test prediction để thiết kế lại model.
+## 5. Metrics và artifacts
 
-Failure taxonomy gồm missing detection, false positive, ID switch, stale history,
-transform/timestamp error, wrong direction, speed error, invalid context,
-under-confidence, OOD drift và deadline miss. Mỗi failure giữ source/model/
-calibration hash.
+- direction: macro-F1, per-class precision/recall/support và confusion matrix;
+- speed: MAE, RMSE và signed bias;
+- confidence/validity: ECE, Brier score, stale/dropout và valid coverage;
+- runtime: model size, peak memory, p50/p95/p99/max latency, exceedance ở nominal
+  budget 10 ms và miss rate tại hard deadline 15 ms;
+- strata: site, direction, speed, distance, density, occlusion và lighting.
 
-## 6. Visual evidence
+Mỗi artifact giữ dataset, split, calibration, model, code và environment hashes.
+Overlay ảnh thật chỉ hiển thị bbox/keypoints cùng sáu trường context; không vẽ
+đường người, future coordinate hoặc robot local path.
 
-Overlay trên ảnh thật chỉ gồm bounding box/keypoints, vị trí, tốc độ, hướng,
-confidence, validity và provenance/calibration warning. Không vẽ human trajectory,
-future coordinate hoặc robot local path trên ảnh; robot path thuộc map benchmark.
-Case selection phải có median, boundary, failure và OOD theo PR40, kèm source
-image hash và parent manifest.
+## 6. Analysis family
 
-## 7. Liên kết tới CCA-NMPC
+Primary family LSTM gồm ba contrasts so với baseline mạnh nhất đã khóa:
+direction macro-F1, speed MAE và ECE. Dùng paired hierarchical bootstrap theo
+recording và Holm tại $\alpha=0.05$. ID và OOD được báo tách biệt; OOD là
+robustness evidence, không dùng để cứu gate ID.
 
-Open-loop context metric không tự động chứng minh lợi ích điều khiển. PR21 phải
-so CCA-NMPC với MPC, NMPC, DWA và MPPI trên cùng map/context/seed, đồng thời giữ
-invalid/stale fallback. Chỉ model đã calibration và pass context gate mới được
-đưa vào run có claim controller.
+## 7. Cổng chấp nhận chính xác
 
-## 8. Cổng claim fail-closed
+PR12 chỉ đạt `VERIFIED` khi tất cả điều kiện sau đúng:
 
-`context_claim_eligible=false` mặc định. Chỉ bật khi dataset split không leakage,
-real-frame provenance, confidence calibration, timestamp/frame audit, confusion
-matrix support, speed metrics, latency target-hardware và hash chain đều pass.
-Thiếu một trường thì giữ kết quả ở mức diagnostic, không thay bằng dữ liệu tương
-lai hoặc nhãn thủ công.
+1. cả năm seed hoàn thành hoặc mọi failure được tính fail trong gate;
+2. split audit participant/recording và cỡ mẫu 60/20/20/30/30 đều pass; OOD chỉ
+   là inferential khi có ít nhất hai held-out site, còn một site là exploratory;
+3. trên `test_id`, macro-F1 có lower 95% CI $\geq0.80$, speed-MAE upper 95% CI
+   $\leq0.20$ m/s và ECE upper 95% CI $\leq0.10$;
+4. LSTM cải thiện macro-F1 và speed MAE so với baseline mạnh nhất với
+   Holm-adjusted $p<0.05$; nếu không, claim chỉ là parity/diagnostic;
+5. confusion matrix có class order cố định và support từng lớp;
+6. trên target hardware, p95 latency $\leq10$ ms, p99 $\leq15$ ms và miss rate
+   tại hard deadline 15 ms $\leq1\%$ sau warm-up khóa trước;
+7. không artifact nào xuất future coordinate hoặc predicted person path;
+8. raw-to-metric replay tái sinh đúng trong numeric tolerance $10^{-9}$.
 
-Nhánh confirmatory chỉ nhận một thư mục direct CSV/JSON đã seal bằng
-`final_pack.py`. `manifest.json` phải có structural integrity đã verify, nguồn
-thuộc `hardware`, `hardware_in_loop` hoặc `real_offline`, hash của
-`context.csv` trùng với file được đọc, đồng thời giữ `context_only=true` và
-`human_trajectory_generated=false`. Chỉ có split manifest mà không có gói nguồn
-đã seal thì vẫn là diagnostic; dữ liệu mô phỏng hoặc CSV rời bị từ chối. Checkpoint
-được đưa vào confirmatory map run phải lưu đường dẫn tương đối tới manifest,
-SHA-256 của chính file đó và source/flag metadata; runner phải mở file, kiểm hash
-và kiểm lại `status`, `integrity_status`, `capture_source`, `context_only` và
-`human_trajectory_generated`. Một hash sao chép không có file đối chứng không
-đủ provenance.
-
-Ngoài provenance của capture, checkpoint dùng cho confirmatory CCA-NMPC phải có
-`calibration.status=fit`, `method=temperature_scaling_grid`,
-`source_split=calibration`, đủ số mẫu tối thiểu và cờ độc lập với train,
-validation và test. Checkpoint `not_fit` chỉ được phép dùng trong pilot để
-phơi bày failure mode; nó bị từ chối trước confirmatory map run hoặc actuation
-phần cứng.
-
-Từ checkpoint 2026-08-13, gói có capture source khác `unknown` còn phải chứa
-`calibration.json` theo schema `cca-capture-calibration-v1`, được bind bằng
-SHA-256 trong `manifest.json`. Record phải có intrinsics camera, extrinsics
-camera/LiDAR và residual calibration; `ctx_run.py` kiểm tra file, hash và tên
-sensor trước khi admit training. Đây là cổng provenance, không phải kết quả
-calibration của robot thật.
-
-## 9. Cổng chấp nhận
-
-PR12 đạt `VERIFIED` khi model registry là `person_context_sequence`, có tối thiểu
-năm seed/log/checkpoint, ID/OOD metrics, confusion matrix, calibration, latency,
-CI/effect size và failure strata; overlay context đã qua provenance/visual QA;
-không còn human-path artifact và wording closed-loop được tách khỏi open-loop
-context evidence.
-
-## 10. Implementation checkpoint — 2026-08-13 06:06 ICT
-
-The non-unknown capture branch now validates the calibration sidecar before a
-confirmatory LSTM run. Focused and full Python QA pass (`169` tests); the
-relevant source hashes are `ctx_run.py`
-`B58A90E237F2615D53FA4D4D363818329DC4EFF9B372E0DEAA318B6EC12E356F`,
-`map_run.py`
-`B179F2467E51928F61C9294F3DF26473403EFE8F9F1CEAD4CC9C23F603DA02EC`, and
-`analyze_run.py`
-`258F17B2D56085745809DDB3C6B6F1B91283E1AB5B8507FDE1047E56A40672AD`.
-No real context package or checkpoint was created; PR12 is `REVIEWED` for
-design only and its execution/evidence gate remains open.
-
-## 11. Multi-seed score-loop implementation checkpoint — 2026-08-13
-
-`ctx_run.py` now accepts `--seed-count`, trains each requested seed independently,
-keeps a completed/failed ledger, and selects the highest validation
-self-supervised score with a deterministic lowest-seed tie-break. A
-confirmatory split rejects fewer than five seeds; development runs may use one
-seed while remaining candidate-only. The selected seed and full ledger are
-stored in the checkpoint, `training.json`, `metrics.json` and `manifest.json`.
-This changes the execution contract only; no real context package or checkpoint
-was created and PR12 remains `REVIEWED`, not `VERIFIED`.
-
-## 12. Confirmatory seed-completion recheck — 2026-08-13
-
-The selector now fails closed if fewer than five confirmatory candidates
-complete, while preserving the failure reason for each requested seed. Full
-Python QA is `203 passed`; the current `ctx_run.py` SHA-256 is
-`2CB7D67406519593F76B5ABAEF5E839AB9DFB73E195553FAE1385A41E9C1F652`. This is
-still an implementation checkpoint: no real context capture or checkpoint is
-available, and no predicted human trajectory is exported or drawn.
-
-## 13. Clean-reset execution checkpoint — 2026-08-14
-
-The replacement package under `experiments/runs/simulation-learning-20260814/`
-contains 9,600 simulation-only observations in 40 episode groups with frozen
-train/validation/calibration/test-ID/test-OOD assignments. The LSTM was
-initialized and trained from scratch with five independent self-supervised
-next-velocity score-loop seeds; temperature calibration used only the declared
-calibration split. Direction labels were retained only for post-training
-diagnostics and were not used as training targets. The local-path reinforcement
-policy was learned separately with tabular Q-learning and score/penalty rewards.
-
-The selected checkpoint and policy are hash-bound to the capture package, but
-the capture source is simulation. The package is therefore
-`candidate-development-only`; PR12 has not reached `VERIFIED`, and no real-data,
-hardware, or paper claim follows from this checkpoint.
+Không đạt một gate thì checkpoint không được dùng trong confirmatory CCA-NMPC.
+Kết quả simulation-only không đóng gate dữ liệu người thật.

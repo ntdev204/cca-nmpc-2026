@@ -573,23 +573,35 @@ class N10PDecoder:
         self.end_angle_offset = spec.end_angle_offset
         self._buffer = bytearray()
 
-    def feed(self, data: bytes, timestamp_ns: int) -> tuple[LidarPoint, ...]:
-        self._buffer.extend(data)
+    def _next_packet(self, timestamp_ns: int) -> tuple[LidarPoint, ...] | None:
         while True:
             index = self._buffer.find(b"\xA5\x5A")
             if index < 0:
                 self._buffer[:] = self._buffer[-1:] if self._buffer[-1:] == b"\xA5" else b""
-                return ()
+                return None
             if index:
                 del self._buffer[:index]
             if len(self._buffer) < self.packet_size:
-                return ()
+                return None
             packet = bytes(self._buffer[: self.packet_size])
             if packet[-1] != self.crc(packet[:-1]):
                 del self._buffer[0]
                 continue
             del self._buffer[: self.packet_size]
             return self.decode(packet, timestamp_ns)
+
+    def feed_all(self, data: bytes, timestamp_ns: int) -> tuple[tuple[LidarPoint, ...], ...]:
+        self._buffer.extend(data)
+        packets: list[tuple[LidarPoint, ...]] = []
+        while True:
+            decoded = self._next_packet(timestamp_ns)
+            if decoded is None:
+                return tuple(packets)
+            packets.append(decoded)
+
+    def feed(self, data: bytes, timestamp_ns: int) -> tuple[LidarPoint, ...]:
+        self._buffer.extend(data)
+        return self._next_packet(timestamp_ns) or ()
 
     def decode(self, packet: bytes, timestamp_ns: int) -> tuple[LidarPoint, ...]:
         if len(packet) != self.packet_size or packet[:2] != b"\xA5\x5A":
@@ -604,7 +616,7 @@ class N10PDecoder:
             offset = self.point_offset + index * 6
             for return_id, distance_offset in enumerate((0, 3)):
                 distance = int.from_bytes(packet[offset + distance_offset : offset + distance_offset + 2], "big")
-                if distance != 0xFFFF:
+                if distance not in (0, 0xFFFF):
                     intensity = packet[offset + distance_offset + 2]
                     entries.append((index, return_id, distance, intensity))
         valid_slots = max(1, self.point_count - 1)
@@ -634,11 +646,20 @@ class N10PSerialSource:
         self._lock = threading.Lock()
         self._latest: LidarScan | None = None
         self._decoder = N10PDecoder(self.protocol_profile)
+        self._scan_times = deque(maxlen=24)
 
     @property
     def latest(self) -> LidarScan | None:
         with self._lock:
             return self._latest
+
+    @property
+    def scan_rate_hz(self) -> float:
+        with self._lock:
+            if len(self._scan_times) < 2:
+                return 0.0
+            elapsed = self._scan_times[-1] - self._scan_times[0]
+            return (len(self._scan_times) - 1) / elapsed if elapsed > 0.0 else 0.0
 
     def start(self) -> None:
         try:
@@ -648,6 +669,8 @@ class N10PSerialSource:
         self._stop.clear()
         self._decoder = N10PDecoder(self.protocol_profile)
         self._latest = None
+        with self._lock:
+            self._scan_times.clear()
         try:
             self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
             self._serial.write(self.start_command())
@@ -691,22 +714,22 @@ class N10PSerialSource:
         last_angle: float | None = None
         points: list[LidarPoint] = []
         while not self._stop.is_set():
-            payload = self._serial.read(256)
+            waiting = int(getattr(self._serial, "in_waiting", 0) or 0)
+            payload = self._serial.read(max(256, min(waiting, 4096)))
             if not payload:
                 continue
             timestamp = utc_ns()
-            decoded = self._decoder.feed(payload, timestamp)
-            if not decoded:
-                continue
-            for point in decoded:
-                angle = math.degrees(point.angle_rad)
-                wrapped = last_angle is not None and last_angle > 355.0 and angle < 5.0
-                if wrapped and points:
-                    with self._lock:
-                        self._latest = LidarScan(timestamp, tuple(points))
-                    points = []
-                points.append(point)
-                last_angle = angle
+            for decoded in self._decoder.feed_all(payload, timestamp):
+                for point in decoded:
+                    angle = math.degrees(point.angle_rad)
+                    wrapped = last_angle is not None and last_angle > 355.0 and angle < 5.0
+                    if wrapped and points:
+                        with self._lock:
+                            self._latest = LidarScan(timestamp, tuple(points))
+                            self._scan_times.append(time.monotonic())
+                        points = []
+                    points.append(point)
+                    last_angle = angle
 
 
 @dataclass
@@ -1361,7 +1384,7 @@ class CsvWriters:
         self.root = root
         self._files: dict[str, Any] = {}
         self._writers: dict[str, csv.DictWriter] = {}
-        self._open("robot_state.csv", ["t_ns", "x_m", "y_m", "yaw_rad", "vx_mps", "vy_mps", "wz_radps", "wheel_fl_radps", "wheel_fr_radps", "wheel_rl_radps", "wheel_rr_radps", "battery_mv", "pwm_mask", "external_faults", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2", "gyro_x_radps", "gyro_y_radps", "gyro_z_radps", "voltage_v", "flag_stop", "transport"])
+        self._open("robot_state.csv", ["t_ns", "x_m", "y_m", "yaw_rad", "vx_mps", "vy_mps", "wz_radps", "wheel_fl_radps", "wheel_fr_radps", "wheel_rl_radps", "wheel_rr_radps", "battery_mv", "pwm_mask", "external_faults", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2", "gyro_x_radps", "gyro_y_radps", "gyro_z_radps", "voltage_v", "flag_stop", "state_estimator", "kalman_cov_trace", "kalman_position_std_m", "kalman_heading_std_rad", "kalman_velocity_std_mps", "transport"])
         self._open("control.csv", ["t_ns", "vx_cmd_mps", "vy_cmd_mps", "wz_cmd_radps", "vx_applied_mps", "vy_applied_mps", "wz_applied_radps", "sequence", "transport"])
         self._open("context.csv", ["t_ns", "position_x_m", "position_y_m", "speed_mps", "direction", "confidence", "context_valid", "lstm_active", "lstm_configured", "frame_path", "camera_device_t_ns", "lidar_min_range_m", "lidar_valid"])
         self._open("lidar.csv", ["t_ns", "point_count", "points_json"])
@@ -1418,6 +1441,12 @@ def write_runtime_metadata(
         "state_csv_mapping": {
             "theta_rad": "yaw_rad",
             "omega_radps": "wz_radps",
+        },
+        "state_estimator": "six_state_ekf",
+        "kalman": {
+            "state_definition": list(POSITION_STATE_FIELDS),
+            "measurement": ["vx_mps", "vy_mps", "omega_radps"],
+            "position_source": "dead_reckoning_from_body_velocity",
         },
         "ros": False,
         "ros" + "2": False,

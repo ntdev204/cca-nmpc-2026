@@ -1,135 +1,216 @@
-# PR40 — Phân tích thống kê, định tính và failure taxonomy
+# PR40 — Thống kê, định tính và failure analysis
 
-> **Trạng thái:** `REVIEWED`; analysis plan đã qua review nhưng phải freeze
-> trước khi mở holdout.  
-> **Nguyên tắc:** estimate + uncertainty trước, p-value sau; run/participant là
-> đơn vị, không phải frame.
-> **Phiên bản hợp đồng máy:** `1.1.0`
-> (`schemas/evaluation-config.schema.json`).
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `PROPOSED / AWAITING-APPROVAL / HOLDOUT-NOT-OPENED`.
+> **Nguyên tắc:** independent unit và paired estimand được khóa trước; estimate,
+> 95% CI và effect size đứng trước p-value.
 
-## 1. Analysis populations và missingness
+## 1. Population và đơn vị độc lập
 
-- `ITT-like`: mọi run/trial đã khởi động theo assignment, gồm collision, timeout,
-  solver failure, safe stop và incomplete; là phân tích chính.
-- `Per-protocol`: chỉ run không có deviation định trước; là sensitivity.
-- `Safety population`: mọi run có robot chuyển động.
+- simulation primary: mọi started independent `scenario_package` trong S2;
+- LSTM: recording nested trong participant và site; window/frame là repeated data;
+- physical future phase: participant/recording/site cluster, không phải frame;
+- ITT-like population gồm collision, timeout, solver failure, fallback và stop;
+- per-protocol chỉ là sensitivity; safety population gồm mọi run có chuyển động.
 
-Không loại outlier theo kết quả. Corrupt log do hạ tầng có reason code, raw artifact
-và sensitivity worst-case/best-case. Failed run không có time-to-goal được xử lý
-như censored/failure theo model đã khóa, không bỏ khỏi bảng.
+Seed được tách theo chức năng: `scenario_seed` tạo package, `algorithm_seed` tạo
+GA/stochastic repeat và `training_seed` tạo LSTM checkpoint. Năm algorithm seed
+được cross đầy đủ với mọi package trong từng stochastic-method cell; năm
+training seed được cross với mọi recording đánh giá. Hai loại seed này là
+repeated factors, không phải independent $n$.
+Candidate, decoder call, trigger, timestep, frame và window cũng không phải mẫu
+độc lập.
 
-Run manifest `completed/failed` phải giữ cùng một cấu trúc outcome: inclusion vào
-mẫu số, primary-outcome status, termination/failure, collision, fallback,
-constraint/slack và deadline/timing. `not applicable` là một giá trị có lý do,
-không phải field bị thiếu. Run confirmatory đã bắt đầu bắt buộc
-`included_in_registered_denominator=true`.
+Không bỏ outlier theo outcome. Infrastructure corruption giữ raw artifact,
+reason code và worst/best-case sensitivity. Missing time-to-goal được xử lý như
+censored/failed theo rule khóa trước, không xóa hàng.
 
-## 2. Cỡ mẫu và repeated paired design
+## 2. Cỡ mẫu khóa trước
 
-Pilot độc lập ước lượng variance/base rate; không dùng để test hypothesis chính.
-Cỡ mẫu chọn theo power hoặc CI-width cho primary estimand, effect tối thiểu có ý
-nghĩa từ focused audit/use case, alpha 0.05 và power tối thiểu 0.8. Simulation có sàn 30
-paired seeds mỗi primary stratum; LSTM có ít nhất 5 training seeds; physical
-trial tính theo participant/scene cluster. Nếu không đạt, ghi exploratory.
+Pilot độc lập chỉ ước lượng variance/base rate. Ba family × 10 template × 10
+scenario seed tạo 300 package ban đầu. Với $m_f$ là đúng số hypothesis trong
+Holm family $f$, confirmatory simulation dùng
 
-Mọi controller/predictor so trên cùng seed/sample/scene. Model thống kê chứa
-scenario/site/participant/training-seed effects khi cần; không coi hàng nghìn
-timestep/window của một run là independent.
+\[
+n_{\rm sim}=30\left\lceil
+\frac{\max\!\left(300,
+\max_{h\in A\cup B\cup C}n_{\rm power,h},
+\max_{h\in A\cup B\cup C}n_{\rm CI,h}\right)}{30}
+\right\rceil .
+\]
 
-## 3. Estimand và tests
+$n_{\rm power,h}$ bảo đảm power tối thiểu 0.80 tại ngưỡng hai phía bảo thủ
+$\alpha_h=0.05/m_f$. $n_{\rm CI,h}$ là cỡ mẫu nhỏ nhất đạt 95% CI half-width đã
+khóa dưới đây; pilot chỉ cung cấp correlation/variance, không đổi precision:
 
-| Outcome | Phân tích chính | Effect/CI |
+| Loại endpoint | Maximum CI half-width |
+|---|---:|
+| paired risk difference | 0.05 absolute probability = 5 percentage points |
+| collision hoặc hard-miss risk difference | 0.03 absolute probability |
+| log path/travel/tracking/curvature ratio | $\log(1.05)$ |
+| signed-clearance difference | 0.02 m |
+
+Nếu $n_{\rm sim}>300$, tăng `scenario_seed` đồng đều trong cả 30 ô
+family–template trước khi mở holdout. Không giảm dưới 300 hoặc dừng sớm.
+
+Với Family D, số recording `test_id` được khóa riêng:
+
+\[
+n_{\rm rec}=\max\!\left(30,
+\max_{h\in D}n_{\rm power,h},
+\max_{h\in D}n_{\rm CI,h}\right),
+\]
+
+với half-width tối đa 0.03 cho macro-F1 difference, 0.03 m/s cho speed-MAE
+difference và 0.02 cho ECE difference. Nếu cần tăng, tăng recording độc lập và
+participant/site coverage trước khi mở test; không tăng bằng window.
+
+LSTM dùng đúng năm training seeds và participant/recording-disjoint splits. OOD
+suy diễn cần ít nhất hai held-out site; nếu chỉ có một site, toàn bộ OOD result
+mang nhãn exploratory. Sample size báo số site, participant, recording và package,
+không dùng số seed, window hoặc timestep làm independent $n$.
+
+## 3. Paired estimands và inference
+
+Mọi method chạy cùng package/recording. Simulation bootstrap giữ family là fixed
+stratum, resample template rồi resample package trong template; toàn bộ năm
+algorithm seed đi cùng package và được aggregate hoặc fit như crossed random
+factor. LSTM bootstrap resample site → participant → recording và resample độc
+lập năm training seed, sau đó dựng lại Cartesian recording × training-seed cells.
+Đây là crossed bootstrap, không phải coi $5n$ cells là độc lập.
+
+Primary analyses:
+
+| Outcome | Analysis | Effect và 95% CI |
 |---|---|---|
-| Collision/safe completion paired | McNemar hoặc mixed logistic model | risk difference/ratio, 95% CI |
-| Margin/tracking/control/runtime | paired difference, cluster bootstrap hoặc permutation | median/mean difference + standardized/robust effect |
-| Time-to-goal có timeout | survival/competing outcome hoặc predeclared penalty sensitivity | time ratio/RMST difference + CI |
-| Context LSTM direction/speed/validity | paired sample, hierarchical bootstrap qua recording và seed | macro-F1, speed MAE, validity/calibration difference + 95% CI |
-| Deadline/fallback/violations | paired count/rate model phù hợp | rate/risk difference + CI |
+| collision/safe completion | exact McNemar + paired cluster bootstrap | risk difference, risk ratio |
+| clearance/tracking/path/runtime | paired difference or paired permutation | median/mean difference, ratio |
+| timeout time-to-goal | RMST/competing-outcome model | RMST difference/time ratio |
+| LSTM direction/speed/ECE | crossed hierarchical bootstrap recording × training seed | macro-F1, MAE, ECE difference |
+| deadline/fallback/violation | paired rate model | risk/rate difference |
 
-Kiểm distribution/model assumptions bằng residual/diagnostic. Nếu assumption
-sai, dùng robust/permutation/bootstrap đã định, không chọn test theo p-value.
-Report exact n, failures, estimate, CI và raw distribution.
+Bootstrap/permutation dùng 10,000 replicates với frozen RNG seed. Báo exact $n$,
+all failures, raw distribution, estimate, CI và adjusted p-value. Assumption
+failure kích hoạt robust method đã chỉ định, không chọn test theo p-value.
 
-## 4. Multiplicity và margins
+## 4. Multiplicity families
 
-H-01--H-04 và primary outcomes tạo family được khóa; điều chỉnh Holm (hoặc một
-phương pháp khác đã biện minh) trong family. Secondary/exploratory p-values ghi
-rõ và không dùng để cứu primary null. Non-inferiority/equivalence margins được
-đặt từ ý nghĩa an toàn/literature trước holdout; không dùng observed variance để
-nới margin sau kết quả.
+Các primary family có đúng 18 hypotheses, khóa direction/margin trước holdout:
 
-Không diễn giải `p>0.05` là hai phương pháp tương đương. Không dùng nhiều biểu đồ,
-seed hoặc subgroup rồi chỉ báo subgroup có lợi. Subgroup phải tiền đăng ký hoặc
-gắn exploratory.
+- Family A ($m_A=4$): full-minus-decoder-only valid-local-path yield; full-minus-
+  penalty-only safe completion; full/decoder-only path-length ratio; full/
+  decoder-only integrated-curvature ratio.
+- Family B ($m_B=3$): C2-minus-C1 fixed-reference feasibility; C2/C1 tracking
+  RMSE ratio; C2-minus-C1 nominal-budget-overrun risk tại 60 ms.
+- Family C ($m_C=8$): P-minus-B1 safe completion, collision risk và signed
+  clearance; P/B1 travel-time ratio và tracking-RMSE ratio; safe-completion risk
+  difference P-minus-B0, P-minus-B2 và P-minus-B3.
+- Family D ($m_D=3$): LSTM-minus-strongest-frozen-baseline macro-F1, speed MAE
+  và ECE. Baseline mạnh nhất được chọn trên development, không trên test.
 
-## 5. Confusion matrix
+OOD chỉ báo estimate và 95% CI exploratory; nó không có primary hypothesis và
+không được dùng để thay đổi kết luận ID.
 
-Chỉ tạo confusion matrix khi `classification.enabled=true` và có contract máy đọc
-được: `task_id`, loại task, ontology, class order cố định, ground truth, decision
-rule/matching rule đã hash, genuine negative examples và support. Báo raw counts,
-normalized view, support, precision/recall/specificity/F1 và CI. Artifact chỉ được
-`accepted` khi `classification_semantics` trong artifact registry khớp contract.
+Holm correction riêng trong từng family tại family-wise $\alpha=0.05$; không
+pool hoặc chọn lại endpoint. OOD hoặc subgroup result không được cứu failure ở
+A–D.
+Non-inferiority margins khóa tại PR21: path length 1.05, curvature 1.10,
+tracking/travel 1.10. Không diễn giải `p>0.05` là equivalence.
 
-Với đánh giá LSTM đã bật, direction là một task phân loại của mô hình học; vì vậy
-ma trận nhầm lẫn direction là bắt buộc, không phải lựa chọn trình bày. Schema
-`evaluation-config` buộc `direction_classification.enabled=true`,
-`confusion_matrix_required=true` và contract ontology/decision/ground-truth đã
-hash trước khi mở confirmatory run. Bounding-box detection vẫn không dùng ma trận
-nhầm lẫn; nó dùng TP/FP/FN, PR/AP và miss metrics.
+## 5. Deadline analysis
 
-`bbox_detection_confusion_matrix_required` luôn bằng `false`. Detection dùng
-TP/FP/FN, PR/AP/miss metrics; direction context là classification task riêng và
-có thể dùng confusion matrix khi ground truth độc lập, class order và support
-đã khóa. Không dùng confusion matrix để thay metric của detection.
+| Stage | Nominal budget | Hard deadline |
+|---|---:|---:|
+| LSTM | 10 ms | 15 ms |
+| CCA | 100 ms | 150 ms |
+| NMPC | 60 ms | 90 ms |
 
-## 6. Phân tích định tính tiền đăng ký
+Với runtime $T$, `overrun=1[T>B_nominal]`. `hard_miss=1` khi $T>D_hard$ hoặc
+không có output hợp lệ tại hay trước $D_hard$; hard miss luôn là overrun và kích
+hoạt fallback/stop. Báo riêng overrun count/rate và hard-miss count/rate; không
+đổi tên nominal overrun thành deadline miss.
 
-Chọn video bằng sampling rule trước kết quả: first eligible + random stratified
-theo controller/scenario/outcome, median case, worst safety margin, collision,
-fallback/deadline, prediction undercoverage và mỗi OOD stratum. Không chọn chỉ
-video đẹp.
+Mỗi stage báo p50/p95/p99/max, warm/cold status và target device. Exact gates:
 
-Context overlay chỉ được nhận khi artifact liên kết selection protocol và source
-manifest đã hash; frame phải là media thật, bbox/keypoint, position/speed/direction,
-validity và calibration warning phải hiển thị đúng source image. Không được vẽ
-human trajectory hoặc robot local path trên ảnh. Một hình không có task semantics
-chỉ là diagnostic, không phải qualitative evidence được chấp nhận.
+- LSTM p95 ≤10 ms, p99 ≤15 ms, hard-miss rate ≤1%;
+- CCA p95 ≤100 ms, p99 ≤150 ms, hard-miss rate ≤1%;
+- NMPC p95 ≤60 ms, p99 ≤90 ms, hard-miss rate ≤1%.
 
-Hai coder dùng rubric khóa trước, blinded method khi có thể. Code gồm smooth
-progress, freezing, avoid--brake--return oscillation, hesitation, active-track/
-mode switching, passing-side reversal, late avoidance, recovery và human
-deviation. Báo agreement (Cohen kappa/weighted kappa hoặc Krippendorff alpha),
-disagreement/adjudication và quote/description đã anonymize. Định tính giải thích
-cơ chế, không thay statistical outcome.
+Timeout ở nguyên denominator; host timing không được gọi là embedded hoặc hard
+real-time evidence.
 
-## 7. Failure taxonomy bắt buộc
+## 6. Confusion matrix
 
-| Nhóm | Ví dụ |
+Direction classification bắt buộc có ontology/order
+`[left,right,forward,backward,unknown]`, independent ground truth, raw counts,
+normalized view, class support, precision, recall, F1 và CI. Bounding-box
+detection không dùng confusion matrix; nó dùng TP/FP/FN, PR/AP và miss rate.
+
+## 7. Qualitative analysis
+
+Confirmatory set có đúng 45 clips: 5 controller `[B0,B1,B2,B3,P]` × 3 family
+`[F1,F2,F3]` × 3 slot. Trong mỗi controller–family, slot 1 là một package chọn
+bằng seeded hash-random, slot 2 có minimum clearance gần median nhất, slot 3 là
+worst theo thứ tự khóa `collision > incomplete > hard_miss > lower clearance`.
+
+Mọi tie được phá bằng SHA-256 của
+`protocol_hash|controller_id|family_id|slot|package_id`, chọn hash nhỏ nhất. Nếu
+một package trùng hai slot, slot sau lấy package kế tiếp theo hash/rank. Selection
+manifest và hash được freeze trước khi unblind result; không thay clip lỗi bằng
+clip đẹp. Overlay chỉ gồm bbox/keypoints, current position/speed/direction/
+confidence/age, validity và provenance warning; không hiển thị `truth/*`, future
+person coordinates, human trajectory hoặc robot local reference trên camera.
+
+Hai coder dùng rubric khóa trước, blinded method khi khả thi. Codes gồm smooth
+progress, freezing, oscillation, hesitation, switching, late avoidance, recovery
+và failure attribution. Báo Cohen/weighted kappa hoặc Krippendorff alpha,
+adjudication và anonymized descriptions. Qualitative evidence giải thích cơ chế,
+không thay primary statistics.
+
+## 8. Failure taxonomy
+
+| Code | Nhóm |
 |---|---|
-| F-PER | miss/false positive, bbox jitter, ID switch, occlusion |
-| F-TIME/FRAME | stale/out-of-order, clock offset, transform sai |
-| F-LSTM | wrong direction, speed error, invalid context, stale output |
-| F-CCA | ranking sai, active-set churn, risk/context chattering |
-| F-NMPC | infeasible, numerical failure, local minimum, residual cao |
-| F-FB | fallback muộn/chattering/không recovery |
-| F-ACT | command/slew/wheel saturation, model mismatch |
-| F-SAFE/TASK | collision, near miss, timeout, incomplete/freezing |
-| F-RT | deadline miss, jitter, resource contention |
-| F-HUMAN | participant deviation hoặc unexpected interaction |
+| F-PER | miss, false positive, jitter, ID switch, occlusion |
+| F-TIME | stale/out-of-order, clock/transform error |
+| F-LSTM | wrong direction/speed/confidence, invalid or late context |
+| F-CCA | no valid local path, repair/rejoin/deadline failure |
+| F-NMPC | infeasible, residual, local minimum, deadline failure |
+| F-GOV | rejected update, stale fallback, stop |
+| F-ACT | slew/wheel saturation, plant mismatch |
+| F-SAFE | collision, near miss, timeout, incomplete |
+| F-INFRA | process/log/hash corruption |
 
-Một event có thể multi-label nhưng có primary root-cause theo adjudication. Báo
-count/rate, severity, stage, outcome và representative artifact; không đổ mọi
-lỗi end-to-end cho LSTM hoặc controller mà không có trace.
+Event có thể multi-label nhưng phải có adjudicated primary cause. Báo count,
+rate, severity, stage, outcome và representative artifact.
 
-## 8. Reproducibility và cổng chấp nhận
+## 9. Miền áp dụng Lyapunov
 
-Analysis script đọc immutable raw manifest và sinh machine-readable tables,
-figures và claim rows. Khóa package versions, random/bootstrap seeds và decimal
-rounding. Một verifier chạy lại từ raw tới table và so hash/numeric tolerance.
+Lyapunov inference chỉ được ghi cho terminal NMPC tại những bước có
+`lyapunov_applicable=true`: admitted reference cố định, state nằm trong miền
+terminal/feasible và mọi giả thiết model/constraint của theorem đúng. Residual
+numerical $\Delta V+\ell$ là verification của implementation trong miền này,
+không phải proof cho CCA, LSTM, GA, người động, governor, reference switching hay
+toàn bộ switched closed loop. Các bước ngoài miền vẫn ở denominator safety/task;
+chúng không được xóa chỉ vì residual không áp dụng.
 
-PR40 đạt `VERIFIED` khi analysis plan/time stamp trước test được chứng minh,
-sample-size rationale rõ, pairing/clustering/multiplicity đúng, mọi failure và
-missingness được xử lý, qualitative selection/coding tái lập, và conclusions
-không vượt CI/effect size hoặc tầng bằng chứng. Evaluation config phải validate
-bằng `schemas/evaluation-config.schema.json`; confusion/overlay artifact phải
-validate semantic gate trong `schemas/artifact-registry.schema.json`.
+## 10. Exact acceptance gate
+
+PR40 chỉ đạt `VERIFIED` khi:
+
+1. timestamp của frozen plan trước holdout và hash chain hợp lệ;
+2. cỡ mẫu thỏa công thức max-over-hypotheses, thiết kế 3×10×10 hoặc balanced
+   extension, và mọi started package nằm trong denominator;
+3. ba seed namespace tách biệt; algorithm/training seed được phân tích như
+   crossed repeats, với zero candidate/timestep/window pseudoreplication;
+4. Holm counts A=4, B=3, C=8 và D=3 tái sinh đúng từ raw data;
+5. PR12/PR21 effect, CI, margin và deadline gates được đánh giá đúng nguyên văn;
+6. confusion-matrix support và failure/missingness tables đầy đủ;
+7. đúng 45 qualitative clips, tie/hash, coding và agreement tái lập được;
+8. `truth/*` chỉ có realized current/past state để audit và không vào controller/
+   figure; future human truth không lộ qua interface;
+9. Lyapunov denominator chỉ gồm đúng miền fixed-reference terminal đã khóa;
+10. raw-to-table/figure replay khớp tolerance $10^{-9}$.
+
+Một gate không đạt giữ conclusion ở `diagnostic` hoặc `exploratory`; không đổi
+threshold sau khi thấy holdout.

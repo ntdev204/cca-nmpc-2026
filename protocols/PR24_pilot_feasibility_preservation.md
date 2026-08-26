@@ -1,6 +1,7 @@
 # PR24 — Pilot feasibility preservation
 
-> **Trạng thái:** `FROZEN-PILOT`; chỉ dùng chẩn đoán phát triển, không phải
+> **Trạng thái goal hiện tại:** `ARCHIVED`.  
+> **Trạng thái lịch sử:** `FROZEN-PILOT`; chỉ dùng chẩn đoán phát triển, không phải
 > confirmatory study và không được dùng làm bằng chứng paper. Không kế thừa
 > số liệu hoặc trace từ bất kỳ pilot cũ nào.
 

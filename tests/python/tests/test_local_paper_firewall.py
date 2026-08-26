@@ -4,7 +4,7 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[3]
 ACTIVE_SOURCE_ROOTS = (
     REPOSITORY / "src",
-    REPOSITORY / "matlab",
+    REPOSITORY / "simulations",
 )
 TEX_SUFFIX = "." + "t" + "ex"
 FORBIDDEN_TOKENS = (

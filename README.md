@@ -38,7 +38,8 @@ metadata is retained only for provenance.
 ## Clean-reset layout
 
 - `src/`: active perception, simulation support, C++ control runtime, and embedded source.
-- `matlab/`: offline MATLAB research scripts kept outside the runtime source tree.
+- `simulations/matlab/`: primary MATLAB and Simulink theory implementation.
+- `simulations/python/`: independent model-parity checks.
 - `reference/robot/`: read-only URDF/sensor/legacy-serial snapshot used for
   hashes and geometry intake; it is not a ROS runtime.
 - `configs/`, `schemas/`: frozen contracts and validation rules.
@@ -95,15 +96,17 @@ run the backend service:
 PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server --bind 0.0.0.0 --port 8765
 ```
 
-On the laptop run `app/desktop/operator.py`; the web dashboard is
-`app/web` and uses Next.js 16.3.1. The desktop app automatically arms motion after the handshake
-when STM32 is online, and provides emergency stop, keyboard teleoperation,
-2-D map and laser display with map-frame robot pose, Astra-S preview,
-scan start/stop, saved-map viewing, and map/data saving. The 2-D view can
-follow the robot while scanning or stay fixed for whole-map inspection. State,
+On the laptop start the web dashboard in `app/web` (Next.js 16.3.1). It is the
+single operator surface: motion is ready automatically when STM32 is online,
+while emergency stop and teleoperation remain available. The advanced 2-D monitor shows occupancy,
+map-frame pose, TF frames, the robot footprint and LiDAR rays whose visual
+origins are placed on the circumscribed footprint. It also provides Astra-S
+preview, scan start/stop and map/data saving. The server-side bridge keeps one
+persistent Jetson connection so polling cannot occupy the control slot. State,
 LiDAR and map stream frames use fast zlib framing when smaller than raw JSON;
-camera frames are resized/JPEG-compressed, and TCP_NODELAY keeps control packets
-responsive. The service discovers
+the camera uses a direct H.264 WebRTC track at 640x480, and TCP_NODELAY keeps
+control packets responsive. A `/mjpeg` endpoint remains only as a diagnostic
+fallback. The service discovers
 `openni2_redist/arm64` automatically and keeps the watchdog beside the STM32
 transport. Saved runs remain ignored until the physical package is checked by
 the existing evidence gates.

@@ -315,7 +315,14 @@ def analyze(root: Path, output: Path) -> Path:
     for field in payload["control_fields"]:
         if field == "t_ns":
             continue
-        values = [float(row[field]) for row in control_rows]
+        values: list[float] = []
+        for row in control_rows:
+            try:
+                value = float(row[field])
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                values.append(value)
         controls[field] = stats(values)
     valid_rows = [row for row in context_rows if parse_bool(row["context_valid"])]
     direction_counts: dict[str, int] = {}

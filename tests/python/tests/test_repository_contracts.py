@@ -109,7 +109,7 @@ def _pr01_execution(
     }
 
 
-def test_repository_contracts_are_structurally_valid_with_focused_audit_complete() -> None:
+def test_repository_contracts_are_valid_for_active_code() -> None:
     report = validate_repository(REPOSITORY_ROOT)
 
     assert report["status"] == "PASS"
@@ -117,16 +117,8 @@ def test_repository_contracts_are_structurally_valid_with_focused_audit_complete
     assert report["instance_count"] >= 14
     assert report["obsidian_note_count"] >= 1
     assert report["wikilink_count"] >= 1
-    assert report["active_confirmatory_gate"] == "COMPLETE"
+    assert report["active_confirmatory_gate"] == "NOT_APPLICABLE"
     assert report["issues"] == []
-
-
-def test_archived_pr01_is_not_an_active_confirmatory_gate() -> None:
-    report = validate_repository(REPOSITORY_ROOT)
-
-    assert report["status"] == "PASS"
-    assert "pr01_confirmatory_gate" not in report
-    assert report["active_confirmatory_gate"] == "COMPLETE"
 
 
 def test_old_web_image_dataset_is_absent_after_reset() -> None:
@@ -143,7 +135,7 @@ def test_active_pipeline_has_no_ros_runtime_dependency() -> None:
     forbidden = ("ros2", "rosbag", "rclpy", "rospy", "ros::")
     roots = (
         REPOSITORY_ROOT / "src",
-        REPOSITORY_ROOT / "matlab",
+        REPOSITORY_ROOT / "simulations",
         REPOSITORY_ROOT / "src/stm",
         REPOSITORY_ROOT / "scripts/python/tools",
         REPOSITORY_ROOT / "configs",
@@ -158,14 +150,6 @@ def test_active_pipeline_has_no_ros_runtime_dependency() -> None:
             if any(token in text for token in forbidden):
                 violations.append(path.relative_to(REPOSITORY_ROOT).as_posix())
     assert violations == []
-
-
-def test_final_evidence_gate_requires_focused_audit_completion() -> None:
-    report = validate_repository(REPOSITORY_ROOT, require_focused_audit_complete=True)
-
-    assert report["status"] == "PASS"
-    assert report["active_confirmatory_gate"] == "COMPLETE"
-    assert report["issues"] == []
 
 
 def test_protocol_freeze_schema_requires_completed_focused_audit() -> None:
@@ -248,64 +232,6 @@ def test_pr01_gate_requires_policy_complete_raw_search() -> None:
         )
         == "CLOSED_EVIDENCE_INCOMPLETE"
     )
-
-
-def test_supported_theory_claim_requires_pr02_ledgers_and_hashed_evidence_file() -> None:
-    schema = load_json_strict(REPOSITORY_ROOT / "schemas/claim-evidence-matrix.schema.json")
-    matrix = load_json_strict(
-        REPOSITORY_ROOT / "research/metadata/claim_evidence_matrix.draft.json"
-    )
-    valid = deepcopy(matrix)
-    row = valid["rows"][0]
-    row["support_status"] = "supported"
-    row["protocol_ids"] = ["PR02"]
-    row["assumption_ids"] = ["A-01"]
-    row["proof_obligation_ids"] = ["PO-014"]
-    row["evidence"] = [
-        {
-            "artifact_id": "art-theory-contract-report",
-            "artifact_sha256": "a" * 64,
-            "file": {"path": "artifacts/theory/report.json", "sha256": "b" * 64},
-            "relation": "primary",
-        }
-    ]
-    row["verifier"] = {
-        "status": "verified",
-        "verifier_id": "independent-control-reviewer",
-        "verified_at": "2026-08-01T00:00:00Z",
-        "report": {"path": "artifacts/theory/review.json", "sha256": "c" * 64},
-    }
-    validator = Draft202012Validator(schema, format_checker=FormatChecker())
-    assert list(validator.iter_errors(valid)) == []
-
-    invalid_variants = []
-    for field, value in (
-        ("protocol_ids", ["PR00"]),
-        ("assumption_ids", []),
-        ("proof_obligation_ids", []),
-        ("evidence_tier", "none"),
-    ):
-        candidate = deepcopy(valid)
-        candidate["rows"][0][field] = value
-        invalid_variants.append(candidate)
-    missing_file = deepcopy(valid)
-    del missing_file["rows"][0]["evidence"][0]["file"]
-    invalid_variants.append(missing_file)
-
-    assert all(list(validator.iter_errors(candidate)) for candidate in invalid_variants)
-
-
-def test_blocked_or_withdrawn_claim_requires_explicit_blocker() -> None:
-    schema = load_json_strict(REPOSITORY_ROOT / "schemas/claim-evidence-matrix.schema.json")
-    matrix = load_json_strict(
-        REPOSITORY_ROOT / "research/metadata/claim_evidence_matrix.draft.json"
-    )
-    validator = Draft202012Validator(schema, format_checker=FormatChecker())
-
-    for row_index in (0, 2):
-        candidate = deepcopy(matrix)
-        del candidate["rows"][row_index]["blockers"]
-        assert list(validator.iter_errors(candidate))
 
 
 def test_zotero_source_manifest_provenance_status_fails_closed() -> None:

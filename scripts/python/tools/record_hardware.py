@@ -26,9 +26,10 @@ from ai.ctx_lstm import (
 )
 from ai.context import ContextConfig, context_score
 from ai.detection import YoloEngineDetector
-from simulation.model import NmpcPrediction
+from runtime.controller import NmpcPrediction
 from runtime.controller import CompiledController
-from simulation.context_replanner import (
+from runtime.kalman import SixStateKalman
+from runtime.local_path import (
     FixedGlobalLocalPath,
     context_footprint_points,
     evaluate_context_replan,
@@ -41,7 +42,6 @@ from hardware import (
     CsvWriters,
     N10P_PROTOCOL_PROFILES,
     N10PSerialSource,
-    Odometry,
     POSITION_STATE_FIELDS,
     PoseContextProcessor,
     RobotGeometry,
@@ -734,7 +734,7 @@ def run(args: argparse.Namespace) -> int:
         if args.controller == "cca_nmpc" and global_path is not None and controller_settings is not None
         else None
     )
-    odometry = Odometry()
+    estimator = SixStateKalman()
     context_last = 0
     state_last = 0
     control_last = 0
@@ -902,19 +902,19 @@ def run(args: argparse.Namespace) -> int:
             ):
                 state_timestamp = snapshot.wheels_t_ns
                 if state_timestamp > state_last:
-                    odometry.update(state_timestamp, geometry.body_velocity(snapshot.wheels))
+                    state = estimator.step(state_timestamp, geometry.body_velocity(snapshot.wheels))
                     state_last = state_timestamp
                     vx, vy, wz = geometry.body_velocity(snapshot.wheels)
                     writers.write(
                         "robot_state.csv",
                         {
                             "t_ns": state_timestamp,
-                            "x_m": odometry.x_m,
-                            "y_m": odometry.y_m,
-                            "yaw_rad": odometry.yaw_rad,
-                            "vx_mps": vx,
-                            "vy_mps": vy,
-                            "wz_radps": wz,
+                            "x_m": state[0],
+                            "y_m": state[1],
+                            "yaw_rad": state[2],
+                            "vx_mps": state[3],
+                            "vy_mps": state[4],
+                            "wz_radps": state[5],
                             "wheel_fl_radps": snapshot.wheels["wheel_fl_radps"],
                             "wheel_fr_radps": snapshot.wheels["wheel_fr_radps"],
                             "wheel_rl_radps": snapshot.wheels["wheel_rl_radps"],
@@ -922,6 +922,7 @@ def run(args: argparse.Namespace) -> int:
                             "battery_mv": snapshot.battery_mv or "",
                             "pwm_mask": snapshot.pwm_mask or "",
                             "external_faults": snapshot.external_faults or "",
+                            **estimator.diagnostics(),
                         },
                     )
             if stm_source is not None:
@@ -929,17 +930,25 @@ def run(args: argparse.Namespace) -> int:
                 if telemetry is not None and telemetry.t_ns > stm_state_last:
                     stm_state_last = telemetry.t_ns
                     velocity = (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps)
-                    odometry.update(telemetry.t_ns, velocity)
+                    state = estimator.step(
+                        telemetry.t_ns,
+                        velocity,
+                        acceleration_body_mps2=(
+                            telemetry.accel_x_mps2,
+                            telemetry.accel_y_mps2,
+                        ),
+                        gyro_z_radps=telemetry.gyro_z_radps,
+                    )
                     writers.write(
                         "robot_state.csv",
                         {
                             "t_ns": telemetry.t_ns,
-                            "x_m": odometry.x_m,
-                            "y_m": odometry.y_m,
-                            "yaw_rad": odometry.yaw_rad,
-                            "vx_mps": telemetry.vx_mps,
-                            "vy_mps": telemetry.vy_mps,
-                            "wz_radps": telemetry.wz_radps,
+                            "x_m": state[0],
+                            "y_m": state[1],
+                            "yaw_rad": state[2],
+                            "vx_mps": state[3],
+                            "vy_mps": state[4],
+                            "wz_radps": state[5],
                             "accel_x_mps2": telemetry.accel_x_mps2,
                             "accel_y_mps2": telemetry.accel_y_mps2,
                             "accel_z_mps2": telemetry.accel_z_mps2,
@@ -948,6 +957,7 @@ def run(args: argparse.Namespace) -> int:
                             "gyro_z_radps": telemetry.gyro_z_radps,
                             "voltage_v": telemetry.voltage_v,
                             "flag_stop": telemetry.flag_stop,
+                            **estimator.diagnostics(),
                             "transport": "stm32_serial",
                         },
                     )
@@ -1012,7 +1022,7 @@ def run(args: argparse.Namespace) -> int:
                             "local_generation_count": online_controller.path.local_generation_count,
                         }
                     else:
-                        next_command, controller_details = online_controller.step(odometry.state, record)
+                        next_command, controller_details = online_controller.step(estimator.state, record)
                     event(
                         "cca_nmpc_step",
                         json.dumps(controller_details, sort_keys=True),

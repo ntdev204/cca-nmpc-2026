@@ -1,124 +1,118 @@
-# PR11 — Dataset context cho LSTM
+# PR11 — Dataset context causal cho LSTM
 
-> **Trạng thái:** `REVIEWED`; thiết kế schema/causal/split/no-human-path và
-> strict timestamp đã qua review, nhưng dataset thật chưa được sinh/freeze.  
-> **Đầu vào:** ảnh/chuỗi ảnh thật từ PR10 hoặc recording có consent, license và
-> calibration riêng.
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `PROPOSED / AWAITING-APPROVAL / NOT-EXECUTED`.
+> **Phạm vi:** dữ liệu thật dùng để ước lượng context hiện tại cho CCA; không
+> chứa target điều khiển, local path của robot hoặc tọa độ người ở tương lai.
 
-## 1. Bài toán và đơn vị dữ liệu
+## 1. Đơn vị độc lập và dữ liệu đầu vào
 
-Dataset lưu các cửa sổ context causal của người: vị trí, tốc độ, hướng
-trái/phải/tiến/lùi, confidence và validity. LSTM học vector vận tốc ở bước kế
-tiếp theo bằng mục tiêu tự giám sát; dataset không lưu hoặc sinh quỹ đạo người.
+Đơn vị lấy mẫu độc lập là một `recording` hoàn chỉnh, được định danh đồng thời
+bởi `participant_id`, `recording_id` và `site_id`. Frame và sliding window chỉ
+là repeated observations trong recording, không được tính như các mẫu độc lập.
+Mọi nguồn phải có consent/license, raw hash, camera calibration và timestamp.
 
-Đơn vị độc lập là `recording/context episode`, không phải sliding window. Tất
-cả window từ cùng recording, scene, participant/track và near-duplicate source
-phải ở cùng split.
+Một record causal chỉ chứa:
 
-## 2. Frame, thời gian và context reference
+- vị trí người hiện tại trong robot-local frame, đơn vị mét;
+- tốc độ quan sát hiện tại, đơn vị m/s;
+- hướng thô `left/right/forward/backward/unknown`;
+- confidence, validity và tuổi quan sát `age_ms`;
+- bbox/keypoints, track quality và provenance cần để tái lập context.
 
-Mỗi record ghi camera/image frame và, khi claim dùng mét, robot-local frame cùng
-calibration hash. Vị trí hiện tại được chuyển về robot frame bằng
+Không lưu future coordinates, rollout, predicted path hoặc đường di chuyển của
+người. Không dùng tên scenario làm nhãn hướng.
+
+Target current-context là $v^{\mathrm{ref}}_k$ tại chính timestamp $k$, đo bằng
+reference độc lập đã calibration và đồng bộ thời gian với camera. Reference
+không được suy ra từ detector, track hoặc cửa sổ đặc trưng dùng làm đầu vào mô
+hình. Nếu không có reference độc lập hợp lệ, recording chỉ được dùng cho
+diagnostic và không vào train, validation, calibration hoặc test confirmatory.
+
+## 2. Frame và thời gian
+
+Vị trí robot-local được tính từ phép biến đổi đã calibration:
 
 \[
-p^{\mathrm{local}}_{h,t}=R(\psi_{r,t})^{\mathsf T}
-(p^{\mathrm{world}}_{h,t}-p^{\mathrm{world}}_{r,t}).
+p^{r}_{h,k}=R(\psi_{r,k})^{\mathsf T}
+\bigl(p^{w}_{h,k}-p^{w}_{r,k}\bigr).
 \]
 
-Ảnh không có depth/homography/calibration chỉ hỗ trợ image-plane context và
-không được nối vào safety metric theo mét. Timestamp dùng clock đã xác định;
-ghi dropped/duplicated frame, offset, latency và validity thay vì nội suy tương
-lai. Context reference độc lập với detector/LSTM đang đánh giá.
+Timestamp phải monotonic và cùng clock domain hoặc có offset đã đo. Record giữ
+`capture_time`, `processing_time`, `age_ms`, dropped/duplicated-frame flags và
+calibration hash. Context bị đánh dấu invalid khi `age_ms > 150` hoặc transform,
+track, confidence hay timestamp không hợp lệ; không nội suy bằng dữ liệu tương
+lai để cứu record.
 
 ## 3. Schema tối thiểu
 
-Mỗi frame/track record có:
+- dataset/source/recording/participant/site/scene/track/frame IDs;
+- image hash, raw-parent hash, capture timestamp và age;
+- camera intrinsics/extrinsics, robot pose và calibration hash;
+- current position, speed, coarse direction, confidence và validity;
+- causal history indices và independent current-velocity target
+  $v^{\mathrm{ref}}_k$;
+- reference source, reference timestamp, synchronization residual và hash;
+- split label, OOD label, exclusion reason và processing commit.
 
-- `dataset_version`, `source_id`, `recording_id`, `scene_id`, `track_id`;
-- `frame_id`, timestamp, image hash và quan hệ frame trước/sau;
-- bbox, keypoints, detector confidence, occlusion và validity mask;
-- robot pose, camera intrinsics/extrinsics và calibration hash;
-- current position, observed speed/direction và quality flag;
-- observed history, self-supervised next-velocity target, split/group/OOD labels;
-- parent raw hashes và processing-code commit.
+Output của detector hoặc LSTM không được ghi đè raw record. Mọi biến phát sinh
+được lưu ở derived artifact có parent hash.
 
-Không ghi output LSTM đè lên dataset gốc. Prediction artifact chỉ chứa context
-position/speed/direction/confidence/validity, latency và failure code.
+## 4. Split khóa theo participant–recording–site
 
-## 4. Nội dung và strata
+Năm split là `train`, `validation`, `calibration`, `test_id`, `test_ood`. Split
+được tạo trước khi cắt window. Cỡ mẫu tối thiểu sau mọi exclusion là 60, 20, 20,
+30 và 30 recording độc lập tương ứng. `test_ood` giữ trọn site chưa xuất hiện ở
+bốn split còn lại. Sau khi khóa site OOD, connected components
+participant–recording phải nằm trọn trong đúng một split; cùng participant hoặc
+recording không thể qua hai split. `train`/`validation`/`calibration`/`test_id`
+được stratify trong các site ID đã thấy nhưng dùng participant và recording
+khác nhau.
 
-Giữ các điều kiện crossing, side-passing, stop--go, turning, group và occlusion
-như metadata để bao phủ context; tên behavior không tự động là intent claim.
-Strata bắt buộc gồm speed, distance, density, occlusion, camera motion, lighting,
-site, sensor quality và direction class. Synthetic sequences chỉ dùng debug hoặc
-pretraining riêng; không được vào `test_id`/`test_ood` và không hỗ trợ claim người
-thật.
+OOD inferential yêu cầu ít nhất hai site hoàn toàn chưa thấy và ít nhất 30
+recording trong `test_ood`. Nếu chỉ có một site chưa thấy, kết quả OOD chỉ là
+exploratory, không được dùng để đóng gate inferential hoặc hỗ trợ claim tổng
+quát hóa qua site. Không có site độc lập thì dataset không đủ điều kiện OOD.
 
-## 5. Split chống leakage
+Scaler, imputation, temperature và ngưỡng validity chỉ được fit trên split đã
+chỉ định. Test ID/OOD không được dùng để chọn checkpoint, feature, window length
+hoặc threshold. Synthetic data chỉ được dùng cho unit/development và không vào
+split confirmatory.
 
-Khóa năm mục đích `train`, `validation`, `calibration`, `test_id`, `test_ood`.
-Split group được tạo trước khi trích cửa sổ; cùng person, recording, scene,
-camera burst, background burst hoặc synthetic seed không được qua hai split.
-Scaler/imputation chỉ fit trên train. OOD phải là shift thật đã khóa (site/camera,
-density, occlusion, lighting hoặc sensor), không dùng để chọn model.
+## 5. Strata và kiểm soát chất lượng
 
-## 6. Kiểm soát chất lượng
+Metadata phải bao phủ crossing, head-on, side-passing, stop–go, turning, group,
+occlusion, speed, distance, density, lighting, camera motion và sensor quality.
+Các kiểm tra bắt buộc gồm:
 
-- schema, đơn vị, range, timestamp monotonic và image/frame hash;
-- transform round-trip, calibration residual và image-to-local provenance;
-- ID switch, gap, impossible speed và duplicate frame;
-- split intersection, label/reference independence và license/consent;
-- flow count từ raw tới eligible từng split, không im lặng loại lỗi.
+- schema, unit, range, timestamp, image hash và transform round trip;
+- calibration residual, duplicate/near-duplicate, ID switch và impossible speed;
+- intersection participant/recording bằng 0 giữa mọi split và site-OOD bằng 0;
+- flow count từ raw đến eligible, kèm mọi exclusion;
+- license, consent, privacy, retention và prohibited-use audit.
 
-## 7. Context overlay
+## 6. Overlay và ranh giới bằng chứng
 
-Mỗi case giữ frame thật đã hash và hiển thị bbox/keypoint, track ID, vị trí hiện
-tại, tốc độ, hướng, confidence, `context_valid`, timestamp và cảnh báo
-calibration/model/data version. Không vẽ human trajectory, future coordinate,
-robot local path hoặc đường dự báo lên ảnh. Robot local path chỉ xuất hiện trong
-map benchmark. Chọn trước các case median, boundary, failure và OOD; mọi frame
-phải có `real_media=true`, `ai_generated=false` và parent manifest.
+Overlay chỉ hiển thị bbox/keypoints, track ID, vị trí hiện tại, tốc độ, hướng
+thô, confidence, validity, age và cảnh báo calibration/provenance. Không vẽ
+đường người, future coordinate hay robot local path lên ảnh. Dữ liệu không có
+calibration metric chỉ hỗ trợ image-plane diagnostics và không được dùng cho
+clearance theo mét.
 
-## 8. Registry và versioning
+## 7. Cổng chấp nhận chính xác
 
-Data card ghi source/license/consent, thiết bị, preprocessing, split logic, bias,
-privacy, retention và prohibited use. Dataset version đổi khi source, frame
-transform, split, annotation/reference hoặc exclusion rule đổi.
+PR11 chỉ đạt `VERIFIED` khi đồng thời:
 
-Registry task là `person_context_sequence`. `context_sequence_contract` phải có
-`test_id`/`test_ood` là context thật, không synthetic, frame/video hash, reference
-độc lập, image-to-local calibration và output fields `position/speed/direction`.
-`source_kind: simulation` bị từ chối cho dataset context đóng băng.
+1. 100% record eligible qua schema, hash, unit và monotonic-time checks;
+2. giao participant/recording giữa mọi cặp split bằng 0;
+3. năm split có tối thiểu 60/20/20/30/30 recording eligible theo thứ tự đã khóa;
+4. OOD inferential giữ ít nhất hai site không giao với bốn split còn lại; một
+   site chỉ cho phép nhãn `EXPLORATORY-OOD`;
+5. 100% record metric có calibration hash hợp lệ, `age_ms` và independent
+   current-velocity reference với synchronization residual hợp lệ;
+6. mọi raw-to-window count và exclusion tái sinh đúng từ manifest;
+7. không có trường future coordinate, rollout hoặc predicted person path;
+8. overlay median/boundary/failure/OOD tái sinh đúng từ raw hashes.
 
-## 9. Cổng chấp nhận
-
-PR11 đạt `VERIFIED` khi registry qua schema 2.0.0, split-disjoint và provenance
-audit pass, data card/license/consent đầy đủ, OOD khóa trước kết quả và context
-overlay tái sinh được với bbox/keypoint, position/speed/direction, validity và
-hash. Không có human-path artifact trong dataset hoặc overlay.
-
-## 10. Implementation checkpoint — 2026-08-13 05:45 ICT
-
-The ingestion path now normalizes direction tokens and rejects values outside
-`left/right/forward/backward/unknown/invalid`. A confirmatory split also requires
-nonempty `recording_id`, `episode_id`, `source_id`, and `scene_id` metadata on
-every row before window construction; this prevents a split manifest from
-appearing valid while its other leakage keys are absent. The check is applied
-only to the confirmatory path and does not manufacture or infer missing groups.
-
-Source hash: `scripts/python/tools/ctx_run.py` SHA-256
-`85EA3C2F7F1673662CB6FB1F5D480E13C57D3CC8356EC254214E2F33F21C7E91`.
-Focused replay tests and the full Python suite pass. PR11 is `REVIEWED` for
-design only: no permitted real context recording, calibrated transform, frozen
-split, or dataset card has been admitted.
-
-## 11. Continuation checkpoint — 2026-08-13 06:06 ICT
-
-The same ingestion contract is now used by the hash-bound calibration-sidecar
-path. `ctx_run.py` validates the capture manifest, sensor identity and
-`calibration.json` digest before confirmatory window construction; it does not
-infer a missing recording group or calibration record. Current source hash:
-`B58A90E237F2615D53FA4D4D363818329DC4EFF9B372E0DEAA318B6EC12E356F`.
-Full Python QA is `169 passed`; no permitted real context recording or frozen
-dataset has been admitted, so the execution gate remains open despite the
-`REVIEWED` design status.
+Thiếu bất kỳ gate nào giữ PR11 ở `NOT-VERIFIED`; không thay dữ liệu thật bằng
+simulation để đóng gate.

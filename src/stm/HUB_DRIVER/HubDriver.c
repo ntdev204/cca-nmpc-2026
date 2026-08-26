@@ -1,17 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #include "HubDriver.h"
 
 float left_rpm, right_rpm;

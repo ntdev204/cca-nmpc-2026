@@ -1,6 +1,7 @@
 # PR23 — Stabilization pilot design
 
-> **Trạng thái:** `FROZEN-PILOT`; đây là protocol thiết kế, không phải bảng kết
+> **Trạng thái goal hiện tại:** `ARCHIVED`.  
+> **Trạng thái lịch sử:** `FROZEN-PILOT`; đây là protocol thiết kế, không phải bảng kết
 > quả. Mọi trace và số liệu của các lần chạy trước đã bị loại khỏi active
 > workspace và không được dùng làm evidence mới.
 

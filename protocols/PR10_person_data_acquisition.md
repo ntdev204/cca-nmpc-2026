@@ -1,6 +1,7 @@
 # PR10 — Thu thập dữ liệu ảnh/video người từ Internet
 
-> **Trạng thái:** `CANDIDATE ACQUIRED (ADMISSION BLOCKED)`; diagnostic YOLO
+> **Trạng thái goal hiện tại:** `DEFERRED — OUTSIDE CURRENT GOAL`.  
+> **Trạng thái lưu vết:** `CANDIDATE ACQUIRED (ADMISSION BLOCKED)`; diagnostic YOLO
 > cũ đã được purge trước khi chạy lại ngày 2026-08-14. Cohort mới gồm bảy ảnh
 > thật hiện tồn tại dưới `data/raw/web-cohort-20260814/`; tất cả vẫn là
 > candidate và chưa có asset nào được admit làm evidence.

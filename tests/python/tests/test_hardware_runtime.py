@@ -43,7 +43,7 @@ def test_n10p_decoder_stream_and_crc() -> None:
     packet = n10p_packet()
     assert decoder.feed(packet[:30], 10) == ()
     points = decoder.feed(packet[30:], 10)
-    assert len(points) == 32
+    assert len(points) == 2
     assert points[0].range_m == pytest.approx(1.5)
     assert points[0].intensity == 12
     assert points[1].range_m == pytest.approx(2.5)

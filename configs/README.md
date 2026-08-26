@@ -23,7 +23,7 @@ sample size blocks the run rather than being filled after results are visible.
   wheel geometry, footprint and sensor mounts. The current user-supplied
   record is `physical_robot.json`; it records the 400 mm by 400 mm envelope,
   50 mm interpreted wheel radius, 240/200 mm sensor heights, front-edge
-  offsets of 100/35 mm (LiDAR/camera), and 20 degree downward camera pitch in
+  offsets of 100/35 mm (LiDAR/camera), and 0 degree level camera pitch in
   SI units. Independent dimensional/calibration
   verification is still required before actuation. URDF/xacro files under
   `reference/robot` are CAD and mount/protocol references only; they are never

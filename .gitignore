@@ -113,6 +113,9 @@ cmake-build-*/
 # Run directories and experiment-tracker state
 /experiments/runs/**
 !/experiments/runs/README.md
+
+# Simulation outputs are reproducible local artifacts.
+/simulations/results/**
 /wandb/
 /mlruns/
 /lightning_logs/

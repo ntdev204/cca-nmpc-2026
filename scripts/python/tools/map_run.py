@@ -27,21 +27,21 @@ from ai.ctx_lstm import (
     require_fitted_calibration,
 )
 from ai.context import ContextConfig, context_score
-from simulation.model import NmpcPrediction
+from runtime.controller import NmpcPrediction
 from runtime.controller import CompiledController
-from simulation.context_replanner import (
+from runtime.local_path import (
     context_footprint_points,
     evaluate_context_replan,
     FixedGlobalLocalPath,
     generate_context_local_detour,
     path_clearance_to_footprint,
 )
-from simulation.model import (
+from simulations.python.model import (
     POSITION_COMMAND_FIELDS,
     POSITION_CONTROL_INTERFACE,
     POSITION_CONTROL_MODE,
     POSITION_STATE_FIELDS,
-    position_state_step,
+    position_step,
 )
 from shared import CONTRACT_PATH, load_contract, validate_capture_calibration
 
@@ -761,7 +761,7 @@ def body_velocity_command(state: np.ndarray, world_velocity: np.ndarray, yaw_rat
 
 
 def advance_robot(state: np.ndarray, command: np.ndarray) -> np.ndarray:
-    return position_state_step(state, command, DT_S)
+    return position_step(state, command, DT_S)
 
 
 def run_episode(
@@ -1638,8 +1638,12 @@ def main() -> int:
         "artifacts": artifacts,
         "source_files": {
             "scripts/python/tools/map_run.py": sha256_file(Path(__file__).resolve()),
-            "src/simulation/model.py": sha256_file(PROJECT_ROOT / "src" / "simulation" / "model.py"),
-            "src/simulation/context_replanner.py": sha256_file(PROJECT_ROOT / "src" / "simulation" / "context_replanner.py"),
+            "simulations/python/model.py": sha256_file(
+                PROJECT_ROOT / "simulations" / "python" / "model.py"
+            ),
+            "src/runtime/local_path.py": sha256_file(
+                PROJECT_ROOT / "src" / "runtime" / "local_path.py"
+            ),
             "src/ai/ctx_lstm.py": sha256_file(PROJECT_ROOT / "src" / "ai" / "ctx_lstm.py"),
             "configs/study_contract.json": sha256_file(CONTRACT_PATH),
         },

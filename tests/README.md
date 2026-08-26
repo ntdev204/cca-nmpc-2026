@@ -26,10 +26,8 @@ to a manuscript directory. Backup verification is read-only.
 `scripts/python/tools/repo_check.py` now implements the first static
 gate: strict duplicate-key JSON loading, Draft 2020-12 schema validation, canonical
 JSON/YAML instance checks, present file-reference hashes, and Obsidian frontmatter and
-wikilink integrity. The historical PR01 verification option is retained only for
-backward-compatibility checks; it is not an active release gate. The active literature
-condition is the bounded Zotero/Obsidian focused audit recorded in
-`research/metadata/focused_literature_audit.json`.
+wikilink integrity. PR01 and focused-audit records are historical provenance only; the
+retired focused-audit and claim-matrix instances are not active code gates.
 
 Host tests, simulation tests, target timing, hardware-in-the-loop, and integrated robot
 tests must remain separately labelled.

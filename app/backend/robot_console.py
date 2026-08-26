@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import binascii
 import io
@@ -16,6 +17,7 @@ import time
 import zlib
 from collections import deque
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -27,16 +29,20 @@ except ModuleNotFoundError:
 
 ZERO = (0.0, 0.0, 0.0)
 APP_PORT = 8765
+CAMERA_HTTP_PORT = 8766
 MAX_POINTS = 360
 STATE_PERIOD_S = 0.10
-SENSOR_PERIOD_S = 0.10
-MAP_PERIOD_S = 1.0
-# The camera is a monitoring stream, not the control loop. Keep it light enough
-# for a Wi-Fi/VPN link and let Peer retain only the newest frame.
-CAMERA_PERIOD_S = 0.33
-CAMERA_MAX_SIZE = (384, 288)
-CAMERA_JPEG_QUALITY = 45
-STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map", "camera"})
+SENSOR_PERIOD_S = 0.05
+MAP_PERIOD_S = 0.50
+LIDAR_TARGET_HZ = 10.0
+MAP_RESOLUTION_M = 0.025
+# Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
+CAMERA_PERIOD_S = 1.0 / 30.0
+CAMERA_STREAM_MAX_SIZE = (640, 480)
+CAMERA_STREAM_JPEG_QUALITY = 10
+CAMERA_CAPTURE_JPEG_QUALITY = 90
+WEBRTC_OFFER_PATH = "/webrtc/offer"
+STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
 COMPRESS_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
 WIRE_ENCODING = "zlib+base64"
 COMPRESS_MIN_BYTES = 220
@@ -55,6 +61,59 @@ MOVE_DIRECTIONS: dict[str, tuple[int, int, int]] = {
     "rotate_right": (0, 0, -1),
     "stop": (0, 0, 0),
 }
+
+try:
+    from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+    from av import VideoFrame
+
+    WEBRTC_AVAILABLE = True
+except ImportError:
+    RTCPeerConnection = None
+    RTCSessionDescription = None
+    VideoFrame = None
+    WEBRTC_AVAILABLE = False
+
+    class VideoStreamTrack:
+        kind = "video"
+
+
+def load_robot_geometry() -> dict[str, float]:
+    """Load the declared physical envelope and sensor mounts for monitoring."""
+
+    defaults = {
+        "footprint_radius_m": math.sqrt(0.2**2 + 0.2**2),
+        "lidar_position_x_m": 0.10,
+        "lidar_height_m": 0.24,
+        "camera_position_x_m": 0.165,
+        "camera_height_m": 0.20,
+        "camera_pitch_rad": 0.0,
+    }
+    path = PROJECT_ROOT / "configs" / "physical_robot.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        mounts = payload.get("sensor_mounts") or {}
+        for key in tuple(defaults):
+            source = mounts if key.endswith("_m") or key.endswith("_rad") else payload
+            if key in payload:
+                source = payload
+            value = source.get(key)
+            if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                defaults[key] = float(value)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        pass
+    return defaults
+
+
+def planar_transform(parent: str, child: str, x_m: float, y_m: float, yaw_rad: float, **extra: float) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "parent": parent,
+        "child": child,
+        "translation_m": [round(float(x_m), 6), round(float(y_m), 6), round(float(extra.get("z_m", 0.0)), 6)],
+        "yaw_rad": round(float(yaw_rad), 6),
+    }
+    if "pitch_rad" in extra:
+        payload["pitch_rad"] = round(float(extra["pitch_rad"]), 6)
+    return payload
 
 
 def now_ns() -> int:
@@ -255,9 +314,9 @@ class Peer:
             while not self.closed and not self.writer_stop.is_set():
                 if self.control_outgoing:
                     return self.control_outgoing.popleft()
-                if self.latest_stream:
-                    message_type = next(iter(self.latest_stream))
-                    return self.latest_stream.pop(message_type)
+                for message_type in ("state", "lidar", "map"):
+                    if message_type in self.latest_stream:
+                        return self.latest_stream.pop(message_type)
                 self.outgoing_condition.wait(timeout=0.25)
             return None
 
@@ -292,6 +351,132 @@ class Peer:
             pass
 
 
+class CameraVideoTrack(VideoStreamTrack):
+    kind = "video"
+
+    def __init__(self, service: "RobotService") -> None:
+        super().__init__()
+        self.service = service
+        self.last_capture_t_ns = 0
+
+    async def recv(self) -> Any:
+        pts, time_base = await self.next_timestamp()
+        sample = await asyncio.to_thread(
+            self.service.wait_camera_frame,
+            self.last_capture_t_ns,
+        )
+        if sample is None:
+            sample = self.service.latest_camera_frame()
+        if sample is None:
+            raise RuntimeError("Astra-S frame is not available")
+        capture_t_ns, color_bgr = sample
+        self.last_capture_t_ns = capture_t_ns
+        frame = VideoFrame.from_ndarray(color_bgr, format="bgr24")
+        frame.pts = pts
+        frame.time_base = time_base
+        return frame
+
+
+class CameraMjpegHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+    def _cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", os.environ.get("CCA_WEBRTC_ORIGIN", "*"))
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+        body = _json_bytes(payload)
+        self.send_response(status)
+        self._cors_headers()
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:
+        if self.path.split("?", 1)[0] != WEBRTC_OFFER_PATH:
+            self.send_error(404)
+            return
+        self.send_response(204)
+        self._cors_headers()
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        if self.path.split("?", 1)[0] != WEBRTC_OFFER_PATH:
+            self.send_error(404)
+            return
+        service = getattr(self.server, "robot_service", None)
+        if service is None:
+            self._send_json(503, {"error": "robot service unavailable"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 1_000_000:
+                raise ValueError("invalid WebRTC offer length")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            answer = service.create_webrtc_answer(payload)
+            self._send_json(200, answer)
+        except TimeoutError as error:
+            self._send_json(504, {"error": str(error)})
+        except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError) as error:
+            self._send_json(400, {"error": str(error)})
+
+    def do_GET(self) -> None:
+        if self.path.split("?", 1)[0] not in {"/", "/mjpeg", "/camera"}:
+            self.send_error(404)
+            return
+        service = getattr(self.server, "robot_service", None)
+        if service is None:
+            self.send_error(503)
+            return
+        with service.state_lock:
+            service.camera_http_clients += 1
+        boundary = b"mecanum-frame"
+        self.send_response(200)
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self._cors_headers()
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=mecanum-frame")
+        self.end_headers()
+        last_capture_t_ns = 0
+        try:
+            while not service.stop_event.is_set():
+                with service.camera_condition:
+                    service.camera_condition.wait_for(
+                        lambda: service.stop_event.is_set()
+                        or service.camera_capture_t_ns != last_capture_t_ns,
+                        timeout=0.5,
+                    )
+                    if service.stop_event.is_set():
+                        return
+                    capture_t_ns = service.camera_capture_t_ns
+                    jpeg = service.latest_camera_bytes
+                if not jpeg or capture_t_ns == last_capture_t_ns:
+                    continue
+                header = (
+                    b"--" + boundary + b"\r\n"
+                    + b"Content-Type: image/jpeg\r\n"
+                    + f"Content-Length: {len(jpeg)}\r\nX-Capture-Timestamp: {capture_t_ns}\r\n\r\n".encode("ascii")
+                )
+                self.wfile.write(header)
+                self.wfile.write(jpeg)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+                last_capture_t_ns = capture_t_ns
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+        finally:
+            with service.state_lock:
+                service.camera_http_clients = max(0, service.camera_http_clients - 1)
+
+
 class RobotService:
     def __init__(self, bind: str, port: int) -> None:
         self.bind = bind
@@ -300,12 +485,21 @@ class RobotService:
         self.state_lock = threading.RLock()
         self.peers: set[Peer] = set()
         self.server_socket: socket.socket | None = None
+        self.camera_http_server: ThreadingHTTPServer | None = None
+        self.webrtc_loop: asyncio.AbstractEventLoop | None = None
+        self.webrtc_thread: threading.Thread | None = None
+        self.webrtc_peers: set[Any] = set()
         self._closed = False
         self.stm: Any = None
         self.lidar: Any = None
         self.camera: Any = None
         self.camera_thread: threading.Thread | None = None
-        self.pose: Any = None
+        try:
+            from app.backend.manual_map import Pose
+        except ModuleNotFoundError:
+            from manual_map import Pose
+
+        self.pose: Any = Pose()
         self.map_pose: Any = None
         self.mapper: Any = None
         self.files: Any = None
@@ -324,12 +518,22 @@ class RobotService:
         self.last_state_mono = 0.0
         self.last_sensor_mono = 0.0
         self.last_map_mono = 0.0
-        self.last_camera_mono = 0.0
         self.last_broadcast_map_signature = ""
         self.latest_lidar: list[list[float]] = []
-        self.latest_camera: str | None = None
+        self.latest_camera_bytes: bytes | None = None
+        self.latest_camera_color: Any = None
+        self.camera_condition = threading.Condition()
+        self.camera_http_clients = 0
         self.camera_shape: list[int] | None = None
+        self.camera_device_t_ns: int | None = None
+        self.camera_capture_t_ns = 0
+        self.camera_frames_saved = 0
+        self.camera_frames_read = 0
+        self.camera_rate_hz = 0.0
+        self.camera_rate_start_mono = time.monotonic()
         self.camera_status = "disabled"
+        self.camera_transport = "webrtc-h264" if WEBRTC_AVAILABLE else "mjpeg-fallback"
+        self.geometry = load_robot_geometry()
         # A* is a planning/visualisation layer.  It never sends a motion
         # command; the existing controller/actuation entry point consumes the
         # resulting global path only after its normal safety gates pass.
@@ -350,13 +554,72 @@ class RobotService:
                 self.status["message"] = message
         self.broadcast({"type": "event", "event": "status", "status": self.status_payload()})
 
+    def saved_maps_payload(self) -> list[dict[str, Any]]:
+        runs_root = PROJECT_ROOT / "experiments" / "runs"
+        entries: list[dict[str, Any]] = []
+        try:
+            roots = [path for path in runs_root.glob("console-map-*") if path.is_dir()]
+        except OSError:
+            return entries
+        for root in roots:
+            map_path = root / "map.json"
+            if not map_path.is_file():
+                continue
+            manifest_path = root / "manifest.json"
+            manifest: dict[str, Any] = {}
+            try:
+                if manifest_path.is_file():
+                    candidate = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    if isinstance(candidate, dict):
+                        manifest = candidate
+                map_meta = manifest.get("map") if isinstance(manifest.get("map"), dict) else {}
+                stat = map_path.stat()
+                stopped_at_ns = int(manifest.get("stopped_at_ns", stat.st_mtime_ns))
+                entries.append(
+                    {
+                        "run_id": root.name,
+                        "saved_at_ns": stopped_at_ns,
+                        "scans": int(map_meta.get("scans", 0)),
+                        "points": int(map_meta.get("points", 0)),
+                        "resolution_m": float(map_meta.get("resolution_m", MAP_RESOLUTION_M)),
+                        "map_bytes": int(stat.st_size),
+                        "selected": self.last_saved_root is not None and root == self.last_saved_root,
+                    }
+                )
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+        entries.sort(key=lambda item: int(item.get("saved_at_ns", 0)), reverse=True)
+        return entries[:50]
+
     def status_payload(self) -> dict[str, Any]:
         with self.state_lock:
+            lidar_rate_hz = 0.0
+            if self.lidar is not None:
+                try:
+                    lidar_rate_hz = float(self.lidar.scan_rate_hz)
+                except (AttributeError, TypeError, ValueError):
+                    lidar_rate_hz = 0.0
             return {
                 **self.status,
                 "armed": self.armed,
                 "scan_active": self.scan_active,
                 "run": self.run_root.name if self.run_root else None,
+                "lidar_target_hz": LIDAR_TARGET_HZ,
+                "lidar_rate_hz": round(lidar_rate_hz, 2),
+                "camera_rate_hz": round(self.camera_rate_hz, 2),
+                "camera_transport": self.camera_transport,
+                "webrtc_clients": len(self.webrtc_peers),
+                "map_resolution_m": MAP_RESOLUTION_M,
+                "selected_map": self.last_saved_root.name if self.last_saved_root is not None else None,
+                "maps": self.saved_maps_payload(),
+                "dataset": {
+                    "active": self.scan_active,
+                    "run": self.run_root.name if self.run_root else None,
+                    "saved": self.scan_saved,
+                    "lidar_scans": int(self.mapper.scans) if self.mapper is not None else 0,
+                    "lidar_points": int(self.mapper.points) if self.mapper is not None else 0,
+                    "camera_frames": int(self.camera_frames_saved),
+                },
             }
 
     def start_sources(self) -> None:
@@ -367,6 +630,10 @@ class RobotService:
         try:
             self.stm = Stm32SerialSource(stm_port, baudrate=115200, backend="auto")
             self.stm.start()
+            self.stm.send_velocity(*ZERO)
+            with self.state_lock:
+                self.armed = True
+                self.status["armed"] = True
             self._set_status("stm", "online", f"STM {stm_port} / {self.stm.backend}")
         except Exception as error:
             self.stm = None
@@ -374,7 +641,7 @@ class RobotService:
         try:
             self.lidar = N10PSerialSource(lidar_port, profile=N10P_PROTOCOL_PROFILE, baudrate=460800)
             self.lidar.start()
-            self._set_status("lidar", "online", f"N10P {lidar_port} / 460800")
+            self._set_status("lidar", "online", f"N10P {lidar_port} / 460800 / target {LIDAR_TARGET_HZ:g} Hz")
         except Exception as error:
             self.lidar = None
             self._set_status("lidar", "error", str(error))
@@ -394,36 +661,219 @@ class RobotService:
             self.camera_status = "error"
             self._set_status("camera", "error", str(error))
 
+    def latest_camera_frame(self) -> tuple[int, Any] | None:
+        with self.state_lock:
+            if self.latest_camera_color is None or not self.camera_capture_t_ns:
+                return None
+            return self.camera_capture_t_ns, self.latest_camera_color
+
+    def wait_camera_frame(self, last_capture_t_ns: int) -> tuple[int, Any] | None:
+        with self.camera_condition:
+            self.camera_condition.wait_for(
+                lambda: self.stop_event.is_set()
+                or (
+                    self.camera_capture_t_ns != last_capture_t_ns
+                    and self.latest_camera_color is not None
+                ),
+                timeout=0.5,
+            )
+        if self.stop_event.is_set():
+            return None
+        return self.latest_camera_frame()
+
+    def start_webrtc(self) -> None:
+        if not WEBRTC_AVAILABLE:
+            self.camera_transport = "mjpeg-fallback"
+            print("WebRTC unavailable: install aiortc and PyAV for H.264")
+            return
+        loop = asyncio.new_event_loop()
+        self.webrtc_loop = loop
+
+        def run_loop() -> None:
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        self.webrtc_thread = threading.Thread(
+            target=run_loop,
+            name="robot-console-webrtc",
+            daemon=True,
+        )
+        self.webrtc_thread.start()
+        self.camera_transport = "webrtc-h264"
+
+    def create_webrtc_answer(self, payload: Any) -> dict[str, str]:
+        if not WEBRTC_AVAILABLE or self.webrtc_loop is None:
+            raise RuntimeError("WebRTC H.264 is unavailable on Jetson")
+        if not isinstance(payload, dict):
+            raise ValueError("WebRTC offer must be an object")
+        sdp = payload.get("sdp")
+        offer_type = payload.get("type")
+        if not isinstance(sdp, str) or not sdp.strip() or offer_type != "offer":
+            raise ValueError("WebRTC offer must contain type=offer and SDP")
+        future = asyncio.run_coroutine_threadsafe(
+            self._create_webrtc_answer(sdp, offer_type),
+            self.webrtc_loop,
+        )
+        return future.result(timeout=15.0)
+
+    async def _create_webrtc_answer(self, sdp: str, offer_type: str) -> dict[str, str]:
+        if RTCPeerConnection is None or RTCSessionDescription is None:
+            raise RuntimeError("aiortc is unavailable")
+        await self._close_webrtc_peers()
+        peer = RTCPeerConnection()
+        with self.state_lock:
+            self.webrtc_peers.add(peer)
+
+        @peer.on("connectionstatechange")
+        async def on_connectionstatechange() -> None:
+            if peer.connectionState in {"failed", "disconnected", "closed"}:
+                await self._remove_webrtc_peer(peer)
+
+        try:
+            await peer.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=offer_type))
+            transceiver = next(
+                (item for item in peer.getTransceivers() if item.kind == "video"),
+                None,
+            )
+            if transceiver is None:
+                raise ValueError("WebRTC offer has no video transceiver")
+            peer.addTrack(CameraVideoTrack(self))
+            from aiortc.rtcrtpsender import RTCRtpSender
+
+            h264 = [
+                codec
+                for codec in RTCRtpSender.getCapabilities("video").codecs
+                if codec.mimeType.lower() == "video/h264"
+            ]
+            if not h264:
+                raise RuntimeError("H.264 codec is unavailable in PyAV")
+            transceiver.setCodecPreferences(h264)
+            answer = await peer.createAnswer()
+            await peer.setLocalDescription(answer)
+            for _ in range(100):
+                if peer.iceGatheringState == "complete":
+                    break
+                await asyncio.sleep(0.05)
+            return {
+                "sdp": peer.localDescription.sdp,
+                "type": peer.localDescription.type,
+            }
+        except Exception:
+            await self._remove_webrtc_peer(peer)
+            raise
+
+    async def _remove_webrtc_peer(self, peer: Any) -> None:
+        with self.state_lock:
+            self.webrtc_peers.discard(peer)
+        if getattr(peer, "connectionState", "closed") != "closed":
+            await peer.close()
+
+    async def _close_webrtc_peers(self) -> None:
+        with self.state_lock:
+            peers = tuple(self.webrtc_peers)
+            self.webrtc_peers.clear()
+        for peer in peers:
+            await peer.close()
+
+    def stop_webrtc(self) -> None:
+        loop = self.webrtc_loop
+        if loop is None:
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(self._close_webrtc_peers(), loop)
+            future.result(timeout=3.0)
+        except (RuntimeError, TimeoutError):
+            pass
+        loop.call_soon_threadsafe(loop.stop)
+        if self.webrtc_thread is not None:
+            self.webrtc_thread.join(timeout=3.0)
+        loop.close()
+        self.webrtc_loop = None
+        self.webrtc_thread = None
+
     def _camera_loop(self) -> None:
+        next_frame_mono = time.monotonic()
         while not self.stop_event.is_set() and self.camera is not None:
             try:
                 with self.state_lock:
-                    has_client = bool(self.peers)
+                    has_mjpeg = self.camera_http_clients > 0
+                    has_client = has_mjpeg or bool(self.webrtc_peers) or self.scan_active
                 if not has_client:
-                    # Do not spend CPU encoding frames while the console is
-                    # disconnected; resume immediately when a client arrives.
+                    next_frame_mono = time.monotonic()
                     self.stop_event.wait(0.10)
                     continue
+                wait_s = next_frame_mono - time.monotonic()
+                if wait_s > 0.0:
+                    self.stop_event.wait(wait_s)
+                    if self.stop_event.is_set():
+                        return
                 frame = self.camera.read()
-                encoded = self._encode_camera(frame.color_bgr)
+                encoded_bytes = self._encode_camera(frame.color_bgr) if has_mjpeg else None
                 with self.state_lock:
-                    self.latest_camera = encoded
+                    self.latest_camera_bytes = encoded_bytes
+                    self.latest_camera_color = frame.color_bgr.copy()
                     self.camera_shape = [int(frame.color_bgr.shape[1]), int(frame.color_bgr.shape[0])]
-                time.sleep(CAMERA_PERIOD_S)
+                    self.camera_device_t_ns = frame.device_timestamp_ns
+                    self.camera_capture_t_ns = int(frame.t_ns)
+                    self.camera_frames_read += 1
+                    rate_elapsed = time.monotonic() - self.camera_rate_start_mono
+                    if rate_elapsed >= 1.0:
+                        self.camera_rate_hz = self.camera_frames_read / rate_elapsed
+                        self.camera_frames_read = 0
+                        self.camera_rate_start_mono = time.monotonic()
+                    if self.scan_active and self.files is not None:
+                        depth_bytes = self._encode_depth(frame.depth_raw)
+                        color_bytes = self._encode_camera(
+                            frame.color_bgr,
+                            max_size=None,
+                            quality=CAMERA_CAPTURE_JPEG_QUALITY,
+                        )
+                        self.files.camera_frame(
+                            frame.t_ns,
+                            frame.device_timestamp_ns,
+                            color_bytes,
+                            depth_bytes,
+                            int(frame.color_bgr.shape[1]),
+                            int(frame.color_bgr.shape[0]),
+                            float(frame.depth_scale_m),
+                        )
+                        self.camera_frames_saved += 1
+                with self.camera_condition:
+                    self.camera_condition.notify_all()
+                next_frame_mono += CAMERA_PERIOD_S
+                if next_frame_mono < time.monotonic():
+                    next_frame_mono = time.monotonic()
             except Exception as error:
                 self._set_status("camera", "error", str(error))
                 return
 
     @staticmethod
-    def _encode_camera(color_bgr: Any) -> str:
+    def _encode_camera(
+        color_bgr: Any,
+        *,
+        max_size: tuple[int, int] | None = CAMERA_STREAM_MAX_SIZE,
+        quality: int = CAMERA_STREAM_JPEG_QUALITY,
+    ) -> bytes:
         from PIL import Image
 
         rgb = color_bgr[:, :, ::-1]
         image = Image.fromarray(rgb)
-        image.thumbnail(CAMERA_MAX_SIZE)
+        if max_size is not None:
+            image.thumbnail(max_size)
         stream = io.BytesIO()
-        image.save(stream, format="JPEG", quality=CAMERA_JPEG_QUALITY, optimize=True)
-        return base64.b64encode(stream.getvalue()).decode("ascii")
+        image.save(stream, format="JPEG", quality=quality, optimize=False, subsampling=2)
+        return stream.getvalue()
+
+    @staticmethod
+    def _encode_depth(depth_raw: Any) -> bytes | None:
+        try:
+            from PIL import Image
+
+            stream = io.BytesIO()
+            Image.fromarray(depth_raw).save(stream, format="PNG", optimize=True)
+            return stream.getvalue()
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
 
     def start_scan(self) -> None:
         from app.backend.manual_map import OccupancyMap, Pose, RunFiles
@@ -440,17 +890,19 @@ class RobotService:
             while root.exists():
                 root = PROJECT_ROOT / "experiments" / "runs" / f"{run_id}-{suffix}"
                 suffix += 1
+            initial_pose = copy_pose_for_mapping(self.pose) if self.pose is not None else Pose()
             self.mapper = OccupancyMap(
-                0.05,
-                lidar_x_m=0.10,
+                MAP_RESOLUTION_M,
+                lidar_x_m=self.geometry["lidar_position_x_m"],
                 lidar_y_m=0.0,
                 lidar_yaw_rad=0.0,
                 min_range_m=0.05,
                 max_range_m=8.0,
                 padding_cells=5,
+                scan_matching=True,
             )
-            self.pose = Pose()
-            self.map_pose = Pose()
+            self.pose = initial_pose
+            self.map_pose = copy_pose_for_mapping(initial_pose)
             self.files = RunFiles(root)
             self.run_root = root
             self.scan_started_ns = now_ns()
@@ -459,7 +911,10 @@ class RobotService:
             self.plan_payload = None
             self.last_scan_ns = 0
             self.last_broadcast_map_signature = ""
-            self.files.event("console_scan_started", "lidar=N10P; map=odom_seeded_local_scan_to_map")
+            self.camera_frames_saved = 0
+            self.camera_capture_t_ns = 0
+            self.camera_device_t_ns = None
+            self.files.event("console_scan_started", f"lidar=N10P; target_hz={LIDAR_TARGET_HZ:g}; map_resolution_m={MAP_RESOLUTION_M:.3f}")
             self.status["scan"] = "recording"
         self.broadcast({"type": "event", "event": "scan_started", "status": self.status_payload()})
 
@@ -528,6 +983,11 @@ class RobotService:
         payload = json.loads(map_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("saved map payload must be an object")
+        try:
+            from app.backend.manual_map import clean_saved_map_payload
+        except ModuleNotFoundError:
+            from manual_map import clean_saved_map_payload
+        payload = clean_saved_map_payload(payload)
         width = int(payload.get("width", 0))
         height = int(payload.get("height", 0))
         occupancy = payload.get("occupancy")
@@ -565,8 +1025,8 @@ class RobotService:
 
     def _write_manifest(self, root: Path, mapper: Any, reason: str) -> None:
         files = {
-            path.name: {"bytes": path.stat().st_size, "sha256": self._sha256(path)}
-            for path in root.iterdir()
+            path.relative_to(root).as_posix(): {"bytes": path.stat().st_size, "sha256": self._sha256(path)}
+            for path in root.rglob("*")
             if path.is_file() and path.name != "manifest.json"
         }
         payload = {
@@ -741,6 +1201,7 @@ class RobotService:
         try:
             peer.sock.settimeout(None)
             file = peer.sock.makefile("rb")
+            initial_map_checked = False
             for line in file:
                 if self.stop_event.is_set():
                     break
@@ -757,6 +1218,15 @@ class RobotService:
                         requested = [requested]
                     peer.compression_enabled = isinstance(requested, list) and WIRE_ENCODING in requested
                     self.handle(peer, message)
+                    if not initial_map_checked:
+                        initial_map_checked = True
+                        with self.state_lock:
+                            mapper_missing = self.mapper is None
+                        if mapper_missing:
+                            try:
+                                self.load_saved_map()
+                            except FileNotFoundError:
+                                pass
         except (ConnectionError, OSError):
             pass
         finally:
@@ -779,8 +1249,15 @@ class RobotService:
                 self.last_telemetry_ns = telemetry.t_ns
                 if self.files is not None:
                     self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"))
-            if self.pose is not None and self.map_pose is None:
-                self.map_pose = copy_pose_for_mapping(self.pose)
+            if self.pose is not None:
+                mapper_uses_matching = self.mapper is not None and bool(
+                    getattr(self.mapper, "scan_matching_enabled", False)
+                )
+                # With the current odometry-only map, the rendered marker must
+                # follow the live odometry on every state tick.  A scan matcher
+                # may own map_pose only when it is explicitly enabled.
+                if self.map_pose is None or not mapper_uses_matching:
+                    self.map_pose = copy_pose_for_mapping(self.pose)
             pose = [0.0, 0.0, 0.0] if self.pose is None else list(self.pose.as_tuple())
             map_pose = pose if self.map_pose is None else list(self.map_pose.as_tuple())
             telemetry_payload = None
@@ -790,25 +1267,74 @@ class RobotService:
                     "vx_mps": telemetry.vx_mps,
                     "vy_mps": telemetry.vy_mps,
                     "wz_radps": telemetry.wz_radps,
+                    "gyro_x_radps": telemetry.gyro_x_radps,
+                    "gyro_y_radps": telemetry.gyro_y_radps,
+                    "gyro_z_radps": telemetry.gyro_z_radps,
                     "voltage_v": telemetry.voltage_v,
                     "flag_stop": telemetry.flag_stop,
                 }
+            odom_x, odom_y, odom_yaw = (float(value) for value in pose[:3])
+            map_x, map_y, map_yaw = (float(value) for value in map_pose[:3])
+            map_to_odom_yaw = math.atan2(math.sin(map_yaw - odom_yaw), math.cos(map_yaw - odom_yaw))
+            c, s = math.cos(map_to_odom_yaw), math.sin(map_to_odom_yaw)
+            map_to_odom_x = map_x - (c * odom_x - s * odom_y)
+            map_to_odom_y = map_y - (s * odom_x + c * odom_y)
+            tf_payload = {
+                "fixed_frame": "map",
+                "frames": [
+                    planar_transform("map", "odom", map_to_odom_x, map_to_odom_y, map_to_odom_yaw),
+                    planar_transform("odom", "base_link", odom_x, odom_y, odom_yaw),
+                    planar_transform(
+                        "base_link",
+                        "laser",
+                        self.geometry["lidar_position_x_m"],
+                        0.0,
+                        0.0,
+                        z_m=self.geometry["lidar_height_m"],
+                    ),
+                    planar_transform(
+                        "base_link",
+                        "camera_link",
+                        self.geometry["camera_position_x_m"],
+                        0.0,
+                        0.0,
+                        z_m=self.geometry["camera_height_m"],
+                        pitch_rad=self.geometry["camera_pitch_rad"],
+                    ),
+                ],
+                "footprint": {
+                    "length_m": 0.4,
+                    "width_m": 0.4,
+                    "circumscribed_radius_m": self.geometry["footprint_radius_m"],
+                },
+            }
             return {
                 "type": "state",
                 "t_ns": now_ns(),
                 "pose": pose,
                 "map_pose": map_pose,
                 "telemetry": telemetry_payload,
+                "pose_diagnostics": {
+                    "yaw_rate_used_radps": 0.0 if self.pose is None else self.pose.last_yaw_rate_radps,
+                    "yaw_rate_source": "none" if self.pose is None else self.pose.last_yaw_rate_source,
+                    "integration_dt_s": 0.0 if self.pose is None else self.pose.last_dt_s,
+                    "speed_mps": 0.0 if telemetry is None else math.hypot(telemetry.vx_mps, telemetry.vy_mps),
+                },
                 "status": self.status_payload(),
                 "command": list(self.last_command),
                 "camera_shape": self.camera_shape,
+                "camera_capture_t_ns": self.camera_capture_t_ns,
+                "camera_device_t_ns": self.camera_device_t_ns,
+                "tf": tf_payload,
             }
 
-    def _sensor_payload(self) -> dict[str, Any]:
+    def _sensor_payload(self) -> dict[str, Any] | None:
         with self.state_lock:
+            new_scan = False
             if self.lidar is not None:
                 scan = self.lidar.latest
                 if scan is not None and scan.t_ns != self.last_scan_ns:
+                    new_scan = True
                     self.last_scan_ns = scan.t_ns
                     self.latest_lidar = compact_points(scan.points)
                     if self.scan_active and self.mapper is not None and self.pose is not None:
@@ -823,25 +1349,22 @@ class RobotService:
                         self.map_pose = map_pose
                         if self.files is not None:
                             self.files.scan(scan)
+                            self.files.write_map_history(self.mapper.history[-1])
                             self.files.context(scan.t_ns, self.pose, scan)
-            return {"type": "lidar", "t_ns": now_ns(), "points": self.latest_lidar}
+            if not new_scan:
+                return None
+            return {"type": "lidar", "t_ns": self.last_scan_ns, "points": self.latest_lidar}
 
     def _map_payload(self) -> dict[str, Any] | None:
         with self.state_lock:
             if self.mapper is None:
                 return None
-            payload = self.mapper.payload()
-            signature = f"{payload['width']}:{payload['height']}:{payload['metadata']['scans']}:{payload['metadata']['points']}:{json.dumps(self.plan_payload, sort_keys=True, separators=(',', ':'))}"
+            signature = f"{self.mapper.scans}:{self.mapper.points}:{json.dumps(self.plan_payload, sort_keys=True, separators=(',', ':'))}"
             if signature == self.last_broadcast_map_signature:
                 return None
+            payload = self.mapper.payload()
             self.last_broadcast_map_signature = signature
             return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
-
-    def _camera_payload(self) -> dict[str, Any] | None:
-        with self.state_lock:
-            if self.latest_camera is None:
-                return None
-            return {"type": "camera", "t_ns": now_ns(), "jpeg": self.latest_camera, "shape": self.camera_shape}
 
     def loop(self) -> None:
         while not self.stop_event.wait(0.02):
@@ -863,20 +1386,18 @@ class RobotService:
                 self.broadcast(self._state_payload())
             if now - self.last_sensor_mono >= SENSOR_PERIOD_S:
                 self.last_sensor_mono = now
-                self.broadcast(self._sensor_payload())
+                payload = self._sensor_payload()
+                if payload is not None:
+                    self.broadcast(payload)
             if now - self.last_map_mono >= MAP_PERIOD_S:
                 self.last_map_mono = now
                 payload = self._map_payload()
                 if payload is not None:
                     self.broadcast(payload)
-            if now - self.last_camera_mono >= CAMERA_PERIOD_S:
-                self.last_camera_mono = now
-                payload = self._camera_payload()
-                if payload is not None:
-                    self.broadcast(payload)
 
     def serve(self) -> None:
         self.start_sources()
+        self.start_webrtc()
         loop_thread = threading.Thread(target=self.loop, name="robot-console-state", daemon=True)
         loop_thread.start()
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -885,6 +1406,20 @@ class RobotService:
         self.server_socket.listen(4)
         self.server_socket.settimeout(0.5)
         print(f"Robot console service listening on {self.bind}:{self.port}")
+        camera_port = int(os.environ.get("CCA_CAMERA_PORT", str(CAMERA_HTTP_PORT)))
+        try:
+            self.camera_http_server = ThreadingHTTPServer((self.bind, camera_port), CameraMjpegHandler)
+            self.camera_http_server.robot_service = self
+            threading.Thread(
+                target=self.camera_http_server.serve_forever,
+                name="robot-console-camera-http",
+                daemon=True,
+            ).start()
+            print(f"Camera WebRTC/H.264 signaling listening on {self.bind}:{camera_port}{WEBRTC_OFFER_PATH}")
+            print(f"Camera MJPEG fallback listening on {self.bind}:{camera_port}/mjpeg")
+        except OSError as error:
+            self.camera_http_server = None
+            print(f"Camera MJPEG stream unavailable: {error}")
 
         def request_shutdown(_signum: int, _frame: Any) -> None:
             # Let the main serving thread run close(), which disarms the robot
@@ -950,6 +1485,7 @@ class RobotService:
         self.disarm("service_shutdown")
         if self.scan_active:
             self.save_scan("service_shutdown")
+        self.stop_webrtc()
         if self.camera is not None:
             try:
                 self.camera.stop()
@@ -968,6 +1504,12 @@ class RobotService:
         if self.server_socket is not None:
             try:
                 self.server_socket.close()
+            except OSError:
+                pass
+        if self.camera_http_server is not None:
+            try:
+                self.camera_http_server.shutdown()
+                self.camera_http_server.server_close()
             except OSError:
                 pass
         for peer in tuple(self.peers):
@@ -1009,7 +1551,6 @@ class ConsoleApp:
         self.map_goal_xy: tuple[float, float] | None = None
         self.planned_path: list[tuple[float, float]] = []
         self.plan_status = "No A* plan"
-        self.follow_robot = tk.BooleanVar(value=True)
         self.map_view_text = tk.StringVar(value="LIVE MAP · MAP-FRAME ROBOT POSE")
         self.target_pose: tuple[float, float, float] | None = None
         self.target_map_pose: tuple[float, float, float] | None = None
@@ -1109,12 +1650,6 @@ class ConsoleApp:
         view_toolbar = ttk.Frame(views)
         view_toolbar.pack(fill="x", pady=(0, 5))
         ttk.Label(view_toolbar, textvariable=self.map_view_text, font=("Segoe UI", 10, "bold")).pack(side="left")
-        ttk.Checkbutton(
-            view_toolbar,
-            text="Follow robot",
-            variable=self.follow_robot,
-            command=self._reset_map_view,
-        ).pack(side="right")
         upper = ttk.Frame(views)
         upper.pack(fill="both", expand=True)
         map_frame = ttk.LabelFrame(upper, text="2D map / lidar / robot pose", padding=4)
@@ -1217,10 +1752,6 @@ class ConsoleApp:
     def clear_goal(self) -> None:
         self.map_goal_xy = None
         self.clear_plan()
-
-    def _reset_map_view(self) -> None:
-        self.map_view_initialized = False
-        self.view_bounds = None
 
     def _screen_to_world(self, x: float, y: float) -> tuple[float, float]:
         canvas_width = max(10, self.map_canvas.winfo_width())
@@ -1373,8 +1904,7 @@ class ConsoleApp:
         pose = self.target_map_pose or self.display_pose or self.target_pose or (0.0, 0.0, 0.0)
         odom_pose = self.target_pose or pose
         self.map_view_text.set(
-            f"{'SAVED MAP' if self.saved_map_view else 'LIVE MAP'} · "
-            f"MAP POSE ({'follow' if self.follow_robot.get() else 'fixed view'})"
+            f"{'SAVED MAP' if self.saved_map_view else 'LIVE MAP'} · MAP POSE (fixed map)"
         )
         map_payload = self.map_payload or {}
         map_metadata = map_payload.get("metadata") or {}
@@ -1438,8 +1968,6 @@ class ConsoleApp:
                     self.map_view_initialized = False
                 self.map_payload = incoming_map
             self._set_plan(message.get("plan"))
-        elif kind == "camera":
-            self._show_camera(message.get("jpeg"))
         elif kind == "hello":
             self.connection_text.set("Connected")
             # The GUI has no separate motion-enable control.  The service
@@ -1521,19 +2049,6 @@ class ConsoleApp:
         )
         self.plan_text.configure(text=self.plan_status)
 
-    def _show_camera(self, encoded: Any) -> None:
-        if not encoded:
-            return
-        try:
-            from PIL import Image, ImageTk
-
-            image = Image.open(io.BytesIO(base64.b64decode(encoded)))
-            image.thumbnail((560, 240))
-            self.camera_image = ImageTk.PhotoImage(image)
-            self.camera_label.configure(image=self.camera_image, text="")
-        except Exception as error:
-            self.camera_label.configure(text=f"Camera decode failed: {error}", image="")
-
     def _world_bounds(self) -> tuple[float, float, float, float]:
         def stable_bounds(bounds: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
             xmin, ymin, xmax, ymax = bounds
@@ -1552,16 +2067,10 @@ class ConsoleApp:
             )
 
         pose = self.target_map_pose or self.display_pose or self.target_pose or (0.0, 0.0, 0.0)
-        if self.follow_robot and pose is not None:
-            self.map_view_initialized = False
-            px, py = float(pose[0]), float(pose[1])
-            span = DISPLAY_VIEW_SPAN_M
-            return px - 0.5 * span, py - 0.5 * span, px + 0.5 * span, py + 0.5 * span
-
         if self.map_payload:
             width = int(self.map_payload.get("width", 1))
             height = int(self.map_payload.get("height", 1))
-            resolution = float(self.map_payload.get("resolution_m", 0.05))
+            resolution = float(self.map_payload.get("resolution_m", MAP_RESOLUTION_M))
             origin = self.map_payload.get("origin", [0.0, 0.0, 0.0])
             if width > 0 and height > 0 and math.isfinite(resolution) and resolution > 0.0 and len(origin) >= 2:
                 map_bounds = stable_bounds(
@@ -1622,7 +2131,7 @@ class ConsoleApp:
         canvas.create_line(*point(xmin, 0.0), *point(xmax, 0.0), fill="#263746", tags="grid")
         canvas.create_line(*point(0.0, ymin), *point(0.0, ymax), fill="#263746", tags="grid")
         if self.map_payload:
-            resolution = float(self.map_payload.get("resolution_m", 0.05))
+            resolution = float(self.map_payload.get("resolution_m", MAP_RESOLUTION_M))
             origin = self.map_payload.get("origin", [0.0, 0.0, 0.0])
             mw = int(self.map_payload.get("width", 0))
             mh = int(self.map_payload.get("height", 0))
@@ -1695,7 +2204,7 @@ class ConsoleApp:
 def self_test() -> None:
     from hardware import LidarPoint, LidarScan, N10PDecoder, N10P_PROTOCOL_PROFILE
     from app.backend.manual_map import OccupancyMap, Pose
-    from simulation.occupancy_astar import plan_occupancy_map
+    from runtime.map_planner import plan_occupancy_map
 
     direction_cases = {
         "forward": (0.2, 0.0, 0.0),
