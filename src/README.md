@@ -6,7 +6,7 @@ by the robot runtime.
 
 ## Runtime map
 
-- `ros2/`: ROS 2 packages for control, runtime, hardware and bringup.
+- `ros2/`: ROS 2 packages for control, runtime, hardware, bringup and startup.
 - `ai/`: perception and context interfaces used by the CCA layer.
 - `control/`: C++ controller, context scorer and STM serial transport.
 - `runtime/`: replayable Python contracts and the six-state Kalman reference.
@@ -36,10 +36,10 @@ Build from a ROS 2 Humble environment with:
 ```bash
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select \
-  cca_control cca_runtime cca_hardware cca_bringup \
+  cca_control cca_runtime cca_hardware cca_bringup turn_on_robot \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
-ros2 launch cca_bringup stack.launch.py
+ros2 launch turn_on_robot turn_on_robot.launch.py
 ```
 
 The STM bridge owns the serial port and sends zero velocity on shutdown or

@@ -1,8 +1,9 @@
 # ROS 2 runtime
 
-The `cca_control`, `cca_runtime`, `cca_hardware` and `cca_bringup` packages are
-the canonical runtime on the `ros2` branch. The controller equations remain in
-`src/control`; ROS 2 owns transport, timing, lifecycle and sensor integration.
+The `cca_control`, `cca_runtime`, `cca_hardware`, `cca_bringup` and
+`turn_on_robot` packages are the canonical runtime on the `ros2` branch. The
+controller equations remain in `src/control`; ROS 2 owns transport, timing,
+lifecycle and sensor integration.
 
 ## Runtime chain
 
@@ -59,13 +60,14 @@ bringup can be added later behind a separate arbitration layer.
 ```bash
 source /opt/ros/humble/setup.bash
 mkdir -p ~/cca_ws/src
-for package in cca_control cca_runtime cca_hardware cca_bringup; do
+for package in cca_control cca_runtime cca_hardware cca_bringup turn_on_robot; do
   ln -sfn "$PWD/src/ros2/$package" "$HOME/cca_ws/src/$package"
 done
-colcon build --symlink-install --packages-select cca_control cca_runtime cca_hardware cca_bringup \
+colcon build --symlink-install --packages-select \
+  cca_control cca_runtime cca_hardware cca_bringup turn_on_robot \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 source ~/cca_ws/install/setup.bash
-ros2 launch cca_bringup stack.launch.py
+ros2 launch turn_on_robot turn_on_robot.launch.py
 ```
 
 The STM port, controller period and frame names are in `config/params.yaml`.
@@ -77,6 +79,17 @@ drivers:
 ros2 launch cca_bringup stack.launch.py \
   use_lidar:=true use_camera:=true use_slam:=true
 ```
+
+For the normal robot startup, use the dedicated one-command package. It starts
+CA-NMPC hardware, N10P, Astra-S and SLAM with the correct defaults:
+
+```bash
+ros2 launch turn_on_robot turn_on_robot.launch.py
+```
+
+Pass `use_nav2:=true map:=/absolute/path/map.yaml` only when a saved map is
+available. The wrapper always enables both sensor drivers; their packages must
+be installed in the ROS 2 environment first.
 
 The map can be saved through SLAM Toolbox's `slam_toolbox/save_map` service.
 Do not enable Nav2 motion controllers in parallel with CA-NMPC.
