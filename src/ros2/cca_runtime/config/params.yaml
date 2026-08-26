@@ -1,0 +1,38 @@
+cca_reference_node:
+  ros__parameters:
+    horizon: 6
+    publish_rate_hz: 20.0
+    global_path_topic: /cca/global_path
+    local_reference_topic: /cca/local_reference
+    state_topic: /odometry/filtered
+    context_topic: /cca/context_score
+
+cca_nmpc_node:
+  ros__parameters:
+    controller_kind: cca_nmpc
+    period_s: 0.05
+    horizon: 6
+    deadline_ms: 40.0
+    robot_radius_m: 0.283
+    human_radius_m: 0.34
+    human_clearance_m: 0.623
+    state_timeout_s: 0.25
+    state_topic: /odometry/filtered
+    reference_topic: /cca/local_reference
+    context_topic: /cca/context_prediction
+    command_topic: /cmd_vel
+    predicted_topic: /cca/predicted_path
+    diagnostics_topic: /cca/controller_diagnostics
+
+cca_stm_bridge:
+  ros__parameters:
+    port: /dev/rai_controller
+    baudrate: 115200
+    timeout_ms: 20
+    publish_rate_hz: 50.0
+    command_timeout_s: 0.20
+    odom_frame: odom
+    base_frame: base_link
+    odom_topic: /odometry/raw
+    imu_topic: /imu/data
+    connected_topic: /hardware/connected

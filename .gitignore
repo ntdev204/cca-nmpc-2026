@@ -56,6 +56,9 @@ cmake-build-*/
 *.hex
 *.map
 *.dep
+/src/stm/OBJ/
+/src/stm/USER/RTE/
+**/*.uvguix.*
 
 # LaTeX output. The manuscript is authored and built only on Overleaf.
 *.tex

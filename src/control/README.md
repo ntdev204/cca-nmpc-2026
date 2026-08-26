@@ -6,9 +6,9 @@ uncalibrated or non-YOLO26s-pose snapshots before CCA-NMPC can consume them.
 
 The library owns the deterministic STM32 serial boundary and the position-state
 controller. Python owns YOLO26s-pose TensorRT `.engine` loading, LSTM
-inference/training, scenario orchestration and CSV/JSON packaging. The serial
-bridge reproduces the legacy 11-byte velocity command and 24-byte telemetry
-frame from `reference/robot/turn_on_rai_robot` without launching ROS or ROS 2.
+inference/training, scenario orchestration and CSV/JSON packaging. On the
+`ros2` branch, `src/ros2/cca_stm_bridge` uses this library as its only hardware
+path and publishes the resulting odometry and IMU messages.
 The CCA CAN CRC, body-velocity payload and status/wheel frame codec are also
 implemented in `can.hpp/.cpp`. The C ABI exposes that fixed-width codec to
 `shared.py`, so the direct Linux recorder uses the same C++ implementation
@@ -44,11 +44,9 @@ CCA-NMPC recorder remains the higher-level Python process; its current Python
 serial class is retained as a compatibility fallback until the target builds
 the C++ transport library.
 
-The `control_transport` shared library is selected automatically by
-`hardware.Stm32SerialSource` on the target platform. Set
-`CCA_STM_BACKEND=python` only for an explicit compatibility fallback.
-Its small C ABI is in `stm_c_api.h`, so the Python recorder does not duplicate
-the byte-level parser when the target library is present.
+The `control_transport` shared library remains available to replay tools. The
+ROS 2 bridge links `control_core` directly, so the byte-level parser is not
+duplicated in a ROS node.
 
 | Boundary | Preferred implementation | Reason |
 |---|---|---|
@@ -56,7 +54,8 @@ the byte-level parser when the target library is present.
 | CCA CAN CRC and frame codec | C++ through `shared.py` | fixed-width wire contract |
 | context score and snapshot gate | C++ core; context score through the C ABI | deterministic controller boundary |
 | Astra-S/OpenNI2 and N10P acquisition | Python | vendor SDK and packet integration |
-| LSTM, YOLO26s-pose and CCA-NMPC | Python | model/runtime orchestration |
+| LSTM, YOLO26s-pose and context publication | Python | model/runtime orchestration |
+| CA-NMPC command generation | C++ through `cca_nmpc_node` | bounded controller path |
 | calibration, manifests and analysis | Python | provenance and research artifacts |
 
 `build/` is generated and must remain ignored.
