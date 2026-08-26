@@ -37,7 +37,7 @@ metadata is retained only for provenance.
 
 ## Clean-reset layout
 
-- `src/`: active perception, simulation support, C++ control runtime, and embedded source.
+- `src/`: ROS 2 packages for the robot runtime and sensor dependencies.
 - `simulations/matlab/`: primary MATLAB and Simulink theory implementation.
 - `simulations/python/`: independent model-parity checks.
 - `reference/robot/`: read-only URDF/sensor/legacy-serial snapshot used for
@@ -59,33 +59,23 @@ No scientific entry is accepted yet. A dataset/model/experiment/artifact may be
 promoted only after its manifest, hashes, protocol, and decision link pass the
 corresponding schema. No legacy number or figure may be reused.
 
-## Direct no-ROS hardware entry
+## ROS 2 robot runtime
 
-The staged no-ROS hardware path starts with the C++ `stm_probe` executable in
-`src/control`, which owns the legacy STM32 serial contract from the
-`reference/robot` source snapshot
-bridge and records direct telemetry. The Python
-`scripts/python/tools/stm_experiment.py` path remains an explicit compatibility
-fallback. The full
-operator entrypoint is `scripts/python/tools/hardware_entry.py`; it reads the
-complete `rai_robot_urdf` package before capture, catalogues all package
-models, records the mini-Mecanum wheels/body and Astra-S/N10P sensor mounts by
-hash, and keeps the mesh-and-mount footprint as CAD reference metadata. A
-runtime config receives physical dimensions only from a separate measured
-`cca-physical-robot-v1` file. No ROS process is started.
-
-Build the C++ transport on Jetson/Raspberry Pi before commissioning:
+The active hardware entrypoint is the ROS 2 package `turn_on_robot`. It starts
+the CCA-NMPC runtime, STM bridge, LSLiDAR N10P, Astra-S and SLAM Toolbox:
 
 ```bash
-cmake -S src/control -B src/control/build -DCMAKE_BUILD_TYPE=Release
-cmake --build src/control/build -j2
-ctest --test-dir src/control/build --output-on-failure
+source /opt/ros/humble/setup.bash
+source ~/cca_ws/install/setup.bash
+ros2 launch turn_on_robot turn_on_robot.launch.py
 ```
 
-`hardware.Stm32SerialSource` automatically selects the resulting shared
-library on Linux. The same library supplies the fixed-width CCA CAN codec
-through `shared.py`; set `CCA_STM_BACKEND=python` or
-`CCA_CAN_BACKEND=python` only for an explicit compatibility fallback.
+The source tree contains only ROS 2 packages. The manufacturer's STM32 image
+remains on the robot and is not rebuilt here. Optional driver packages are
+kept under `src/depend/` and are built with the same ROS 2 workspace after
+their system and sensor-library dependencies are installed. CA-NMPC remains
+the sole motion-command authority; Nav2 is not allowed to publish competing
+`/cmd_vel` commands.
 
 ### Robot application
 

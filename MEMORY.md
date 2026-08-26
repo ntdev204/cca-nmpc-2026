@@ -476,3 +476,12 @@ manuscript and Overleaf project locked.
   only while the button reports `Motion ON`; disabling it sends zero velocity.
 - The backend and web build were restarted with the robot left disarmed after
   verification.
+
+### Flat ROS 2 source workspace — 2026-08-26
+
+- The active `src/` tree now contains only ROS 2 packages directly: `cca_control`,
+  `cca_runtime`, `cca_hardware`, `cca_bringup`, `turn_on_robot`, and `depend/`.
+- The former `src/ros2/` wrapper and non-ROS trees (`ai`, `runtime`, `control`,
+  `stm`, and Python hardware modules) were removed from the active branch.
+- The C++ controller and serial core used by ROS 2 was moved into
+  `src/cca_control`; the manufacturer's STM32 firmware remains on the robot.
