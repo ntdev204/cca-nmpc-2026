@@ -516,6 +516,11 @@ manuscript and Overleaf project locked.
   325 scans and 76,583 mapped points at 10 Hz without motion commands. During
   the scan, ten status requests averaged 24.7 ms (maximum 39.9 ms); the saved
   map retained all 101,120 occupancy cells.
+- With one active WebRTC client, a second stationary scan
+  (`console-map-20260828-124517`) kept velocity-zero requests at 36.8 ms on
+  average (160.6 ms maximum) and status requests below 170 ms. It was saved
+  with 291 scans and 66,586 mapped points; the final command was zero and
+  motion was disarmed.
 - The custom occupancy mapper is still odometry-based and is not a validated
   room-scale SLAM result. A moving hardware run with calibrated odometry or
   the ROS 2 `slam_toolbox` pipeline remains required before claiming a complete
