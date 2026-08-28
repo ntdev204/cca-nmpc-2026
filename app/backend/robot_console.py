@@ -17,6 +17,7 @@ import time
 import zlib
 from collections import deque
 from dataclasses import dataclass, field
+from fractions import Fraction
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,8 @@ CAMERA_CAPTURE_PERIOD_S = 0.20
 CAMERA_STREAM_MAX_SIZE = (640, 480)
 CAMERA_STREAM_JPEG_QUALITY = 10
 CAMERA_CAPTURE_JPEG_QUALITY = 90
+WEBRTC_IDLE_FPS = 30.0
+WEBRTC_SCAN_FPS = 12.0
 WEBRTC_OFFER_PATH = "/webrtc/offer"
 STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
 COMPRESS_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
@@ -361,9 +364,17 @@ class CameraVideoTrack(VideoStreamTrack):
         super().__init__()
         self.service = service
         self.last_capture_t_ns = 0
+        self.next_pts = 0
+        self.next_frame_mono = 0.0
 
     async def recv(self) -> Any:
-        pts, time_base = await self.next_timestamp()
+        with self.service.state_lock:
+            fps = WEBRTC_SCAN_FPS if self.service.scan_active else WEBRTC_IDLE_FPS
+        period_s = 1.0 / fps
+        delay_s = self.next_frame_mono - time.monotonic()
+        if delay_s > 0.0:
+            await asyncio.sleep(delay_s)
+        self.next_frame_mono = max(self.next_frame_mono + period_s, time.monotonic() + period_s)
         sample = await asyncio.to_thread(
             self.service.wait_camera_frame,
             self.last_capture_t_ns,
@@ -375,8 +386,9 @@ class CameraVideoTrack(VideoStreamTrack):
         capture_t_ns, color_bgr = sample
         self.last_capture_t_ns = capture_t_ns
         frame = VideoFrame.from_ndarray(color_bgr, format="bgr24")
-        frame.pts = pts
-        frame.time_base = time_base
+        frame.pts = self.next_pts
+        frame.time_base = Fraction(1, 90000)
+        self.next_pts += int(round(90000.0 * period_s))
         return frame
 
 
