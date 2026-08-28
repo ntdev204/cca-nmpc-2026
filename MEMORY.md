@@ -497,3 +497,26 @@ manuscript and Overleaf project locked.
   six UI files at `600865a`.
 - Web lint, TypeScript, and production build pass. Jetson Python syntax and
   C++ control tests pass; the robot was not commanded during synchronization.
+
+### Map transport and scan-lag correction — 2026-08-28
+
+- The live map message now uses lossless `rle-v1` occupancy encoding and keeps
+  only short history slices on the wire. Saved `map.json` and `map_raw.json`
+  remain full-resolution occupancy arrays; the browser decodes RLE before
+  drawing the canvas.
+- Map history in the laptop bridge stores metadata summaries rather than full
+  occupancy grids. This prevents old 25 mm maps from accumulating in Node.js
+  memory and blocking control responses.
+- The map viewport expands by world-coordinate union as a scan grows, so the
+  fixed map frame remains fixed while newly explored cells are not clipped.
+- Local commit `a55da12` and Jetson commit `247ffc8` contain the transport and
+  viewport fix. Web lint, TypeScript, production build, Python syntax, and an
+  RLE round-trip check pass.
+- A stationary Jetson validation run (`console-map-20260828-123648`) recorded
+  325 scans and 76,583 mapped points at 10 Hz without motion commands. During
+  the scan, ten status requests averaged 24.7 ms (maximum 39.9 ms); the saved
+  map retained all 101,120 occupancy cells.
+- The custom occupancy mapper is still odometry-based and is not a validated
+  room-scale SLAM result. A moving hardware run with calibrated odometry or
+  the ROS 2 `slam_toolbox` pipeline remains required before claiming a complete
+  map; no moving test was issued in this correction.
