@@ -485,3 +485,15 @@ manuscript and Overleaf project locked.
   `stm`, and Python hardware modules) were removed from the active branch.
 - The C++ controller and serial core used by ROS 2 was moved into
   `src/cca_control`; the manufacturer's STM32 firmware remains on the robot.
+
+### shadcn navigation primitives and synchronized branches — 2026-08-28
+
+- The web dashboard keeps the sidebar layout and now uses the generated shadcn
+  `Pagination` and `Select` primitives; no native `<select>` remains in the
+  control, history, or map-capture panels.
+- Local `ros2` is synchronized at `6faff34`; the clean Jetson ROS 2 worktree
+  `/home/rai/cca-nmpc-ros2` is at the same commit. Jetson runtime changes are
+  committed on `codex/repository-bootstrap` at `4c1eb49`, followed by the same
+  six UI files at `600865a`.
+- Web lint, TypeScript, and production build pass. Jetson Python syntax and
+  C++ control tests pass; the robot was not commanded during synchronization.
