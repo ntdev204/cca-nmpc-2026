@@ -214,6 +214,17 @@ class Pose:
     last_yaw_rate_radps: float = 0.0
     last_yaw_rate_source: str = "body_velocity"
 
+    def _integrate(self, vx_mps: float, vy_mps: float, yaw_rate: float, dt: float) -> None:
+        half_yaw = self.yaw_rad + 0.5 * yaw_rate * dt
+        cosine = math.cos(half_yaw)
+        sine = math.sin(half_yaw)
+        self.x_m += (cosine * vx_mps - sine * vy_mps) * dt
+        self.y_m += (sine * vx_mps + cosine * vy_mps) * dt
+        self.yaw_rad = math.atan2(
+            math.sin(self.yaw_rad + yaw_rate * dt),
+            math.cos(self.yaw_rad + yaw_rate * dt),
+        )
+
     def update(self, telemetry: Stm32Telemetry | None) -> None:
         if telemetry is None:
             return
@@ -228,15 +239,18 @@ class Pose:
         dt = min((telemetry.t_ns - self.last_t_ns) / 1e9, 0.25)
         self.last_t_ns = telemetry.t_ns
         self.last_dt_s = dt
-        half_yaw = self.yaw_rad + 0.5 * yaw_rate * dt
-        cosine = math.cos(half_yaw)
-        sine = math.sin(half_yaw)
-        self.x_m += (cosine * telemetry.vx_mps - sine * telemetry.vy_mps) * dt
-        self.y_m += (sine * telemetry.vx_mps + cosine * telemetry.vy_mps) * dt
-        self.yaw_rad = math.atan2(
-            math.sin(self.yaw_rad + yaw_rate * dt),
-            math.cos(self.yaw_rad + yaw_rate * dt),
-        )
+        self._integrate(telemetry.vx_mps, telemetry.vy_mps, yaw_rate, dt)
+
+    def project_to(self, target_t_ns: int, telemetry: Stm32Telemetry | None) -> None:
+        if telemetry is None or self.last_t_ns is None or target_t_ns <= self.last_t_ns:
+            return
+        dt = min((target_t_ns - self.last_t_ns) / 1e9, 0.25)
+        yaw_rate, source = pose_yaw_rate(telemetry)
+        self.last_yaw_rate_radps = yaw_rate
+        self.last_yaw_rate_source = source
+        self._integrate(telemetry.vx_mps, telemetry.vy_mps, yaw_rate, dt)
+        self.last_t_ns = target_t_ns
+        self.last_dt_s = dt
 
     def as_tuple(self) -> tuple[float, float, float]:
         return self.x_m, self.y_m, self.yaw_rad
