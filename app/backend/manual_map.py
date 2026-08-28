@@ -622,6 +622,9 @@ class OccupancyMap:
             },
         )
 
+    def wire_payload(self) -> dict[str, Any]:
+        return compact_map_payload(self.payload())
+
     def save(self, root: Path) -> dict[str, Any]:
         payload = self.payload()
         raw_payload = self.raw_payload()
@@ -648,6 +651,39 @@ class OccupancyMap:
         )
         (root / "map.yaml").write_text(yaml_text, encoding="utf-8")
         return {"width": width, "height": height, "min_cell": [min_x, min_y], "scans": self.scans, "points": self.points}
+
+
+def compact_map_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep saved maps lossless while reducing live map messages."""
+
+    compact = dict(payload)
+    occupancy = compact.pop("occupancy", None)
+    if isinstance(occupancy, list):
+        runs: list[list[int]] = []
+        for value in occupancy:
+            code = int(value)
+            if runs and runs[-1][0] == code:
+                runs[-1][1] += 1
+            else:
+                runs.append([code, 1])
+        compact["occupancy_encoding"] = "rle-v1"
+        compact["occupancy_length"] = len(occupancy)
+        compact["occupancy_rle"] = runs
+    metadata = compact.get("metadata")
+    if isinstance(metadata, dict):
+        metadata = dict(metadata)
+        history = metadata.get("history")
+        if isinstance(history, dict):
+            history = dict(history)
+            records = history.get("records")
+            trajectory = history.get("trajectory")
+            if isinstance(records, list):
+                history["records"] = records[-24:]
+            if isinstance(trajectory, list):
+                history["trajectory"] = trajectory[-1000:]
+            metadata["history"] = history
+        compact["metadata"] = metadata
+    return compact
 
 
 class Keyboard:

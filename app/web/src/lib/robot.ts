@@ -121,7 +121,7 @@ class RobotBridge {
 
   private appendHistory(type: string, message: RobotMessage): void {
     const history = this.historyByType.get(type) ?? [];
-    history.push(message);
+    history.push(type === "map" ? mapHistoryRecord(message) : message);
     if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
     this.historyByType.set(type, history);
   }
@@ -185,6 +185,23 @@ class RobotBridge {
     this.socket.write(encodeCommand(payload));
     return this.messages();
   }
+}
+
+function mapHistoryRecord(message: RobotMessage): RobotMessage {
+  const map = message.map as RobotMessage | undefined;
+  const metadata = map?.metadata as RobotMessage | undefined;
+  return {
+    type: "map",
+    t_ns: message.t_ns,
+    map: {
+      width: map?.width ?? 0,
+      height: map?.height ?? 0,
+      metadata: {
+        scans: metadata?.scans ?? 0,
+        points: metadata?.points ?? 0,
+      },
+    },
+  };
 }
 
 type RobotGlobal = typeof globalThis & { __mecanumRobotBridge?: RobotBridge };

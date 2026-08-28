@@ -1149,7 +1149,12 @@ class RobotService:
             self.last_saved_root = map_path.parent
             self.saved_maps_cache_mono = 0.0
             self.last_broadcast_map_signature = ""
-        self.broadcast({"type": "map", "t_ns": now_ns(), "map": payload, "plan": plan})
+        try:
+            from app.backend.manual_map import compact_map_payload
+        except ModuleNotFoundError:
+            from manual_map import compact_map_payload
+
+        self.broadcast({"type": "map", "t_ns": now_ns(), "map": compact_map_payload(payload), "plan": plan})
         self.broadcast(
             {
                 "type": "event",
@@ -1536,7 +1541,7 @@ class RobotService:
             signature = f"{mapper.scans}:{mapper.points}:{json.dumps(plan_payload, sort_keys=True, separators=(',', ':'))}"
             if signature == previous_signature:
                 return None
-            payload = mapper.payload()
+            payload = mapper.wire_payload()
         with self.state_lock:
             self.last_broadcast_map_signature = signature
             return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
