@@ -543,3 +543,19 @@ manuscript and Overleaf project locked.
 - The map is not yet certified as complete for moving operation: scan matching
   is local and bounded, without loop closure. A controlled moving run or the
   ROS 2 `slam_toolbox` path is still needed for room-scale map validation.
+
+### Remove live LiDAR overlay and guard map turns — 2026-08-28
+
+- The standalone Live LiDAR card, transient laser rays, and browser-side raw
+  LiDAR stream were removed. LiDAR remains active inside the Jetson mapper and
+  is still written to each run's `lidar.csv`.
+- Runtime mapping now uses the measured odometry frame (`LIVE_SCAN_MATCHING`
+  is false). The offline bounded matcher keeps stricter inlier/gain gates,
+  rejects high-yaw-rate scans, and limits accepted yaw corrections to 3 degrees.
+- The map canvas uses the saved map footprint metadata and displays only the
+  fixed occupancy grid, robot pose, trace, and planned path.
+- Local `ros2` commit `8582c0f` is pushed to `origin/ros2`; the active Jetson
+  runtime contains the cherry-pick `cdc0fa9`. Web lint, TypeScript, production
+  build, Python syntax, and both Jetson self-tests pass.
+- After restart, an emergency stop left the robot at `armed=false` with command
+  `0,0,0`; no scan or motion command was issued during this fix.
