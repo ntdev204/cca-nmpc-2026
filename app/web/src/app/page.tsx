@@ -154,7 +154,19 @@ function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; v
   const originX = asNumber(origin[0]);
   const originY = asNumber(origin[1]);
   const rawOccupancy = data?.occupancy;
-  const occupancy = Array.isArray(rawOccupancy) ? rawOccupancy as number[] : undefined;
+  const rawRle = data?.occupancy_rle;
+  const occupancy = useMemo(() => {
+    if (Array.isArray(rawOccupancy)) return rawOccupancy as number[];
+    if (!Array.isArray(rawRle)) return undefined;
+    const decoded: number[] = [];
+    for (const run of rawRle) {
+      if (!Array.isArray(run) || run.length < 2) continue;
+      const value = asNumber(run[0], -1);
+      const count = Math.max(0, Math.floor(asNumber(run[1], 0)));
+      for (let index = 0; index < count; index += 1) decoded.push(value);
+    }
+    return decoded;
+  }, [rawOccupancy, rawRle]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -246,7 +258,11 @@ function MapView({
     if (scanCount <= 0) return;
     setFixedViewport((current) => {
       if (current === null || scanCount < previousScans.current) return mapBounds;
-      return current;
+      const minX = Math.min(current.x, mapBounds.x);
+      const minY = Math.min(current.y, mapBounds.y);
+      const maxX = Math.max(current.x + current.width, mapBounds.x + mapBounds.width);
+      const maxY = Math.max(current.y + current.height, mapBounds.y + mapBounds.height);
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     });
     previousScans.current = scanCount;
   }, [mapBounds, mapKey, scanCount]);
