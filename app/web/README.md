@@ -53,19 +53,22 @@ JSON, Base64, or the Next.js polling path. The negotiated camera frame is
 640x480; status metadata carries only timing and transport state. The old raw
 MJPEG endpoint remains at `/mjpeg` as a diagnostic fallback during deployment.
 
-## Operator pages
+## Sidebar views
 
-The navigation bar exposes five connected pages without opening a second robot
-client:
+The root dashboard is a single operator surface. The desktop sidebar (and the
+compact mobile navigation) switches views in place without opening separate
+robot clients or pages:
 
-- `/` — overview with the fixed map, camera, LiDAR, controls, map capture and
-  live history summary.
-- `/monitor` — fixed map, robot pose, trajectory, planned path, LiDAR overlay,
+- `Overview` — fixed map, camera, LiDAR, controls, map capture and history.
+- `Monitor` — fixed map, robot pose, trajectory, planned path, LiDAR overlay,
   polar returns and camera.
-- `/control` — continuous keyboard/button motion, zero velocity, stop and
+- `Control` — continuous keyboard/button motion, zero velocity, stop and
   emergency stop, plus map-frame A* planning.
-- `/mapping` — scan start/stop/save, saved-map selection and map loading.
-- `/telemetry` — paginated state, LiDAR, map-update and event histories.
+- `Mapping & data` — scan start/stop/save, saved-map selection and map loading.
+- `Telemetry` — paginated state, LiDAR, map-update and event histories.
+
+The optional `?view=monitor|control|mapping|telemetry` query is retained for
+bookmarks; it still renders inside the same root dashboard.
 
 The history route is `/api/history?kind=state|lidar|map|event&page=1&pageSize=12`.
 It keeps only a bounded in-memory window in the server bridge. Full-resolution
