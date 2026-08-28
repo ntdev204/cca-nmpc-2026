@@ -326,6 +326,7 @@ class OccupancyMap:
         min_range_m: float,
         max_range_m: float,
         padding_cells: int,
+        robot_radius_m: float = math.sqrt(0.2**2 + 0.2**2),
         scan_matching: bool = True,
         map_id: str = "",
     ) -> None:
@@ -335,6 +336,8 @@ class OccupancyMap:
             raise ValueError("map range limits are invalid")
         if padding_cells < 0:
             raise ValueError("map padding must be nonnegative")
+        if not math.isfinite(robot_radius_m) or robot_radius_m <= 0.0:
+            raise ValueError("robot radius must be positive and finite")
         self.resolution_m = float(resolution_m)
         self.lidar_x_m = float(lidar_x_m)
         self.lidar_y_m = float(lidar_y_m)
@@ -342,6 +345,7 @@ class OccupancyMap:
         self.min_range_m = float(min_range_m)
         self.max_range_m = float(max_range_m)
         self.padding_cells = int(padding_cells)
+        self.robot_radius_m = float(robot_radius_m)
         self.scan_matching_enabled = bool(scan_matching)
         self.map_id = str(map_id)
         self.free: set[tuple[int, int]] = set()
@@ -485,14 +489,22 @@ class OccupancyMap:
         self.scans += 1
         for point in self._valid_points(scan, MAX_MAP_POINTS):
             distance = finite(point.range_m)
-            if distance is None:
+            if distance is None or distance >= self.max_range_m:
                 continue
-            limited = min(distance, self.max_range_m)
             angle = pose.yaw_rad + self.lidar_yaw_rad + point.angle_rad
-            end_x = sensor_x + limited * math.cos(angle)
-            end_y = sensor_y + limited * math.sin(angle)
+            local_angle = self.lidar_yaw_rad + point.angle_rad
+            local_x = self.lidar_x_m + distance * math.cos(local_angle)
+            local_y = self.lidar_y_m + distance * math.sin(local_angle)
+            if math.hypot(local_x, local_y) <= self.robot_radius_m + self.resolution_m:
+                continue
+            end_x = sensor_x + distance * math.cos(angle)
+            end_y = sensor_y + distance * math.sin(angle)
             ray = bresenham(start_cell, self.cell(end_x, end_y))
             for cell in ray[:-1]:
+                cell_x = (cell[0] + 0.5) * self.resolution_m
+                cell_y = (cell[1] + 0.5) * self.resolution_m
+                if math.hypot(cell_x - pose.x_m, cell_y - pose.y_m) <= self.robot_radius_m:
+                    continue
                 self._apply_evidence(cell, self.FREE_EVIDENCE)
             if distance < self.max_range_m:
                 self._apply_evidence(ray[-1], self.OCCUPIED_EVIDENCE)
@@ -554,6 +566,8 @@ class OccupancyMap:
                 "points": self.points,
                 "row_order": "y_increasing_from_origin",
                 "lidar_mount_m": [self.lidar_x_m, self.lidar_y_m],
+                "robot_radius_m": self.robot_radius_m,
+                "no_return_policy": "skip_ranges_at_or_above_max_range",
                 "lidar_yaw_rad": self.lidar_yaw_rad,
                 "scan_matching": {
                     "enabled": self.scan_matching_enabled,
