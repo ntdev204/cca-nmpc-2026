@@ -37,7 +37,9 @@ SENSOR_PERIOD_S = 0.05
 MAP_PERIOD_S = 1.0
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
-LIVE_SCAN_MATCHING = True
+# Runtime mapping uses the measured odometry frame.  The bounded matcher is
+# retained for offline checks but is not reliable during an in-place turn.
+LIVE_SCAN_MATCHING = False
 SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
@@ -1512,7 +1514,9 @@ class RobotService:
                 self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
             except queue.Full:
                 pass
-        return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
+        # LiDAR remains an internal mapping input and is written to lidar.csv.
+        # Do not stream the high-rate raw cloud to the browser.
+        return None
 
     def _map_fusion_loop(self) -> None:
         while not self.stop_event.is_set() or not self.map_fusion_queue.empty():

@@ -307,7 +307,11 @@ class OccupancyMap:
     SCAN_MATCH_TRANSLATION_STEP_M = 0.05
     SCAN_MATCH_YAW_WINDOW_RAD = math.radians(6.0)
     SCAN_MATCH_YAW_STEP_RAD = math.radians(2.0)
-    SCAN_MATCH_MIN_INLIER_RATIO = 0.20
+    SCAN_MATCH_MIN_INLIER_RATIO = 0.40
+    SCAN_MATCH_MIN_GAIN_RATIO = 0.08
+    SCAN_MATCH_MIN_GAIN_CELLS = 4
+    SCAN_MATCH_MAX_YAW_RATE_RADPS = 0.25
+    SCAN_MATCH_MAX_CORRECTION_YAW_RAD = math.radians(3.0)
     LOG_ODDS_MIN = -4.0
     LOG_ODDS_MAX = 4.0
     FREE_THRESHOLD = -0.7
@@ -435,6 +439,8 @@ class OccupancyMap:
         base = pose.as_tuple()
         if not self.scan_matching_enabled:
             return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "disabled"), base
+        if abs(float(getattr(pose, "last_yaw_rate_radps", 0.0))) > self.SCAN_MATCH_MAX_YAW_RATE_RADPS:
+            return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "motion_distortion_guard"), base
         if len(self.occupied) < self.SCAN_MATCH_MIN_OCCUPIED_CELLS:
             return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "insufficient_map"), base
         points = self._scan_match_points(scan)
@@ -443,7 +449,8 @@ class OccupancyMap:
 
         self.scan_match_attempts += 1
         best = base
-        best_inliers = self._scan_match_inliers(points, base)
+        base_inliers = self._scan_match_inliers(points, base)
+        best_inliers = base_inliers
         best_distance = 0.0
         translation_steps = round(self.SCAN_MATCH_TRANSLATION_WINDOW_M / self.SCAN_MATCH_TRANSLATION_STEP_M)
         yaw_steps = round(self.SCAN_MATCH_YAW_WINDOW_RAD / self.SCAN_MATCH_YAW_STEP_RAD)
@@ -468,11 +475,25 @@ class OccupancyMap:
                 ScanMatchResult(False, score, best_inliers, len(points), 0.0, 0.0, "low_inlier_ratio"),
                 base,
             )
+        minimum_gain = max(
+            self.SCAN_MATCH_MIN_GAIN_CELLS,
+            math.ceil(self.SCAN_MATCH_MIN_GAIN_RATIO * len(points)),
+        )
+        if best_inliers - base_inliers < minimum_gain:
+            return (
+                ScanMatchResult(False, score, best_inliers, len(points), 0.0, 0.0, "low_score_gain"),
+                base,
+            )
         correction_m = math.hypot(best[0] - base[0], best[1] - base[1])
         correction_yaw = math.atan2(
             math.sin(best[2] - base[2]),
             math.cos(best[2] - base[2]),
         )
+        if abs(correction_yaw) > self.SCAN_MATCH_MAX_CORRECTION_YAW_RAD:
+            return (
+                ScanMatchResult(False, score, best_inliers, len(points), 0.0, 0.0, "correction_yaw_limit"),
+                base,
+            )
         return (
             ScanMatchResult(True, score, best_inliers, len(points), correction_m, correction_yaw, "accepted"),
             best,
@@ -531,6 +552,7 @@ class OccupancyMap:
                     "score": round(self.last_scan_match.score, 6),
                     "correction_m": round(self.last_scan_match.correction_m, 6),
                     "correction_yaw_rad": round(self.last_scan_match.correction_yaw_rad, 6),
+                    "reason": self.last_scan_match.reason,
                 },
             }
         )

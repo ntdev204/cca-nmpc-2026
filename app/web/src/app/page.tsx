@@ -2,7 +2,6 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import {
   Activity,
   BatteryMedium,
@@ -12,7 +11,6 @@ import {
   LayoutDashboard,
   MapPinned,
   Radar,
-  ScanLine,
   ShieldCheck,
   ShieldOff,
   Wifi,
@@ -21,7 +19,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { MapCapturePanel, type SavedMap } from "@/components/map-capture-panel";
 import { ControlPanel } from "@/components/control-panel";
 import { HistoryPanel } from "@/components/history-panel";
@@ -29,7 +26,6 @@ import { HistoryPanel } from "@/components/history-panel";
 type Snapshot = {
   backend?: string;
   state?: Record<string, unknown>;
-  lidar?: Record<string, unknown>;
   map?: Record<string, unknown>;
   events?: Record<string, unknown>[];
   error?: string;
@@ -37,14 +33,6 @@ type Snapshot = {
 
 type Pose = { x: number; y: number; yaw: number };
 type Point = [number, number];
-type TfFrame = {
-  parent?: string;
-  child?: string;
-  translation_m?: number[];
-  yaw_rad?: number;
-  pitch_rad?: number;
-};
-type TfPayload = { fixed_frame?: string; frames?: TfFrame[]; footprint?: Record<string, unknown> };
 type MapPlan = { path_xy?: number[][] };
 type MapViewport = { x: number; y: number; width: number; height: number };
 type DashboardView = "overview" | "monitor" | "control" | "mapping" | "telemetry";
@@ -85,15 +73,6 @@ function poseFrom(snapshot: Snapshot): Pose {
   return { x: asNumber(pose[0]), y: asNumber(pose[1]), yaw: asNumber(pose[2]) };
 }
 
-function frameFrom(tf: TfPayload | undefined, child: string): TfFrame {
-  const frame = (tf?.frames ?? []).find((item) => item?.child === child);
-  return frame ?? {};
-}
-
-function translationFrom(frame: TfFrame): Point {
-  return [asNumber(frame.translation_m?.[0]), asNumber(frame.translation_m?.[1])];
-}
-
 function worldToSvg(x: number, y: number): Point {
   return [x, -y];
 }
@@ -113,36 +92,6 @@ function formatAge(timestampNs: unknown): string {
   const ageMs = Math.max(0, Date.now() - timestamp / 1e6);
   if (ageMs < 1000) return `${Math.round(ageMs)} ms ago`;
   return `${(ageMs / 1000).toFixed(1)} s ago`;
-}
-
-function LidarView({ points }: { points: number[][] }) {
-  const size = 330;
-  const center = size / 2;
-  const scale = 34;
-  const rings = [1, 2, 3, 4, 5, 6];
-  return (
-    <div className="relative mx-auto aspect-square max-h-[210px] max-w-[210px] w-full overflow-hidden rounded-lg border bg-slate-950 p-2">
-      <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full" role="img" aria-label="Live N10P LiDAR polar view">
-        <g stroke="#1e3a5f" fill="none" strokeWidth="0.8">
-          {rings.map((ring) => <circle key={ring} cx={center} cy={center} r={ring * scale} />)}
-          <path d={`M ${center} 8 V ${size - 8} M 8 ${center} H ${size - 8}`} />
-        </g>
-        <g fill="#22c55e">
-          {points.map((point, index) => {
-            const angle = asNumber(point?.[0], Number.NaN);
-            const distance = asNumber(point?.[1], Number.NaN);
-            if (!Number.isFinite(angle) || !Number.isFinite(distance) || distance <= 0) return null;
-            const radius = Math.min(6 * scale, distance * scale);
-            return <circle key={index} cx={center + radius * Math.cos(angle)} cy={center - radius * Math.sin(angle)} r="1.7" opacity="0.85" />;
-          })}
-        </g>
-        <circle cx={center} cy={center} r="5" fill="#38bdf8" stroke="#e0f2fe" strokeWidth="1" />
-        <line x1={center} y1={center} x2={center + 24} y2={center} stroke="#f8fafc" strokeWidth="2" />
-      </svg>
-      <div className="pointer-events-none absolute left-3 top-3 rounded bg-slate-900/75 px-2 py-1 text-[11px] text-slate-100">N10P · 0–6 m</div>
-      <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-slate-900/75 px-2 py-1 text-[11px] text-slate-300">green: returns · blue: robot</div>
-    </div>
-  );
 }
 
 function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; viewport: MapViewport }) {
@@ -206,23 +155,17 @@ function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; v
 function MapView({
   data,
   pose,
-  lidar,
-  tf,
   trace,
   history,
   plan,
-  showLaser,
   showTrace,
   showPath,
 }: {
   data?: Record<string, unknown>;
   pose: Pose;
-  lidar: number[][];
-  tf?: TfPayload;
   trace: Point[];
   history: Point[];
   plan?: MapPlan;
-  showLaser: boolean;
   showTrace: boolean;
   showPath: boolean;
 }) {
@@ -268,38 +211,15 @@ function MapView({
   }, [mapBounds, mapKey, scanCount]);
   const viewport = fixedViewport ?? mapBounds;
   const viewBox = `${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`;
-  const radius = Math.max(0.05, asNumber(tf?.footprint?.circumscribed_radius_m, 0.2828427));
-  const laserFrame = frameFrom(tf, "laser");
-  const [laserX, laserY] = translationFrom(laserFrame);
-  const laserWorldX = pose.x + Math.cos(pose.yaw) * laserX - Math.sin(pose.yaw) * laserY;
-  const laserWorldY = pose.y + Math.sin(pose.yaw) * laserX + Math.cos(pose.yaw) * laserY;
+  const mapMetadata = data?.metadata as Record<string, unknown> | undefined;
+  const radius = Math.max(0.05, asNumber(mapMetadata?.robot_radius_m, 0.2828427));
   const robotSvg = worldToSvg(pose.x, pose.y);
-  const laserRays: ReactNode[] = [];
-  if (showLaser) {
-    lidar.forEach((raw, index) => {
-      const angle = asNumber(raw?.[0], Number.NaN);
-      const distance = asNumber(raw?.[1], Number.NaN);
-      if (!Number.isFinite(angle) || !Number.isFinite(distance) || distance <= 0) return;
-      const globalAngle = pose.yaw + asNumber(laserFrame.yaw_rad) + angle;
-      const [startX, startY] = worldToSvg(
-        pose.x + radius * Math.cos(globalAngle),
-        pose.y + radius * Math.sin(globalAngle),
-      );
-      const [endX, endY] = worldToSvg(
-        laserWorldX + distance * Math.cos(globalAngle),
-        laserWorldY + distance * Math.sin(globalAngle),
-      );
-      laserRays.push(<line key={`ray-${index}`} x1={startX} y1={startY} x2={endX} y2={endY} stroke="#16a34a" strokeWidth="0.012" opacity="0.7" />);
-      laserRays.push(<circle key={`hit-${index}`} cx={endX} cy={endY} r="0.018" fill="#15803d" opacity="0.85" />);
-    });
-  }
-
   const tracePoints = (history.length > 1 ? history : trace).map(([x, y]) => worldToSvg(x, y).join(",")).join(" ");
   const planPoints = (plan?.path_xy ?? []).map((point) => worldToSvg(asNumber(point?.[0]), asNumber(point?.[1])).join(",")).join(" ");
   return (
     <div className="relative h-[520px] w-full overflow-hidden bg-slate-50">
       <OccupancyCanvas data={data} viewport={viewport} />
-      <svg className="absolute inset-0 h-full w-full" viewBox={viewBox} role="img" aria-label="Fixed 2D map with robot footprint and LiDAR" shapeRendering="geometricPrecision">
+      <svg className="absolute inset-0 h-full w-full" viewBox={viewBox} role="img" aria-label="Fixed 2D occupancy map with robot footprint" shapeRendering="geometricPrecision">
         <defs>
           <pattern id="map-grid" width="0.5" height="0.5" patternUnits="userSpaceOnUse">
             <path d="M 0.5 0 L 0 0 0 0.5" fill="none" stroke="#cbd5e1" strokeWidth="0.012" />
@@ -308,21 +228,16 @@ function MapView({
         <rect x={viewport.x} y={viewport.y} width={viewport.width} height={viewport.height} fill="url(#map-grid)" />
         {showTrace && tracePoints && <polyline points={tracePoints} fill="none" stroke="#7c3aed" strokeWidth="0.028" opacity="0.75" />}
         {showPath && planPoints && <polyline points={planPoints} fill="none" stroke="#ea580c" strokeWidth="0.04" strokeDasharray="0.12 0.06" />}
-        <g className="laser-layer">
-          {laserRays}
-          {showLaser && <circle cx={worldToSvg(laserWorldX, laserWorldY)[0]} cy={worldToSvg(laserWorldX, laserWorldY)[1]} r="0.06" fill="none" stroke="#16a34a" strokeWidth="0.018" />}
-        </g>
         <circle cx={robotSvg[0]} cy={robotSvg[1]} r={radius} fill="none" stroke="#0f172a" strokeWidth="0.025" strokeDasharray="0.08 0.05" />
         <rect x={pose.x - 0.2} y={-pose.y - 0.2} width="0.4" height="0.4" rx="0.035" fill="#2563eb" stroke="#0f172a" strokeWidth="0.025" transform={`rotate(${-pose.yaw * 180 / Math.PI} ${pose.x} ${-pose.y})`} />
         <line x1={robotSvg[0]} y1={robotSvg[1]} x2={robotSvg[0] + 0.32 * Math.cos(pose.yaw)} y2={robotSvg[1] - 0.32 * Math.sin(pose.yaw)} stroke="#ffffff" strokeWidth="0.035" />
       </svg>
       <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-1.5 text-[11px]">
-        <span className="rounded bg-white/90 px-2 py-1 text-slate-700 shadow">laser rays start at circumscribed footprint</span>
+        <span className="rounded bg-white/90 px-2 py-1 text-slate-700 shadow">fixed map frame · robot pose</span>
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-2 rounded-md bg-white/90 px-2 py-1.5 text-[11px] shadow">
         <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-cyan-700" />occupied</span>
         <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-sky-200" />free</span>
-        <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-green-600" />laser</span>
         <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-orange-500" />planned path</span>
       </div>
     </div>
@@ -332,7 +247,6 @@ function MapView({
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot>({ backend: "connecting" });
   const [view, setView] = useState<DashboardView>("overview");
-  const [showLaser, setShowLaser] = useState(false);
   const [showTrace, setShowTrace] = useState(true);
   const [showPath, setShowPath] = useState(true);
   const [trace, setTrace] = useState<Point[]>([]);
@@ -365,7 +279,6 @@ export default function Home() {
     ...previous,
     ...next,
     state: next.state ?? previous.state,
-    lidar: next.lidar ?? previous.lidar,
     map: next.map ?? previous.map,
     events: next.events ?? previous.events,
     error: next.error,
@@ -414,10 +327,8 @@ export default function Home() {
   const armed = status.armed === true || status.armed === "true";
   const telemetry = (state.telemetry as Record<string, unknown> | undefined) ?? {};
   const poseDiagnostics = (state.pose_diagnostics as Record<string, unknown> | undefined) ?? {};
-  const tf = (state.tf as TfPayload | undefined);
   const mapData = snapshot.map?.map as Record<string, unknown> | undefined;
   const plan = snapshot.map?.plan as MapPlan | undefined;
-  const lidar = useMemo(() => (Array.isArray(snapshot.lidar?.points) ? snapshot.lidar.points as number[][] : []), [snapshot.lidar]);
   const mapHistory = useMemo(() => {
     const historyPayload = (mapData?.metadata as Record<string, unknown> | undefined)?.history as Record<string, unknown> | undefined;
     const trajectory = Array.isArray(historyPayload?.trajectory) ? historyPayload.trajectory : [];
@@ -437,7 +348,6 @@ export default function Home() {
     setSelectedMapId((current) => current && savedMaps.some((map) => String(map.run_id ?? "") === current) ? current : preferred);
   }, [savedMaps, status.selected_map]);
   const cameraTimestamp = state.camera_capture_t_ns;
-  const lidarAge = formatAge(snapshot.lidar?.t_ns);
   const cameraAge = formatAge(cameraTimestamp);
   const lastEvent = snapshot.events?.[snapshot.events.length - 1];
   const activeView = DASHBOARD_VIEWS.find((item) => item.id === view) ?? DASHBOARD_VIEWS[0];
@@ -584,14 +494,13 @@ export default function Home() {
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
             <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · odometry marker</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
-              <MapToggle checked={showLaser} label="Laser" onChange={setShowLaser} />
               <MapToggle checked={showTrace} label="Trace" onChange={setShowTrace} />
               <MapToggle checked={showPath} label="Path" onChange={setShowPath} />
-              <Badge variant="outline" className="gap-1.5 bg-white"><ScanLine className="size-3.5" />{lidar.length} points</Badge>
+              <Badge variant="outline" className="bg-white">{asNumber((mapData?.metadata as Record<string, unknown> | undefined)?.scans)} scans</Badge>
             </div>
           </CardHeader>
           <CardContent className="grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.38fr)]">
-            <MapView data={mapData} pose={pose} lidar={lidar} tf={tf} trace={trace} history={mapHistory} plan={plan} showLaser={showLaser} showTrace={showTrace} showPath={showPath} />
+            <MapView data={mapData} pose={pose} trace={trace} history={mapHistory} plan={plan} showTrace={showTrace} showPath={showPath} />
             <section className="flex min-h-[520px] flex-col rounded-lg border bg-slate-950/5 p-2" aria-label="Astra-S camera monitor">
               <div className="flex items-center justify-between px-1 pb-2"><div className="flex items-center gap-2 text-sm font-medium"><Camera className="size-4 text-primary" />Astra-S camera</div><span className="text-xs text-muted-foreground">{cameraAge}</span></div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-slate-100">{cameraOnline && cameraFallback ? <><span className="sr-only">Astra-S MJPEG fallback stream</span>{/* MJPEG multipart must stay an img stream. */}<img src="/api/camera" className="max-h-full w-full object-contain" alt="Astra-S MJPEG camera stream" /></> : cameraOnline && !cameraConnection.startsWith("failed") ? <><span className="sr-only">Astra-S WebRTC H.264 stream</span><video ref={cameraVideoRef} muted autoPlay playsInline className="max-h-full w-full object-contain" aria-label="Astra-S WebRTC H.264 camera stream" /></> : <p className="px-3 text-center text-sm text-muted-foreground">{cameraConnection.startsWith("failed") ? cameraConnection : "Camera stream unavailable"}</p>}</div>
@@ -600,13 +509,6 @@ export default function Home() {
           </CardContent>
         </Card>}
 
-        {(view === "overview" || view === "monitor") && <section className="grid items-start gap-4 xl:grid-cols-[minmax(260px,0.45fr)_minmax(0,1fr)]">
-          <Card className="overflow-hidden shadow-sm">
-            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Radar className="size-4 text-primary" />Live LiDAR</CardTitle><CardDescription>{lidar.length} returns · {lidarAge}</CardDescription></CardHeader>
-            <Separator />
-            <CardContent className="p-3"><LidarView points={lidar} /></CardContent>
-          </Card>
-        </section>}
         {(view === "overview" || view === "control") && <ControlPanel online={online} armed={armed} command={(payload) => void command(payload)} plan={plan as Record<string, unknown> | undefined} />}
         {(view === "overview" || view === "mapping") && <MapCapturePanel
           online={online}
