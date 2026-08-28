@@ -511,6 +511,7 @@ class RobotService:
         self.camera: Any = None
         self.camera_thread: threading.Thread | None = None
         self.camera_capture_thread: threading.Thread | None = None
+        self.map_thread: threading.Thread | None = None
         self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
         self.camera_count_lock = threading.Lock()
         try:
@@ -1466,14 +1467,30 @@ class RobotService:
                 return None
             mapper = self.mapper
             plan_payload = self.plan_payload
+            previous_signature = self.last_broadcast_map_signature
         with self.map_lock:
             signature = f"{mapper.scans}:{mapper.points}:{json.dumps(plan_payload, sort_keys=True, separators=(',', ':'))}"
-            if signature == self.last_broadcast_map_signature:
+            if signature == previous_signature:
                 return None
             payload = mapper.payload()
         with self.state_lock:
             self.last_broadcast_map_signature = signature
             return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
+
+    def _map_loop(self) -> None:
+        next_map_mono = time.monotonic()
+        while not self.stop_event.is_set():
+            wait_s = next_map_mono - time.monotonic()
+            if wait_s > 0.0:
+                self.stop_event.wait(wait_s)
+                if self.stop_event.is_set():
+                    return
+            payload = self._map_payload()
+            if payload is not None:
+                self.broadcast(payload)
+            next_map_mono += MAP_PERIOD_S
+            if next_map_mono < time.monotonic():
+                next_map_mono = time.monotonic()
 
     def loop(self) -> None:
         while not self.stop_event.wait(0.02):
@@ -1498,15 +1515,12 @@ class RobotService:
                 payload = self._sensor_payload()
                 if payload is not None:
                     self.broadcast(payload)
-            if now - self.last_map_mono >= MAP_PERIOD_S:
-                self.last_map_mono = now
-                payload = self._map_payload()
-                if payload is not None:
-                    self.broadcast(payload)
 
     def serve(self) -> None:
         self.start_sources()
         self.start_webrtc()
+        self.map_thread = threading.Thread(target=self._map_loop, name="robot-console-map", daemon=True)
+        self.map_thread.start()
         loop_thread = threading.Thread(target=self.loop, name="robot-console-state", daemon=True)
         loop_thread.start()
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1604,6 +1618,8 @@ class RobotService:
             self.camera_thread.join(timeout=3.0)
         if self.camera_capture_thread is not None:
             self.camera_capture_thread.join(timeout=3.0)
+        if self.map_thread is not None:
+            self.map_thread.join(timeout=3.0)
         if self.lidar is not None:
             try:
                 self.lidar.stop()
