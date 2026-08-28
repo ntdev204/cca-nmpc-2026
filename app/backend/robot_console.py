@@ -513,6 +513,8 @@ class RobotService:
         self.camera_thread: threading.Thread | None = None
         self.camera_capture_thread: threading.Thread | None = None
         self.map_thread: threading.Thread | None = None
+        self.map_fusion_thread: threading.Thread | None = None
+        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=1)
         self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
         self.camera_count_lock = threading.Lock()
         try:
@@ -942,6 +944,13 @@ class RobotService:
                 return
             time.sleep(0.01)
 
+    def _flush_map_fusion(self, timeout_s: float = 5.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while self.map_fusion_queue.unfinished_tasks:
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(0.01)
+
     @staticmethod
     def _encode_camera(
         color_bgr: Any,
@@ -1026,6 +1035,7 @@ class RobotService:
             mapper = self.mapper
             files = self.files
             try:
+                self._flush_map_fusion()
                 with self.map_lock:
                     mapper.save(root)
                 if files is not None:
@@ -1457,16 +1467,31 @@ class RobotService:
                 mapping_pose = copy_pose_for_mapping(self.pose)
                 capture_files = self.files
         if mapper is not None and mapping_pose is not None:
-            with self.map_lock:
-                mapper.update(scan, mapping_pose)
-                history_record = mapper.history[-1]
-            with self.state_lock:
-                self.map_pose = mapping_pose
-            if capture_files is not None:
-                capture_files.scan(scan)
-                capture_files.write_map_history(history_record)
-                capture_files.context(scan.t_ns, mapping_pose, scan)
+            try:
+                self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
+            except queue.Full:
+                pass
         return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
+
+    def _map_fusion_loop(self) -> None:
+        while not self.stop_event.is_set() or not self.map_fusion_queue.empty():
+            try:
+                scan, mapper, mapping_pose, capture_files = self.map_fusion_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                with self.map_lock:
+                    mapper.update(scan, mapping_pose)
+                    history_record = mapper.history[-1]
+                self.map_pose = mapping_pose
+                if capture_files is not None:
+                    capture_files.scan(scan)
+                    capture_files.write_map_history(history_record)
+                    capture_files.context(scan.t_ns, mapping_pose, scan)
+            except Exception:
+                pass
+            finally:
+                self.map_fusion_queue.task_done()
 
     def _map_payload(self) -> dict[str, Any] | None:
         with self.state_lock:
@@ -1526,6 +1551,8 @@ class RobotService:
     def serve(self) -> None:
         self.start_sources()
         self.start_webrtc()
+        self.map_fusion_thread = threading.Thread(target=self._map_fusion_loop, name="robot-console-map-fusion", daemon=True)
+        self.map_fusion_thread.start()
         self.map_thread = threading.Thread(target=self._map_loop, name="robot-console-map", daemon=True)
         self.map_thread.start()
         loop_thread = threading.Thread(target=self.loop, name="robot-console-state", daemon=True)
@@ -1627,6 +1654,8 @@ class RobotService:
             self.camera_capture_thread.join(timeout=3.0)
         if self.map_thread is not None:
             self.map_thread.join(timeout=3.0)
+        if self.map_fusion_thread is not None:
+            self.map_fusion_thread.join(timeout=3.0)
         if self.lidar is not None:
             try:
                 self.lidar.stop()
