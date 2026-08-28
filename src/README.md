@@ -11,7 +11,8 @@ All robot runtime code is now organized as ROS 2 packages directly under `src/`:
 - `cca_control`: C++ CCA-NMPC, context scoring and STM transport core.
 - `cca_runtime`: local-reference and CA-NMPC nodes.
 - `cca_hardware`: STM bridge, odometry, IMU and TF.
-- `cca_bringup`: optional SLAM Toolbox, Nav2 map server and sensor launch.
+- `cca_slam`: the project-owned SLAM Toolbox launch and mapping parameters.
+- `cca_bringup`: sensor startup, the main SLAM launch and optional Nav2 map server.
 - `turn_on_robot`: one-command startup for the robot and all sensors.
 - `depend/`: ROS 2 dependency packages for Astra, LSLiDAR and serial support.
 
@@ -38,20 +39,21 @@ Build from a ROS 2 Humble environment with:
 ```bash
 source /opt/ros/humble/setup.bash
 mkdir -p ~/cca_ws/src
-for package in cca_control cca_runtime cca_hardware cca_bringup turn_on_robot; do
+for package in cca_control cca_runtime cca_hardware cca_slam cca_bringup turn_on_robot; do
   ln -sfn "$PWD/src/$package" "$HOME/cca_ws/src/$package"
 done
 ln -sfn "$PWD/src/depend" "$HOME/cca_ws/src/depend"
 colcon build --symlink-install --packages-select \
-  cca_control cca_runtime cca_hardware cca_bringup turn_on_robot \
+  cca_control cca_runtime cca_hardware cca_slam cca_bringup turn_on_robot \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 source ~/cca_ws/install/setup.bash
 ros2 launch turn_on_robot turn_on_robot.launch.py
 ```
 
 The STM bridge owns the serial port and sends zero velocity on shutdown or
-command timeout. `slam_toolbox` can consume the bridge's odometry TF and the
-N10P `/scan` topic without becoming part of the CA-NMPC command path. The
+command timeout. `cca_slam` launches the selected `slam_toolbox` node and
+provides the canonical `map`/`odom`/`base_link` frames and N10P `/scan` setup;
+it does not become part of the CA-NMPC command path. The
 external driver packages under `depend/` are discovered by `colcon` when their
 system dependencies and sensor libraries are installed.
 

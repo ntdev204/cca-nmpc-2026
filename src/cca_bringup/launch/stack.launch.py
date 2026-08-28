@@ -22,9 +22,7 @@ def generate_launch_description():
     camera_package = LaunchConfiguration("camera_package")
     camera_launch_file = LaunchConfiguration("camera_launch_file")
     map_file = LaunchConfiguration("map")
-    slam_params = PathJoinSubstitution(
-        [FindPackageShare("cca_bringup"), "config", "slam_toolbox.yaml"]
-    )
+    slam_launch_file = LaunchConfiguration("slam_launch_file")
     runtime_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -36,12 +34,11 @@ def generate_launch_description():
     slam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
-                [FindPackageShare("slam_toolbox"), "launch", "online_async_launch.py"]
+                [FindPackageShare("cca_slam"), "launch", slam_launch_file]
             )
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "slam_params_file": slam_params,
         }.items(),
         condition=IfCondition(use_slam),
     )
@@ -72,6 +69,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("use_slam", default_value="false"),
+            DeclareLaunchArgument("slam_launch_file", default_value="online_async_launch.py"),
             DeclareLaunchArgument("use_nav2", default_value="false"),
             DeclareLaunchArgument("use_lidar", default_value="false"),
             DeclareLaunchArgument("use_camera", default_value="false"),
