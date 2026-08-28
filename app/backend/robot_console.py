@@ -486,6 +486,7 @@ class RobotService:
         self.port = port
         self.stop_event = threading.Event()
         self.state_lock = threading.RLock()
+        self.map_lock = threading.RLock()
         self.peers: set[Peer] = set()
         self.server_socket: socket.socket | None = None
         self.camera_http_server: ThreadingHTTPServer | None = None
@@ -1005,13 +1006,15 @@ class RobotService:
             mapper = self.mapper
             files = self.files
             try:
-                mapper.save(root)
+                with self.map_lock:
+                    mapper.save(root)
                 if files is not None:
                     self._flush_camera_capture()
                     files.event("console_scan_saved", reason)
                     files.flush()
                     files.close()
-                self._write_manifest(root, mapper, reason)
+                with self.map_lock:
+                    self._write_manifest(root, mapper, reason)
                 self.scan_saved = True
                 self.last_saved_root = root
                 self.saved_maps_cache_mono = 0.0
@@ -1158,8 +1161,10 @@ class RobotService:
         with self.state_lock:
             if self.mapper is None:
                 raise RuntimeError("start and save a scan before planning")
-            map_payload = self.mapper.payload()
+            mapper = self.mapper
             pose = self.pose.as_tuple() if self.pose is not None else (0.0, 0.0, 0.0)
+        with self.map_lock:
+            map_payload = mapper.payload()
         raw_goal = message.get("goal_xy", message.get("goal"))
         if not isinstance(raw_goal, (list, tuple)) or len(raw_goal) < 2:
             raise ValueError("plan requires goal_xy: [x_m, y_m]")
@@ -1185,7 +1190,8 @@ class RobotService:
         if root is not None:
             (root / "navigation_plan.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
             if mapper is not None:
-                self._write_manifest(root, mapper, "astar_plan")
+                with self.map_lock:
+                    self._write_manifest(root, mapper, "astar_plan")
         self.broadcast({"type": "event", "event": "plan_ready", "plan": plan, "status": self.status_payload()})
 
     def clear_plan(self) -> None:
@@ -1200,7 +1206,8 @@ class RobotService:
             except FileNotFoundError:
                 pass
             if mapper is not None:
-                self._write_manifest(root, mapper, "astar_plan_cleared")
+                with self.map_lock:
+                    self._write_manifest(root, mapper, "astar_plan_cleared")
         self.broadcast({"type": "event", "event": "plan_cleared", "status": self.status_payload()})
 
     def _apply_velocity(self, values: tuple[float, float, float]) -> None:
@@ -1413,40 +1420,46 @@ class RobotService:
             }
 
     def _sensor_payload(self) -> dict[str, Any] | None:
+        scan: Any = None
+        mapper: Any = None
+        mapping_pose: Any = None
+        capture_files: Any = None
         with self.state_lock:
-            new_scan = False
-            if self.lidar is not None:
-                scan = self.lidar.latest
-                if scan is not None and scan.t_ns != self.last_scan_ns:
-                    new_scan = True
-                    self.last_scan_ns = scan.t_ns
-                    self.latest_lidar = compact_points(scan.points)
-                    if self.scan_active and self.mapper is not None and self.pose is not None:
-                        # Scan matching is allowed to correct the pose used to
-                        # place this scan, but must not overwrite the live
-                        # odometry pose that drives the robot marker and state
-                        # telemetry.  Keep the existing matcher and formulas;
-                        # pass it a per-scan copy instead of the controller
-                        # pose object shared with _state_payload().
-                        map_pose = copy_pose_for_mapping(self.pose)
-                        self.mapper.update(scan, map_pose)
-                        self.map_pose = map_pose
-                        if self.files is not None:
-                            self.files.scan(scan)
-                            self.files.write_map_history(self.mapper.history[-1])
-                            self.files.context(scan.t_ns, self.pose, scan)
-            if not new_scan:
+            if self.lidar is None:
                 return None
-            return {"type": "lidar", "t_ns": self.last_scan_ns, "points": self.latest_lidar}
+            scan = self.lidar.latest
+            if scan is None or scan.t_ns == self.last_scan_ns:
+                return None
+            self.last_scan_ns = scan.t_ns
+            self.latest_lidar = compact_points(scan.points)
+            if self.scan_active and self.mapper is not None and self.pose is not None:
+                mapper = self.mapper
+                mapping_pose = copy_pose_for_mapping(self.pose)
+                capture_files = self.files
+        if mapper is not None and mapping_pose is not None:
+            with self.map_lock:
+                mapper.update(scan, mapping_pose)
+                history_record = mapper.history[-1]
+            with self.state_lock:
+                self.map_pose = mapping_pose
+            if capture_files is not None:
+                capture_files.scan(scan)
+                capture_files.write_map_history(history_record)
+                capture_files.context(scan.t_ns, mapping_pose, scan)
+        return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
 
     def _map_payload(self) -> dict[str, Any] | None:
         with self.state_lock:
             if self.mapper is None:
                 return None
-            signature = f"{self.mapper.scans}:{self.mapper.points}:{json.dumps(self.plan_payload, sort_keys=True, separators=(',', ':'))}"
+            mapper = self.mapper
+            plan_payload = self.plan_payload
+        with self.map_lock:
+            signature = f"{mapper.scans}:{mapper.points}:{json.dumps(plan_payload, sort_keys=True, separators=(',', ':'))}"
             if signature == self.last_broadcast_map_signature:
                 return None
-            payload = self.mapper.payload()
+            payload = mapper.payload()
+        with self.state_lock:
             self.last_broadcast_map_signature = signature
             return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
 
