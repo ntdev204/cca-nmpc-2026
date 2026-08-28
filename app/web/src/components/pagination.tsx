@@ -1,8 +1,14 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
+import {
+  Pagination as ShadcnPagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 type PaginationProps = {
   page: number;
@@ -27,24 +33,53 @@ function pageItems(page: number, totalPages: number): Array<number | "ellipsis-l
 export function Pagination({ page, totalPages, total, onPageChange, label = "items" }: PaginationProps) {
   const safeTotalPages = Math.max(1, totalPages);
   const safePage = Math.min(Math.max(1, page), safeTotalPages);
+  const changePage = (nextPage: number) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (nextPage >= 1 && nextPage <= safeTotalPages && nextPage !== safePage) onPageChange(nextPage);
+  };
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
       <span>{total === undefined ? `Page ${safePage} of ${safeTotalPages}` : `${total} ${label} · page ${safePage} of ${safeTotalPages}`}</span>
-      <div className="flex items-center gap-1" aria-label="Pagination">
-        <Button type="button" variant="outline" size="icon-sm" onClick={() => onPageChange(safePage - 1)} disabled={safePage <= 1} aria-label="Previous page">
-          <ChevronLeft className="size-4" />
-        </Button>
+      <ShadcnPagination className="mx-0 w-auto justify-end">
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              href="#"
+              text=""
+              onClick={changePage(safePage - 1)}
+              aria-disabled={safePage <= 1}
+              className={`size-8 p-0 justify-center ${safePage <= 1 ? "pointer-events-none opacity-50" : ""}`}
+            />
+          </PaginationItem>
         {pageItems(safePage, safeTotalPages).map((item, index) => item === "ellipsis-left" || item === "ellipsis-right" ? (
-          <span key={`${item}-${index}`} className="px-1" aria-hidden="true">…</span>
+          <PaginationItem key={`${item}-${index}`}>
+            <PaginationEllipsis />
+          </PaginationItem>
         ) : (
-          <Button key={item} type="button" variant={item === safePage ? "default" : "outline"} size="icon-sm" onClick={() => onPageChange(item)} aria-current={item === safePage ? "page" : undefined}>
-            {item}
-          </Button>
+          <PaginationItem key={item}>
+            <PaginationLink
+              href="#"
+              size="icon"
+              isActive={item === safePage}
+              onClick={changePage(item)}
+              className={item === safePage ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground" : "border border-border bg-background"}
+            >
+              {item}
+            </PaginationLink>
+          </PaginationItem>
         ))}
-        <Button type="button" variant="outline" size="icon-sm" onClick={() => onPageChange(safePage + 1)} disabled={safePage >= safeTotalPages} aria-label="Next page">
-          <ChevronRight className="size-4" />
-        </Button>
-      </div>
+          <PaginationItem>
+            <PaginationNext
+              href="#"
+              text=""
+              onClick={changePage(safePage + 1)}
+              aria-disabled={safePage >= safeTotalPages}
+              className={`size-8 p-0 justify-center ${safePage >= safeTotalPages ? "pointer-events-none opacity-50" : ""}`}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </ShadcnPagination>
     </div>
   );
 }

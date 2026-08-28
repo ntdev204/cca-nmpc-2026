@@ -6,6 +6,7 @@ import { Database, RefreshCw, Save, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Pagination } from "@/components/pagination";
 
 export type SavedMap = {
@@ -96,19 +97,15 @@ export function MapCapturePanel({
           <div className="space-y-2 rounded-lg border bg-background p-3">
             <label className="text-xs font-medium text-foreground" htmlFor="saved-map-select">Select map</label>
             <div className="flex gap-2">
-              <select
-                id="saved-map-select"
-                value={selectedMapId}
-                onChange={(event) => onSelectMap(event.target.value)}
-                disabled={!online || mapCount === 0}
-                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground shadow-sm outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Choose a saved map</option>
+              <Select value={selectedMapId || null} onValueChange={(value) => onSelectMap(value ?? "")} disabled={!online || mapCount === 0}>
+                <SelectTrigger id="saved-map-select" size="sm" className="min-w-0 flex-1 bg-background text-xs"><SelectValue placeholder="Choose a saved map" /></SelectTrigger>
+                <SelectContent>
                 {visibleMaps.map((map) => {
                   const runId = String(map.run_id ?? "");
-                  return <option key={runId} value={runId}>{runId} · {number(map.scans)} scans</option>;
+                  return <SelectItem key={runId} value={runId}>{runId} · {number(map.scans)} scans</SelectItem>;
                 })}
-              </select>
+                </SelectContent>
+              </Select>
               <Button variant="outline" onClick={() => onCommand({ command: "map_load", run_id: selectedMapId })} disabled={!online || !selectedMapId} title="Load selected map"><RefreshCw className="size-4" />Load</Button>
             </div>
             {selectedMap ? (

@@ -6,6 +6,7 @@ import { Activity, Database, ListChecks, Radar } from "lucide-react";
 import { Pagination } from "@/components/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type RecordValue = Record<string, unknown>;
 type Kind = "state" | "lidar" | "map" | "event";
@@ -77,7 +78,15 @@ export function HistoryPanel() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><CardTitle className="flex items-center gap-2 text-base">{icon}Telemetry, maps &amp; events</CardTitle><CardDescription>Lossless timestamps are retained in the browser-facing history API; large sensor payloads are represented by counts.</CardDescription></div>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">Rows
-            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="h-8 rounded-md border border-input bg-background px-2 text-foreground"><option value="8">8</option><option value="12">12</option><option value="24">24</option><option value="50">50</option></select>
+            <Select value={String(pageSize)} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
+              <SelectTrigger size="sm" className="w-[78px] bg-background text-foreground"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="8">8</SelectItem>
+                <SelectItem value="12">12</SelectItem>
+                <SelectItem value="24">24</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
         </div>
         <div className="flex flex-wrap gap-1.5 pt-2">

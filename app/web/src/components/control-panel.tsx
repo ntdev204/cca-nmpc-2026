@@ -5,6 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CircleStop, Crosshair, Move,
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Velocity = { vx: number; vy: number; wz: number };
 type Command = (payload: Record<string, unknown>) => void;
@@ -111,7 +112,25 @@ export function ControlPanel({ online, armed, command, plan }: ControlPanelProps
           <p className="text-[11px] leading-4 text-muted-foreground">Motion is {armed ? "armed" : "disarmed"}. Releasing a button sends zero velocity; the backend watchdog also stops on a stale command.</p>
           <div className="space-y-2 border-t pt-3">
             <div className="text-xs font-medium">One-shot direction command</div>
-            <div className="flex gap-2"><select value={direction} onChange={(event) => setDirection(event.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs"><option value="forward">Forward</option><option value="backward">Backward</option><option value="left">Left strafe</option><option value="right">Right strafe</option><option value="forward_left">Forward-left</option><option value="forward_right">Forward-right</option><option value="backward_left">Backward-left</option><option value="backward_right">Backward-right</option><option value="rotate_left">Rotate left</option><option value="rotate_right">Rotate right</option><option value="stop">Stop</option></select><Button type="button" variant="outline" onClick={sendPreset} disabled={disabled}>Send</Button></div>
+            <div className="flex gap-2">
+              <Select value={direction} onValueChange={(value) => { if (value !== null) setDirection(value); }}>
+                <SelectTrigger size="sm" className="min-w-0 flex-1 bg-background text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="forward">Forward</SelectItem>
+                  <SelectItem value="backward">Backward</SelectItem>
+                  <SelectItem value="left">Left strafe</SelectItem>
+                  <SelectItem value="right">Right strafe</SelectItem>
+                  <SelectItem value="forward_left">Forward-left</SelectItem>
+                  <SelectItem value="forward_right">Forward-right</SelectItem>
+                  <SelectItem value="backward_left">Backward-left</SelectItem>
+                  <SelectItem value="backward_right">Backward-right</SelectItem>
+                  <SelectItem value="rotate_left">Rotate left</SelectItem>
+                  <SelectItem value="rotate_right">Rotate right</SelectItem>
+                  <SelectItem value="stop">Stop</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="outline" onClick={sendPreset} disabled={disabled}>Send</Button>
+            </div>
           </div>
         </div>
 
