@@ -657,6 +657,16 @@ class OccupancyMap:
     def wire_payload(self) -> dict[str, Any]:
         return compact_map_payload(self.payload())
 
+    def snapshot(self) -> "OccupancyMap":
+        snapshot = object.__new__(type(self))
+        snapshot.__dict__ = self.__dict__.copy()
+        snapshot.free = set(self.free)
+        snapshot.occupied = set(self.occupied)
+        snapshot.log_odds = set(self.log_odds)
+        snapshot.poses = list(self.poses[-2000:])
+        snapshot.history = list(self.history[-200:])
+        return snapshot
+
     def save(self, root: Path) -> dict[str, Any]:
         payload = self.payload()
         raw_payload = self.raw_payload()

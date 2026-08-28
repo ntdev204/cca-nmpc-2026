@@ -37,12 +37,16 @@ SENSOR_PERIOD_S = 0.05
 MAP_PERIOD_S = 1.0
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
+MAP_FUSION_QUEUE_SIZE = 256
+LIDAR_DRAIN_LIMIT = 16
+MAP_PAYLOAD_QUEUE_LIMIT = 2
 # Runtime mapping uses the measured odometry frame.  The bounded matcher is
 # retained for offline checks but is not reliable during an in-place turn.
 LIVE_SCAN_MATCHING = False
 SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
+CAMERA_SCAN_PERIOD_S = 0.10
 CAMERA_CAPTURE_PERIOD_S = 0.50
 CAMERA_DEPTH_PERIOD_S = 1.0
 CAMERA_STREAM_MAX_SIZE = (640, 480)
@@ -517,7 +521,7 @@ class RobotService:
         self.camera_capture_thread: threading.Thread | None = None
         self.map_thread: threading.Thread | None = None
         self.map_fusion_thread: threading.Thread | None = None
-        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=1)
+        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=MAP_FUSION_QUEUE_SIZE)
         self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
         self.camera_count_lock = threading.Lock()
         try:
@@ -541,6 +545,14 @@ class RobotService:
         self.command_sequence = 0
         self.last_telemetry_ns = 0
         self.last_scan_ns = 0
+        self.last_scan_key: tuple[int, int] | None = None
+        self.map_scans_enqueued = 0
+        self.map_scans_processed = 0
+        self.map_scans_dropped = 0
+        self.map_fusion_errors = 0
+        self.map_payload_skips = 0
+        self.map_last_processed_t_ns = 0
+        self.map_queue_high_watermark = 0
         self.last_state_mono = 0.0
         self.last_sensor_mono = 0.0
         self.last_map_mono = 0.0
@@ -651,6 +663,21 @@ class RobotService:
                 "map_resolution_m": MAP_RESOLUTION_M,
                 "selected_map": self.last_saved_root.name if self.last_saved_root is not None else None,
                 "maps": self.saved_maps_payload(),
+                "map_fusion": {
+                    "queue_depth": self.map_fusion_queue.qsize(),
+                    "queue_capacity": MAP_FUSION_QUEUE_SIZE,
+                    "enqueued": self.map_scans_enqueued,
+                    "processed": self.map_scans_processed,
+                    "dropped": self.map_scans_dropped,
+                    "errors": self.map_fusion_errors,
+                    "payload_skips": self.map_payload_skips,
+                    "queue_high_watermark": self.map_queue_high_watermark,
+                    "last_scan_lag_s": (
+                        None
+                        if self.map_last_processed_t_ns <= 0
+                        else round(max(0.0, (now_ns() - self.map_last_processed_t_ns) / 1e9), 3)
+                    ),
+                },
                 "dataset": {
                     "active": self.scan_active,
                     "run": self.run_root.name if self.run_root else None,
@@ -658,6 +685,9 @@ class RobotService:
                     "lidar_scans": int(self.mapper.scans) if self.mapper is not None else 0,
                     "lidar_points": int(self.mapper.points) if self.mapper is not None else 0,
                     "camera_frames": int(camera_frames_saved),
+                    "source_scans_dropped": int(getattr(self.lidar, "scan_queue_dropped", 0))
+                    if self.lidar is not None
+                    else 0,
                 },
             }
 
@@ -848,6 +878,11 @@ class RobotService:
                     next_frame_mono = time.monotonic()
                     self.stop_event.wait(0.10)
                     continue
+                frame_period_s = (
+                    CAMERA_PERIOD_S
+                    if (has_mjpeg or has_webrtc)
+                    else CAMERA_SCAN_PERIOD_S
+                )
                 wait_s = next_frame_mono - time.monotonic()
                 if wait_s > 0.0:
                     self.stop_event.wait(wait_s)
@@ -894,7 +929,7 @@ class RobotService:
                         pass
                 with self.camera_condition:
                     self.camera_condition.notify_all()
-                next_frame_mono += CAMERA_PERIOD_S
+                next_frame_mono += frame_period_s
                 if next_frame_mono < time.monotonic():
                     next_frame_mono = time.monotonic()
             except Exception as error:
@@ -947,7 +982,7 @@ class RobotService:
                 return
             time.sleep(0.01)
 
-    def _flush_map_fusion(self, timeout_s: float = 5.0) -> None:
+    def _flush_map_fusion(self, timeout_s: float = 20.0) -> None:
         deadline = time.monotonic() + timeout_s
         while self.map_fusion_queue.unfinished_tasks:
             if time.monotonic() >= deadline:
@@ -1048,6 +1083,14 @@ class RobotService:
             self.scan_saved = False
             self.plan_payload = None
             self.last_scan_ns = 0
+            self.last_scan_key = None
+            self.map_scans_enqueued = 0
+            self.map_scans_processed = 0
+            self.map_scans_dropped = 0
+            self.map_fusion_errors = 0
+            self.map_payload_skips = 0
+            self.map_last_processed_t_ns = 0
+            self.map_queue_high_watermark = 0
             self.last_broadcast_map_signature = ""
             with self.camera_count_lock:
                 self.camera_frames_saved = 0
@@ -1067,26 +1110,30 @@ class RobotService:
             root = self.run_root
             mapper = self.mapper
             files = self.files
-            try:
-                self._flush_map_fusion()
-                with self.map_lock:
-                    mapper.save(root)
-                if files is not None:
-                    self._flush_camera_capture()
-                    files.event("console_scan_saved", reason)
-                    files.flush()
-                    files.close()
-                with self.map_lock:
-                    self._write_manifest(root, mapper, reason)
+            self.scan_active = False
+            self.status["scan"] = "saving"
+        try:
+            self._flush_map_fusion()
+            with self.map_lock:
+                mapper.save(root)
+            if files is not None:
+                self._flush_camera_capture()
+                files.event("console_scan_saved", reason)
+                files.flush()
+                files.close()
+            with self.map_lock:
+                self._write_manifest(root, mapper, reason)
+            with self.state_lock:
                 self.scan_saved = True
                 self.last_saved_root = root
                 self.saved_maps_cache_mono = 0.0
-                self.scan_active = False
                 self.files = None
                 self.status["scan"] = "saved"
-            except Exception as error:
-                self.broadcast({"type": "event", "event": "error", "message": str(error)})
-                return
+        except Exception as error:
+            with self.state_lock:
+                self.status["scan"] = "error"
+            self.broadcast({"type": "event", "event": "error", "message": str(error)})
+            return
         self.broadcast({"type": "event", "event": "scan_saved", "path": str(root), "status": self.status_payload()})
 
     def load_saved_map(self, message: dict[str, Any] | None = None) -> None:
@@ -1487,33 +1534,63 @@ class RobotService:
                 "tf": tf_payload,
             }
 
+    def _enqueue_map_scan(self, item: tuple[Any, Any, Any, Any]) -> None:
+        try:
+            self.map_fusion_queue.put_nowait(item)
+        except queue.Full:
+            try:
+                self.map_fusion_queue.get_nowait()
+                self.map_fusion_queue.task_done()
+            except queue.Empty:
+                pass
+            with self.state_lock:
+                self.map_scans_dropped += 1
+            try:
+                self.map_fusion_queue.put_nowait(item)
+            except queue.Full:
+                with self.state_lock:
+                    self.map_scans_dropped += 1
+                return
+        with self.state_lock:
+            self.map_scans_enqueued += 1
+            self.map_queue_high_watermark = max(
+                self.map_queue_high_watermark,
+                self.map_fusion_queue.qsize(),
+            )
+
     def _sensor_payload(self) -> dict[str, Any] | None:
-        scan: Any = None
+        scans: tuple[Any, ...] = ()
         mapper: Any = None
-        mapping_pose: Any = None
         capture_files: Any = None
         telemetry: Any = None
         with self.state_lock:
             if self.lidar is None:
                 return None
-            scan = self.lidar.latest
-            if scan is None or scan.t_ns == self.last_scan_ns:
+            drain_scans = getattr(self.lidar, "drain_scans", None)
+            if callable(drain_scans):
+                scans = tuple(drain_scans(LIDAR_DRAIN_LIMIT))
+            else:
+                scan = self.lidar.latest
+                if scan is not None:
+                    key = (int(scan.t_ns), id(scan))
+                    if key != self.last_scan_key:
+                        scans = (scan,)
+                        self.last_scan_key = key
+            if not scans:
                 return None
-            self.last_scan_ns = scan.t_ns
-            self.latest_lidar = compact_points(scan.points)
+            self.last_scan_ns = int(scans[-1].t_ns)
+            self.latest_lidar = compact_points(scans[-1].points)
             if self.scan_active and self.mapper is not None and self.pose is not None:
                 mapper = self.mapper
+                capture_files = self.files
+                telemetry = self.stm.latest if self.stm is not None else None
                 matching_enabled = bool(getattr(mapper, "scan_matching_enabled", False))
                 prior_map_pose = self.map_pose if matching_enabled and self.map_pose is not None else self.pose
                 mapping_pose = copy_pose_for_mapping(prior_map_pose)
-                capture_files = self.files
-                telemetry = self.stm.latest if self.stm is not None else None
-                mapping_pose.project_to(scan.t_ns, telemetry)
-        if mapper is not None and mapping_pose is not None:
-            try:
-                self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
-            except queue.Full:
-                pass
+                for scan in scans:
+                    mapping_pose = copy_pose_for_mapping(mapping_pose)
+                    mapping_pose.project_to(scan.t_ns, telemetry)
+                    self._enqueue_map_scan((scan, mapper, mapping_pose, capture_files))
         # LiDAR remains an internal mapping input and is written to lidar.csv.
         # Do not stream the high-rate raw cloud to the browser.
         return None
@@ -1530,12 +1607,15 @@ class RobotService:
                     history_record = mapper.history[-1]
                 with self.state_lock:
                     self.map_pose = mapping_pose
+                    self.map_scans_processed += 1
+                    self.map_last_processed_t_ns = int(scan.t_ns)
                 if capture_files is not None:
                     capture_files.scan(scan)
                     capture_files.write_map_history(history_record)
                     capture_files.context(scan.t_ns, mapping_pose, scan)
             except Exception:
-                pass
+                with self.state_lock:
+                    self.map_fusion_errors += 1
             finally:
                 self.map_fusion_queue.task_done()
 
@@ -1550,7 +1630,8 @@ class RobotService:
             signature = f"{mapper.scans}:{mapper.points}:{json.dumps(plan_payload, sort_keys=True, separators=(',', ':'))}"
             if signature == previous_signature:
                 return None
-            payload = mapper.wire_payload()
+            snapshot = mapper.snapshot()
+        payload = snapshot.wire_payload()
         with self.state_lock:
             self.last_broadcast_map_signature = signature
             return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
@@ -1563,6 +1644,15 @@ class RobotService:
                 self.stop_event.wait(wait_s)
                 if self.stop_event.is_set():
                     return
+            with self.state_lock:
+                has_peer = bool(self.peers)
+            queue_depth = self.map_fusion_queue.qsize()
+            if not has_peer or queue_depth > MAP_PAYLOAD_QUEUE_LIMIT:
+                if queue_depth > MAP_PAYLOAD_QUEUE_LIMIT:
+                    with self.state_lock:
+                        self.map_payload_skips += 1
+                next_map_mono += MAP_PERIOD_S
+                continue
             payload = self._map_payload()
             if payload is not None:
                 self.broadcast(payload)

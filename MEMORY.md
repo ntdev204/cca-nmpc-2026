@@ -559,3 +559,24 @@ manuscript and Overleaf project locked.
   build, Python syntax, and both Jetson self-tests pass.
 - After restart, an emergency stop left the robot at `armed=false` with command
   `0,0,0`; no scan or motion command was issued during this fix.
+
+### Lossless LiDAR queue and map-fusion scheduling — 2026-08-28
+
+- The direct N10P adapter now assigns a unique timestamp to every completed
+  revolution and retains a bounded scan queue instead of exposing only the
+  latest revolution. The console drains that queue into a bounded fusion queue;
+  source and fusion drops are reported in status telemetry.
+- Map payloads are built from a consistent mapper snapshot outside the fusion
+  lock. Payload generation is skipped while the fusion queue is backlogged or
+  when no browser peer is connected, so map construction is prioritised over
+  rendering and transport.
+- Scan saving first stops new capture, then flushes fusion before closing CSV
+  files. This removes the previous state-lock/fusion-lock wait during save.
+- The full-resolution raw scan remains in `lidar.csv`; no map resolution or raw
+  point data was reduced. A stationary Jetson check initially showed the old
+  latest-only path at about 1.3 mapped scans/s; the queued path reached about
+  9.3 mapped scans/s before snapshot-lock optimisation. The follow-up hardware
+  verification is pending after the Jetson link timeout.
+- Local `ros2` commit `66a16a4` contains this correction; the Jetson working tree
+  had the queue and snapshot edits applied, but could not be committed after
+  the host went offline.
