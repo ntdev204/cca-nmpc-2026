@@ -8,6 +8,7 @@ import math
 import os
 import select
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -662,6 +663,8 @@ class RunFiles:
         self.depth_root = root / "depth"
         self.camera_root.mkdir()
         self.depth_root.mkdir()
+        self.io_lock = threading.RLock()
+        self.closed = False
         self.streams: dict[str, Any] = {}
         self.writers: dict[str, csv.DictWriter] = {}
         for name, fields in (
@@ -679,10 +682,14 @@ class RunFiles:
         self.history_stream = (root / "map_history.jsonl").open("w", encoding="utf-8")
 
     def write(self, name: str, row: dict[str, Any]) -> None:
-        self.writers[name].writerow(row)
+        with self.io_lock:
+            if not self.closed:
+                self.writers[name].writerow(row)
 
     def write_map_history(self, record: dict[str, Any]) -> None:
-        self.history_stream.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
+        with self.io_lock:
+            if not self.closed:
+                self.history_stream.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
 
     def event(self, kind: str, detail: str, sequence: int = 0) -> None:
         self.write("events.csv", {"t_ns": utc_ns(), "event_type": kind, "solve_ms": "", "status_code": 0, "sequence": sequence, "detail": detail})
@@ -766,48 +773,58 @@ class RunFiles:
         height_px: int,
         depth_scale_m: float,
     ) -> str:
-        stem = str(int(t_ns))
-        color_path = self.camera_root / f"{stem}.jpg"
-        color_path.write_bytes(color_jpeg)
-        depth_path = ""
-        depth_bytes = 0
-        if depth_png:
-            depth_file = self.depth_root / f"{stem}.png"
-            depth_file.write_bytes(depth_png)
-            depth_path = depth_file.relative_to(self.root).as_posix()
-            depth_bytes = len(depth_png)
-        color_relative = color_path.relative_to(self.root).as_posix()
-        self.write(
-            "camera.csv",
-            {
-                "t_ns": int(t_ns),
-                "device_t_ns": "" if device_t_ns is None else int(device_t_ns),
-                "color_path": color_relative,
-                "color_bytes": len(color_jpeg),
-                "depth_path": depth_path,
-                "depth_bytes": depth_bytes,
-                "width_px": int(width_px),
-                "height_px": int(height_px),
-                "depth_scale_m": float(depth_scale_m),
-                "encoding": "jpeg+png16",
-            },
-        )
-        return color_relative
+        with self.io_lock:
+            if self.closed:
+                return ""
+            stem = str(int(t_ns))
+            color_path = self.camera_root / f"{stem}.jpg"
+            color_path.write_bytes(color_jpeg)
+            depth_path = ""
+            depth_bytes = 0
+            if depth_png:
+                depth_file = self.depth_root / f"{stem}.png"
+                depth_file.write_bytes(depth_png)
+                depth_path = depth_file.relative_to(self.root).as_posix()
+                depth_bytes = len(depth_png)
+            color_relative = color_path.relative_to(self.root).as_posix()
+            self.writers["camera.csv"].writerow(
+                {
+                    "t_ns": int(t_ns),
+                    "device_t_ns": "" if device_t_ns is None else int(device_t_ns),
+                    "color_path": color_relative,
+                    "color_bytes": len(color_jpeg),
+                    "depth_path": depth_path,
+                    "depth_bytes": depth_bytes,
+                    "width_px": int(width_px),
+                    "height_px": int(height_px),
+                    "depth_scale_m": float(depth_scale_m),
+                    "encoding": "jpeg+png16",
+                }
+            )
+            return color_relative
 
     def context(self, t_ns: int, pose: Pose, scan: LidarScan | None) -> None:
         minimum = "" if scan is None or not math.isfinite(scan.minimum_range_m) else scan.minimum_range_m
         self.write("context.csv", {"t_ns": t_ns, "position_x_m": "", "position_y_m": "", "speed_mps": "", "direction": "", "confidence": "", "context_valid": 0, "lstm_active": 0, "lstm_configured": 0, "frame_path": "", "camera_device_t_ns": "", "lidar_min_range_m": minimum, "lidar_valid": int(scan is not None)})
 
     def flush(self) -> None:
-        for stream in self.streams.values():
-            stream.flush()
-        self.history_stream.flush()
+        with self.io_lock:
+            if self.closed:
+                return
+            for stream in self.streams.values():
+                stream.flush()
+            self.history_stream.flush()
 
     def close(self) -> None:
-        self.flush()
-        for stream in self.streams.values():
-            stream.close()
-        self.history_stream.close()
+        with self.io_lock:
+            if self.closed:
+                return
+            for stream in self.streams.values():
+                stream.flush()
+                stream.close()
+            self.history_stream.flush()
+            self.history_stream.close()
+            self.closed = True
 
 
 def command_for_key(key: str, speed: float, yaw_speed: float) -> tuple[float, float, float] | None:
