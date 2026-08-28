@@ -40,6 +40,7 @@ LIVE_SCAN_MATCHING = False
 SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
+CAMERA_CAPTURE_PERIOD_S = 0.20
 CAMERA_STREAM_MAX_SIZE = (640, 480)
 CAMERA_STREAM_JPEG_QUALITY = 10
 CAMERA_CAPTURE_JPEG_QUALITY = 90
@@ -496,6 +497,9 @@ class RobotService:
         self.lidar: Any = None
         self.camera: Any = None
         self.camera_thread: threading.Thread | None = None
+        self.camera_capture_thread: threading.Thread | None = None
+        self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
+        self.camera_count_lock = threading.Lock()
         try:
             from app.backend.manual_map import Pose
         except ModuleNotFoundError:
@@ -530,6 +534,7 @@ class RobotService:
         self.camera_device_t_ns: int | None = None
         self.camera_capture_t_ns = 0
         self.camera_frames_saved = 0
+        self.last_camera_save_mono = 0.0
         self.camera_frames_read = 0
         self.camera_rate_hz = 0.0
         self.camera_rate_start_mono = time.monotonic()
@@ -604,6 +609,8 @@ class RobotService:
 
     def status_payload(self) -> dict[str, Any]:
         with self.state_lock:
+            with self.camera_count_lock:
+                camera_frames_saved = self.camera_frames_saved
             lidar_rate_hz = 0.0
             if self.lidar is not None:
                 try:
@@ -629,7 +636,7 @@ class RobotService:
                     "saved": self.scan_saved,
                     "lidar_scans": int(self.mapper.scans) if self.mapper is not None else 0,
                     "lidar_points": int(self.mapper.points) if self.mapper is not None else 0,
-                    "camera_frames": int(self.camera_frames_saved),
+                    "camera_frames": int(camera_frames_saved),
                 },
             }
 
@@ -665,6 +672,12 @@ class RobotService:
             self.camera.start()
             self.camera_status = "online"
             self._set_status("camera", "online", f"Astra-S / {sdk_path}")
+            self.camera_capture_thread = threading.Thread(
+                target=self._camera_capture_loop,
+                name="camera-dataset-writer",
+                daemon=True,
+            )
+            self.camera_capture_thread.start()
             self.camera_thread = threading.Thread(target=self._camera_loop, name="astra-reader", daemon=True)
             self.camera_thread.start()
         except Exception as error:
@@ -808,7 +821,8 @@ class RobotService:
             try:
                 with self.state_lock:
                     has_mjpeg = self.camera_http_clients > 0
-                    has_client = has_mjpeg or bool(self.webrtc_peers) or self.scan_active
+                    has_webrtc = bool(self.webrtc_peers)
+                    has_client = has_mjpeg or has_webrtc or self.scan_active
                 if not has_client:
                     next_frame_mono = time.monotonic()
                     self.stop_event.wait(0.10)
@@ -821,8 +835,13 @@ class RobotService:
                 frame = self.camera.read()
                 encoded_bytes = self._encode_camera(frame.color_bgr) if has_mjpeg else None
                 with self.state_lock:
+                    capture_files = self.files if self.scan_active else None
+                    save_frame = capture_files is not None and time.monotonic() - self.last_camera_save_mono >= CAMERA_CAPTURE_PERIOD_S
+                    if save_frame:
+                        self.last_camera_save_mono = time.monotonic()
                     self.latest_camera_bytes = encoded_bytes
-                    self.latest_camera_color = frame.color_bgr.copy()
+                    if has_webrtc:
+                        self.latest_camera_color = frame.color_bgr.copy()
                     self.camera_shape = [int(frame.color_bgr.shape[1]), int(frame.color_bgr.shape[0])]
                     self.camera_device_t_ns = frame.device_timestamp_ns
                     self.camera_capture_t_ns = int(frame.t_ns)
@@ -832,23 +851,22 @@ class RobotService:
                         self.camera_rate_hz = self.camera_frames_read / rate_elapsed
                         self.camera_frames_read = 0
                         self.camera_rate_start_mono = time.monotonic()
-                    if self.scan_active and self.files is not None:
-                        depth_bytes = self._encode_depth(frame.depth_raw)
-                        color_bytes = self._encode_camera(
-                            frame.color_bgr,
-                            max_size=None,
-                            quality=CAMERA_CAPTURE_JPEG_QUALITY,
+                if save_frame and capture_files is not None:
+                    try:
+                        self.camera_capture_queue.put_nowait(
+                            (
+                                capture_files,
+                                int(frame.t_ns),
+                                frame.device_timestamp_ns,
+                                frame.color_bgr.copy(),
+                                frame.depth_raw.copy(),
+                                int(frame.color_bgr.shape[1]),
+                                int(frame.color_bgr.shape[0]),
+                                float(frame.depth_scale_m),
+                            )
                         )
-                        self.files.camera_frame(
-                            frame.t_ns,
-                            frame.device_timestamp_ns,
-                            color_bytes,
-                            depth_bytes,
-                            int(frame.color_bgr.shape[1]),
-                            int(frame.color_bgr.shape[0]),
-                            float(frame.depth_scale_m),
-                        )
-                        self.camera_frames_saved += 1
+                    except queue.Full:
+                        pass
                 with self.camera_condition:
                     self.camera_condition.notify_all()
                 next_frame_mono += CAMERA_PERIOD_S
@@ -857,6 +875,52 @@ class RobotService:
             except Exception as error:
                 self._set_status("camera", "error", str(error))
                 return
+
+    def _camera_capture_loop(self) -> None:
+        while not self.stop_event.is_set() or not self.camera_capture_queue.empty():
+            try:
+                item = self.camera_capture_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                (
+                    capture_files,
+                    t_ns,
+                    device_t_ns,
+                    color_bgr,
+                    depth_raw,
+                    width_px,
+                    height_px,
+                    depth_scale_m,
+                ) = item
+                depth_bytes = self._encode_depth(depth_raw)
+                color_bytes = self._encode_camera(
+                    color_bgr,
+                    max_size=None,
+                    quality=CAMERA_CAPTURE_JPEG_QUALITY,
+                )
+                if capture_files.camera_frame(
+                    t_ns,
+                    device_t_ns,
+                    color_bytes,
+                    depth_bytes,
+                    width_px,
+                    height_px,
+                    depth_scale_m,
+                ):
+                    with self.camera_count_lock:
+                        self.camera_frames_saved += 1
+            except Exception:
+                pass
+            finally:
+                self.camera_capture_queue.task_done()
+
+    def _flush_camera_capture(self, timeout_s: float = 5.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while self.camera_capture_queue.unfinished_tasks:
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(0.01)
 
     @staticmethod
     def _encode_camera(
@@ -923,7 +987,9 @@ class RobotService:
             self.plan_payload = None
             self.last_scan_ns = 0
             self.last_broadcast_map_signature = ""
-            self.camera_frames_saved = 0
+            with self.camera_count_lock:
+                self.camera_frames_saved = 0
+            self.last_camera_save_mono = 0.0
             self.camera_capture_t_ns = 0
             self.camera_device_t_ns = None
             self.files.event("console_scan_started", f"lidar=N10P; target_hz={LIDAR_TARGET_HZ:g}; map_resolution_m={MAP_RESOLUTION_M:.3f}")
@@ -941,6 +1007,7 @@ class RobotService:
             try:
                 mapper.save(root)
                 if files is not None:
+                    self._flush_camera_capture()
                     files.event("console_scan_saved", reason)
                     files.flush()
                     files.close()
@@ -1508,6 +1575,10 @@ class RobotService:
                 self.camera.stop()
             except Exception:
                 pass
+        if self.camera_thread is not None:
+            self.camera_thread.join(timeout=3.0)
+        if self.camera_capture_thread is not None:
+            self.camera_capture_thread.join(timeout=3.0)
         if self.lidar is not None:
             try:
                 self.lidar.stop()
