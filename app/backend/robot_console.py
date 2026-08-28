@@ -36,6 +36,7 @@ SENSOR_PERIOD_S = 0.05
 MAP_PERIOD_S = 0.50
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
+LIVE_SCAN_MATCHING = False
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
 CAMERA_STREAM_MAX_SIZE = (640, 480)
@@ -899,7 +900,8 @@ class RobotService:
                 min_range_m=0.05,
                 max_range_m=8.0,
                 padding_cells=5,
-                scan_matching=True,
+                scan_matching=LIVE_SCAN_MATCHING,
+                map_id=root.name,
             )
             self.pose = initial_pose
             self.map_pose = copy_pose_for_mapping(initial_pose)
@@ -988,6 +990,9 @@ class RobotService:
         except ModuleNotFoundError:
             from manual_map import clean_saved_map_payload
         payload = clean_saved_map_payload(payload)
+        metadata = payload.setdefault("metadata", {})
+        if isinstance(metadata, dict):
+            metadata["map_id"] = map_path.parent.name
         width = int(payload.get("width", 0))
         height = int(payload.get("height", 0))
         occupancy = payload.get("occupancy")

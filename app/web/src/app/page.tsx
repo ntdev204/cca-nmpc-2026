@@ -234,7 +234,8 @@ function MapView({
   const previousMapKey = useRef("");
   const metadata = data?.metadata as Record<string, unknown> | undefined;
   const scanCount = asNumber(metadata?.scans, 0);
-  const mapKey = `${width}:${height}:${resolution}:${originX}:${originY}`;
+  const mapId = String(metadata?.map_id ?? "");
+  const mapKey = mapId || `${width}:${height}:${resolution}:${originX}:${originY}`;
   useEffect(() => {
     if (previousMapKey.current !== mapKey) {
       previousMapKey.current = mapKey;
