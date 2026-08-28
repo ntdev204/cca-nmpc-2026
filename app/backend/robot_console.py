@@ -958,19 +958,47 @@ class RobotService:
         max_size: tuple[int, int] | None = CAMERA_STREAM_MAX_SIZE,
         quality: int = CAMERA_STREAM_JPEG_QUALITY,
     ) -> bytes:
-        from PIL import Image
+        try:
+            import cv2
 
-        rgb = color_bgr[:, :, ::-1]
-        image = Image.fromarray(rgb)
-        if max_size is not None:
-            image.thumbnail(max_size)
-        stream = io.BytesIO()
-        image.save(stream, format="JPEG", quality=quality, optimize=False, subsampling=2)
-        return stream.getvalue()
+            image = color_bgr
+            if max_size is not None:
+                max_width, max_height = max_size
+                height, width = image.shape[:2]
+                scale = min(max_width / width, max_height / height, 1.0)
+                if scale < 1.0:
+                    image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            encoded_ok, encoded = cv2.imencode(
+                ".jpg",
+                image,
+                [cv2.IMWRITE_JPEG_QUALITY, int(quality), cv2.IMWRITE_JPEG_OPTIMIZE, 0],
+            )
+            if not encoded_ok:
+                raise RuntimeError("OpenCV JPEG encoding failed")
+            return encoded.tobytes()
+        except ImportError:
+            from PIL import Image
+
+            rgb = color_bgr[:, :, ::-1]
+            image = Image.fromarray(rgb)
+            if max_size is not None:
+                image.thumbnail(max_size)
+            stream = io.BytesIO()
+            image.save(stream, format="JPEG", quality=quality, optimize=False, subsampling=2)
+            return stream.getvalue()
 
     @staticmethod
     def _encode_depth(depth_raw: Any) -> bytes | None:
         try:
+            import cv2
+
+            encoded_ok, encoded = cv2.imencode(
+                ".png",
+                depth_raw,
+                [cv2.IMWRITE_PNG_COMPRESSION, 1],
+            )
+            return encoded.tobytes() if encoded_ok else None
+        except ImportError:
             from PIL import Image
 
             stream = io.BytesIO()
