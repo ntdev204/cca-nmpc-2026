@@ -52,3 +52,22 @@ renders the H.264 track in a muted `<video>` element. No camera bytes enter
 JSON, Base64, or the Next.js polling path. The negotiated camera frame is
 640x480; status metadata carries only timing and transport state. The old raw
 MJPEG endpoint remains at `/mjpeg` as a diagnostic fallback during deployment.
+
+## Operator pages
+
+The navigation bar exposes five connected pages without opening a second robot
+client:
+
+- `/` — overview with the fixed map, camera, LiDAR, controls, map capture and
+  live history summary.
+- `/monitor` — fixed map, robot pose, trajectory, planned path, LiDAR overlay,
+  polar returns and camera.
+- `/control` — continuous keyboard/button motion, zero velocity, stop and
+  emergency stop, plus map-frame A* planning.
+- `/mapping` — scan start/stop/save, saved-map selection and map loading.
+- `/telemetry` — paginated state, LiDAR, map-update and event histories.
+
+The history route is `/api/history?kind=state|lidar|map|event&page=1&pageSize=12`.
+It keeps only a bounded in-memory window in the server bridge. Full-resolution
+map and sensor payloads are not duplicated into the history table; the table
+shows timestamps and counts while the current stream remains lossless.

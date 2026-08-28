@@ -1,10 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Database, RefreshCw, Save, Square } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Pagination } from "@/components/pagination";
 
 export type SavedMap = {
   run_id?: string;
@@ -54,6 +56,15 @@ export function MapCapturePanel({
   const active = Boolean(dataset.active);
   const selectedMap = maps.find((map) => String(map.run_id ?? "") === selectedMapId);
   const mapCount = maps.length;
+  const pageSize = 5;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(mapCount / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleMaps = useMemo(() => {
+    const current = maps.slice((safePage - 1) * pageSize, safePage * pageSize);
+    if (selectedMap && !current.some((map) => String(map.run_id ?? "") === selectedMapId)) return [selectedMap, ...current.slice(0, -1)];
+    return current;
+  }, [maps, safePage, selectedMap, selectedMapId]);
 
   return (
     <Card className="shadow-sm">
@@ -93,7 +104,7 @@ export function MapCapturePanel({
                 className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground shadow-sm outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">Choose a saved map</option>
-                {maps.map((map) => {
+                {visibleMaps.map((map) => {
                   const runId = String(map.run_id ?? "");
                   return <option key={runId} value={runId}>{runId} · {number(map.scans)} scans</option>;
                 })}
@@ -107,6 +118,7 @@ export function MapCapturePanel({
             ) : (
               <p className="text-[11px] leading-4 text-muted-foreground">Saved maps are discovered from completed Jetson runs.</p>
             )}
+            <Pagination page={safePage} totalPages={totalPages} total={mapCount} label="saved maps" onPageChange={setPage} />
           </div>
         </div>
       </CardContent>

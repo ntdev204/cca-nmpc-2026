@@ -1,11 +1,16 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 import {
+  Activity,
   BatteryMedium,
   Camera,
   Crosshair,
+  Database,
+  LayoutDashboard,
   MapPinned,
   Radar,
   ScanLine,
@@ -19,6 +24,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { MapCapturePanel, type SavedMap } from "@/components/map-capture-panel";
+import { ControlPanel } from "@/components/control-panel";
+import { HistoryPanel } from "@/components/history-panel";
 
 type Snapshot = {
   backend?: string;
@@ -41,6 +48,15 @@ type TfFrame = {
 type TfPayload = { fixed_frame?: string; frames?: TfFrame[]; footprint?: Record<string, unknown> };
 type MapPlan = { path_xy?: number[][] };
 type MapViewport = { x: number; y: number; width: number; height: number };
+type DashboardView = "overview" | "monitor" | "control" | "mapping" | "telemetry";
+
+const DASHBOARD_VIEWS: Array<{ id: DashboardView; label: string; icon: typeof LayoutDashboard }> = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "monitor", label: "Monitor", icon: MapPinned },
+  { id: "control", label: "Control", icon: Crosshair },
+  { id: "mapping", label: "Mapping & data", icon: Database },
+  { id: "telemetry", label: "Telemetry", icon: Activity },
+];
 
 const CAMERA_WEBRTC_URL = process.env.NEXT_PUBLIC_ROBOT_WEBRTC_URL ?? "http://100.69.39.18:8766/webrtc/offer";
 
@@ -299,6 +315,7 @@ function MapView({
 
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot>({ backend: "connecting" });
+  const [view, setView] = useState<DashboardView>("overview");
   const [showLaser, setShowLaser] = useState(false);
   const [showTrace, setShowTrace] = useState(true);
   const [showPath, setShowPath] = useState(true);
@@ -307,7 +324,20 @@ export default function Home() {
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraPeerRef = useRef<RTCPeerConnection | null>(null);
   const [cameraConnection, setCameraConnection] = useState("idle");
+  const [cameraFallback, setCameraFallback] = useState(false);
   const firstRefresh = useRef(true);
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("view") as DashboardView | null;
+    if (requested && DASHBOARD_VIEWS.some((item) => item.id === requested)) setView(requested);
+    const onPopState = () => {
+      const next = new URLSearchParams(window.location.search).get("view") as DashboardView | null;
+      if (next && DASHBOARD_VIEWS.some((item) => item.id === next)) setView(next);
+      else setView("overview");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const mergeSnapshot = useCallback((previous: Snapshot, next: Snapshot): Snapshot => ({
     ...previous,
@@ -373,6 +403,7 @@ export default function Home() {
   }, [mapData]);
   const online = snapshot.backend === "online";
   const cameraOnline = online && status.camera === "online";
+  const cameraActive = cameraOnline && view !== "telemetry";
   const dataset = (status.dataset as Record<string, unknown> | undefined) ?? {};
   const savedMaps = useMemo<SavedMap[]>(() => {
     if (!Array.isArray(status.maps)) return [];
@@ -389,17 +420,24 @@ export default function Home() {
   const lastEvent = snapshot.events?.[snapshot.events.length - 1];
 
   useEffect(() => {
-    if (!cameraOnline) {
+    if (!cameraActive) {
       cameraPeerRef.current?.close();
       cameraPeerRef.current = null;
       if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
       setCameraConnection("idle");
+      setCameraFallback(false);
       return;
     }
     let cancelled = false;
     const videoElement = cameraVideoRef.current;
+    if (typeof RTCPeerConnection === "undefined") {
+      setCameraFallback(true);
+      setCameraConnection("mjpeg-fallback: WebRTC unavailable");
+      return () => { cancelled = true; };
+    }
     const peer = new RTCPeerConnection({ iceServers: [] });
     cameraPeerRef.current = peer;
+    setCameraFallback(false);
     setCameraConnection("connecting");
     peer.addTransceiver("video", { direction: "recvonly" });
     peer.ontrack = (event) => {
@@ -413,7 +451,10 @@ export default function Home() {
     };
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === "connected") setCameraConnection("connected");
-      if (["failed", "closed"].includes(peer.connectionState)) setCameraConnection("failed");
+      if (["failed", "closed"].includes(peer.connectionState)) {
+        setCameraFallback(true);
+        setCameraConnection("mjpeg-fallback: WebRTC connection failed");
+      }
     };
     void (async () => {
       try {
@@ -432,7 +473,12 @@ export default function Home() {
         const answer = (await response.json()) as RTCSessionDescriptionInit;
         await peer.setRemoteDescription(answer);
       } catch (error) {
-        if (!cancelled) setCameraConnection(`failed: ${String(error)}`);
+        if (!cancelled) {
+          peer.close();
+          if (cameraPeerRef.current === peer) cameraPeerRef.current = null;
+          setCameraFallback(true);
+          setCameraConnection(`mjpeg-fallback: ${String(error)}`);
+        }
       }
     })();
     return () => {
@@ -443,7 +489,7 @@ export default function Home() {
       if (cameraPeerRef.current === peer) cameraPeerRef.current = null;
       if (videoElement) videoElement.srcObject = null;
     };
-  }, [cameraOnline]);
+  }, [cameraActive]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -474,9 +520,12 @@ export default function Home() {
             </Button>
           </div>
         </header>
+        <nav className="flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1 shadow-sm" aria-label="Robot console pages">
+          {DASHBOARD_VIEWS.map(({ id, label, icon: Icon }) => <Link key={id} href={id === "overview" ? "/" : `/${id}`} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${view === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} aria-current={view === id ? "page" : undefined}><Icon className="size-3.5" />{label}</Link>)}
+        </nav>
         {lastEvent && <div className="rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground"><span className="font-medium text-foreground">Last backend event:</span> {String(lastEvent.event ?? lastEvent.type ?? "event")} {lastEvent.message ? `· ${String(lastEvent.message)}` : ""}</div>}
 
-        <Card className="overflow-hidden shadow-sm">
+        {(view === "overview" || view === "monitor" || view === "control" || view === "mapping") && <Card className="overflow-hidden shadow-sm">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
             <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · odometry marker</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -490,20 +539,21 @@ export default function Home() {
             <MapView data={mapData} pose={pose} lidar={lidar} tf={tf} trace={trace} history={mapHistory} plan={plan} showLaser={showLaser} showTrace={showTrace} showPath={showPath} />
             <section className="flex min-h-[520px] flex-col rounded-lg border bg-slate-950/5 p-2" aria-label="Astra-S camera monitor">
               <div className="flex items-center justify-between px-1 pb-2"><div className="flex items-center gap-2 text-sm font-medium"><Camera className="size-4 text-primary" />Astra-S camera</div><span className="text-xs text-muted-foreground">{cameraAge}</span></div>
-              <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-slate-100">{cameraOnline && !cameraConnection.startsWith("failed") ? <><span className="sr-only">Astra-S WebRTC H.264 stream</span><video ref={cameraVideoRef} muted autoPlay playsInline className="max-h-full w-full object-contain" aria-label="Astra-S WebRTC H.264 camera stream" /></> : <p className="px-3 text-center text-sm text-muted-foreground">{cameraConnection.startsWith("failed") ? cameraConnection : "Camera stream unavailable"}</p>}</div>
-              <div className="flex items-center justify-between px-1 pt-2 text-xs text-muted-foreground"><span>{dataset.active ? "recording frame" : "monitoring only"}</span><span>WebRTC · H.264 · {cameraConnection} · 0° level</span></div>
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-slate-100">{cameraOnline && cameraFallback ? <><span className="sr-only">Astra-S MJPEG fallback stream</span>{/* MJPEG multipart must stay an img stream. */}<img src="/api/camera" className="max-h-full w-full object-contain" alt="Astra-S MJPEG camera stream" /></> : cameraOnline && !cameraConnection.startsWith("failed") ? <><span className="sr-only">Astra-S WebRTC H.264 stream</span><video ref={cameraVideoRef} muted autoPlay playsInline className="max-h-full w-full object-contain" aria-label="Astra-S WebRTC H.264 camera stream" /></> : <p className="px-3 text-center text-sm text-muted-foreground">{cameraConnection.startsWith("failed") ? cameraConnection : "Camera stream unavailable"}</p>}</div>
+              <div className="flex items-center justify-between px-1 pt-2 text-xs text-muted-foreground"><span>{dataset.active ? "recording frame" : "monitoring only"}</span><span>{cameraFallback ? "MJPEG fallback" : "WebRTC · H.264"} · {cameraConnection} · 0° level</span></div>
             </section>
           </CardContent>
-        </Card>
+        </Card>}
 
-        <section className="grid items-start gap-4 xl:grid-cols-[minmax(260px,0.45fr)_minmax(0,1fr)]">
+        {(view === "overview" || view === "monitor") && <section className="grid items-start gap-4 xl:grid-cols-[minmax(260px,0.45fr)_minmax(0,1fr)]">
           <Card className="overflow-hidden shadow-sm">
             <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Radar className="size-4 text-primary" />Live LiDAR</CardTitle><CardDescription>{lidar.length} returns · {lidarAge}</CardDescription></CardHeader>
             <Separator />
             <CardContent className="p-3"><LidarView points={lidar} /></CardContent>
           </Card>
-        </section>
-        <MapCapturePanel
+        </section>}
+        {(view === "overview" || view === "control") && <ControlPanel online={online} armed={armed} command={(payload) => void command(payload)} plan={plan as Record<string, unknown> | undefined} />}
+        {(view === "overview" || view === "mapping") && <MapCapturePanel
           online={online}
           dataset={dataset}
           status={status}
@@ -511,7 +561,8 @@ export default function Home() {
           selectedMapId={selectedMapId}
           onSelectMap={setSelectedMapId}
           onCommand={(payload) => void command(payload)}
-        />
+        />}
+        {(view === "overview" || view === "telemetry") && <HistoryPanel />}
         {snapshot.error && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{snapshot.error}</p>}
       </div>
     </main>

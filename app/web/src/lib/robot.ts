@@ -9,6 +9,7 @@ const ROBOT_PORT = Number(process.env.ROBOT_PORT ?? "8765");
 const WIRE_ENCODING = "zlib+base64";
 const parseJson = JSONbig({ storeAsString: true }).parse;
 const STREAM_TYPES = new Set(["state", "lidar", "map"]);
+const HISTORY_LIMIT = 2400;
 
 function decodeWireMessage(value: RobotMessage): RobotMessage {
   if (value.encoding !== WIRE_ENCODING) return value;
@@ -33,6 +34,7 @@ class RobotBridge {
   private connected = false;
   private readonly latest = new Map<string, RobotMessage>();
   private readonly recentEvents: RobotMessage[] = [];
+  private readonly historyByType = new Map<string, RobotMessage[]>();
   private commandQueue: Promise<RobotMessage[]> = Promise.resolve([]);
 
   async ensureConnected(): Promise<void> {
@@ -99,16 +101,29 @@ class RobotBridge {
       try {
         const message = decodeWireMessage(parseJson(line) as RobotMessage);
         const type = String(message.type ?? "event");
-        if (STREAM_TYPES.has(type)) this.latest.set(type, message);
+        if (type === "pong") continue;
+        if (STREAM_TYPES.has(type)) {
+          this.latest.set(type, message);
+          this.appendHistory(type, message);
+        }
         else {
           this.recentEvents.push(message);
+          this.appendHistory("event", message);
           while (this.recentEvents.length > 8) this.recentEvents.shift();
         }
       } catch {
         this.recentEvents.push({ type: "event", event: "decode_error", message: "invalid robot stream item" });
+        this.appendHistory("event", { type: "event", event: "decode_error", message: "invalid robot stream item" });
         while (this.recentEvents.length > 8) this.recentEvents.shift();
       }
     }
+  }
+
+  private appendHistory(type: string, message: RobotMessage): void {
+    const history = this.historyByType.get(type) ?? [];
+    history.push(message);
+    if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
+    this.historyByType.set(type, history);
   }
 
   private messages(): RobotMessage[] {
@@ -124,6 +139,31 @@ class RobotBridge {
     await this.ensureConnected();
     await this.waitForState();
     return this.messages();
+  }
+
+  async readHistory(type: string, page: number, pageSize: number): Promise<{
+    items: RobotMessage[];
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  }> {
+    await this.ensureConnected();
+    await this.waitForState();
+    const source = this.historyByType.get(type) ?? [];
+    const total = source.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const end = total - (safePage - 1) * pageSize;
+    const start = Math.max(0, end - pageSize);
+    const records = source.slice(start, end).reverse();
+    return {
+      items: records.map((item) => historyItem(type, item)),
+      page: safePage,
+      pageSize,
+      total,
+      totalPages,
+    };
   }
 
   send(payload: RobotMessage): Promise<RobotMessage[]> {
@@ -156,8 +196,49 @@ export function readRobot(): Promise<RobotMessage[]> {
   return bridge.read();
 }
 
+export function readRobotHistory(type: string, page: number, pageSize: number) {
+  return bridge.readHistory(type, page, pageSize);
+}
+
 export function sendRobotCommand(payload: RobotMessage): Promise<RobotMessage[]> {
   return bridge.send(payload);
+}
+
+function historyItem(type: string, item: RobotMessage): RobotMessage {
+  if (type === "state") {
+    return {
+      type,
+      t_ns: item.t_ns,
+      pose: item.pose,
+      map_pose: item.map_pose,
+      telemetry: item.telemetry,
+      command: item.command,
+      status: item.status,
+    };
+  }
+  if (type === "lidar") {
+    return {
+      type,
+      t_ns: item.t_ns,
+      points: Array.isArray(item.points) ? item.points.length : 0,
+    };
+  }
+  if (type === "map") {
+    const map = item.map as RobotMessage | undefined;
+    const metadata = map?.metadata as RobotMessage | undefined;
+    return {
+      type,
+      t_ns: item.t_ns,
+      scans: metadata?.scans ?? 0,
+      points: metadata?.points ?? 0,
+      width: map?.width ?? 0,
+      height: map?.height ?? 0,
+    };
+  }
+  return {
+    ...item,
+    type: item.type ?? "event",
+  };
 }
 
 type SnapshotOptions = { full?: boolean };
