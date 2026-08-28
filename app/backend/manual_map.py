@@ -108,6 +108,7 @@ CONTEXT_FIELDS = (
 )
 EVENT_FIELDS = ("t_ns", "event_type", "solve_ms", "status_code", "sequence", "detail")
 DEFAULT_MAP_RESOLUTION_M = 0.025
+MAX_MAP_POINTS = 240
 YAW_RATE_MIN_RADPS = 0.08
 YAW_RATE_RATIO_LOW = 0.72
 YAW_RATE_RATIO_HIGH = 1.40
@@ -311,6 +312,7 @@ class OccupancyMap:
         max_range_m: float,
         padding_cells: int,
         scan_matching: bool = True,
+        map_id: str = "",
     ) -> None:
         if not math.isfinite(resolution_m) or resolution_m <= 0.0:
             raise ValueError("map resolution must be positive and finite")
@@ -326,6 +328,7 @@ class OccupancyMap:
         self.max_range_m = float(max_range_m)
         self.padding_cells = int(padding_cells)
         self.scan_matching_enabled = bool(scan_matching)
+        self.map_id = str(map_id)
         self.free: set[tuple[int, int]] = set()
         self.occupied: set[tuple[int, int]] = set()
         self.log_odds: dict[tuple[int, int], float] = {}
@@ -353,7 +356,7 @@ class OccupancyMap:
     def cell(self, x_m: float, y_m: float) -> tuple[int, int]:
         return math.floor(x_m / self.resolution_m), math.floor(y_m / self.resolution_m)
 
-    def _valid_points(self, scan: LidarScan) -> tuple[LidarPoint, ...]:
+    def _valid_points(self, scan: LidarScan, limit: int | None = MAX_MAP_POINTS) -> tuple[LidarPoint, ...]:
         nearest: dict[float, LidarPoint] = {}
         for point in scan.points:
             distance = finite(point.range_m)
@@ -363,11 +366,15 @@ class OccupancyMap:
             previous = nearest.get(angle_key)
             if previous is None or distance < previous.range_m:
                 nearest[angle_key] = point
-        return tuple(nearest.values())
+        points = tuple(sorted(nearest.values(), key=lambda point: point.angle_rad))
+        if limit is None or len(points) <= limit:
+            return points
+        stride = len(points) / limit
+        return tuple(points[min(len(points) - 1, int(index * stride))] for index in range(limit))
 
     def _scan_match_points(self, scan: LidarScan) -> tuple[tuple[float, float], ...]:
         points: list[tuple[float, float]] = []
-        for point in self._valid_points(scan):
+        for point in self._valid_points(scan, self.SCAN_MATCH_MAX_POINTS):
             distance = finite(point.range_m)
             if distance is None or distance >= self.max_range_m:
                 continue
@@ -461,7 +468,7 @@ class OccupancyMap:
         if len(self.poses) > 5000:
             del self.poses[:-5000]
         self.scans += 1
-        for point in self._valid_points(scan):
+        for point in self._valid_points(scan, MAX_MAP_POINTS):
             distance = finite(point.range_m)
             if distance is None:
                 continue
@@ -527,6 +534,7 @@ class OccupancyMap:
             "occupancy": occupancy,
             "metadata": {
                 "map_source": "manual_teleop_n10p_scan_to_map",
+                "map_id": self.map_id or None,
                 "scans": self.scans,
                 "points": self.points,
                 "row_order": "y_increasing_from_origin",
