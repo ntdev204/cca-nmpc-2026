@@ -2433,7 +2433,7 @@ def self_test() -> None:
     mapper = OccupancyMap(0.05, lidar_x_m=0.10, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
     scan = LidarScan(1, (LidarPoint(1, 0.0, 1.0, 10, 0), LidarPoint(1, math.pi / 2.0, 0.5, 10, 0)))
     mapper.update(scan, Pose())
-    payload = mapper.payload()
+    payload = mapper.raw_payload()
     if payload["width"] < 3 or payload["height"] < 3 or 100 not in payload["occupancy"]:
         raise AssertionError("map self-test failed")
     plan = plan_occupancy_map(
