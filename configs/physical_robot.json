@@ -16,9 +16,9 @@
     "camera_front_edge_distance_m": 0.035,
     "lidar_position_x_m": 0.1,
     "camera_position_x_m": 0.165,
-    "camera_pitch_deg": -20.0,
-    "camera_pitch_rad": -0.3490658503988659,
-    "pitch_direction": "downward"
+    "camera_pitch_deg": 0.0,
+    "camera_pitch_rad": 0.0,
+    "pitch_direction": "level"
   },
   "wheel_signs": {
     "fl": 1,
@@ -26,5 +26,5 @@
     "rl": 1,
     "rr": 1
   },
-  "notes": "The supplied 50 mm radius is interpreted as the wheel radius because this is the radius used by the Mecanum kinematic interface. Camera angle is recorded as 20 degrees downward from the ground-plane direction. Wheel signs are retained from the existing transport convention and must be verified during commissioning; independent dimensional/calibration verification remains required before actuation."
+  "notes": "The supplied 50 mm radius is interpreted as the wheel radius because this is the radius used by the Mecanum kinematic interface. Camera angle is recorded as 0 degrees (level) relative to the ground-plane direction. Wheel signs are retained from the existing transport convention and must be verified during commissioning; independent dimensional/calibration verification remains required before actuation."
 }

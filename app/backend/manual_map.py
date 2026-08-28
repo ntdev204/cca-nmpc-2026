@@ -72,9 +72,25 @@ STATE_FIELDS = (
     "gyro_z_radps",
     "voltage_v",
     "flag_stop",
+    "yaw_rate_used_radps",
+    "yaw_rate_source",
+    "integration_dt_s",
+    "speed_mps",
     "transport",
 )
 LIDAR_FIELDS = ("t_ns", "point_count", "points_json")
+CAMERA_FIELDS = (
+    "t_ns",
+    "device_t_ns",
+    "color_path",
+    "color_bytes",
+    "depth_path",
+    "depth_bytes",
+    "width_px",
+    "height_px",
+    "depth_scale_m",
+    "encoding",
+)
 CONTEXT_FIELDS = (
     "t_ns",
     "position_x_m",
@@ -91,6 +107,10 @@ CONTEXT_FIELDS = (
     "lidar_valid",
 )
 EVENT_FIELDS = ("t_ns", "event_type", "solve_ms", "status_code", "sequence", "detail")
+DEFAULT_MAP_RESOLUTION_M = 0.025
+YAW_RATE_MIN_RADPS = 0.08
+YAW_RATE_RATIO_LOW = 0.72
+YAW_RATE_RATIO_HIGH = 1.40
 
 
 def finite(value: Any) -> float | None:
@@ -101,6 +121,64 @@ def finite(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def filter_occupied_components(
+    occupied: set[tuple[int, int]], min_component_cells: int,
+) -> set[tuple[int, int]]:
+    remaining = set(occupied)
+    cleaned: set[tuple[int, int]] = set()
+    while remaining:
+        seed = remaining.pop()
+        component = [seed]
+        stack = [seed]
+        while stack:
+            cell_x, cell_y = stack.pop()
+            for delta_y in (-1, 0, 1):
+                for delta_x in (-1, 0, 1):
+                    if delta_x == 0 and delta_y == 0:
+                        continue
+                    neighbour = (cell_x + delta_x, cell_y + delta_y)
+                    if neighbour in remaining:
+                        remaining.remove(neighbour)
+                        component.append(neighbour)
+                        stack.append(neighbour)
+        if len(component) >= min_component_cells:
+            cleaned.update(component)
+    return cleaned
+
+
+def clean_saved_map_payload(payload: dict[str, Any], min_component_cells: int = 3) -> dict[str, Any]:
+    width = int(payload.get("width", 0))
+    height = int(payload.get("height", 0))
+    values = payload.get("occupancy")
+    if width <= 0 or height <= 0 or not isinstance(values, list) or len(values) < width * height:
+        raise ValueError("saved map dimensions or occupancy data are invalid")
+    occupied = {
+        (index % width, index // width)
+        for index, value in enumerate(values[: width * height])
+        if value == 100
+    }
+    cleaned = filter_occupied_components(occupied, min_component_cells)
+    result = dict(payload)
+    result["occupancy"] = [
+        100 if (index % width, index // width) in cleaned
+        else -1 if value == 100
+        else value
+        for index, value in enumerate(values[: width * height])
+    ]
+    metadata = dict(payload.get("metadata") or {})
+    metadata["cleaning"] = {
+        "enabled": True,
+        "method": "occupied_connected_components",
+        "source": "saved_map_payload",
+        "min_component_cells": min_component_cells,
+        "raw_occupied_cells": len(occupied),
+        "clean_occupied_cells": len(cleaned),
+        "removed_occupied_cells": len(occupied) - len(cleaned),
+    }
+    result["metadata"] = metadata
+    return result
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -109,16 +187,37 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def pose_yaw_rate(telemetry: Stm32Telemetry) -> tuple[float, str]:
+    """Select a measured yaw rate when encoder and gyro disagree."""
+
+    body = finite(telemetry.wz_radps) or 0.0
+    gyro = finite(telemetry.gyro_z_radps) or 0.0
+    if abs(gyro) >= YAW_RATE_MIN_RADPS:
+        if abs(body) < YAW_RATE_MIN_RADPS:
+            return gyro, "gyro_z_dropout_recovery"
+        if body * gyro > 0.0:
+            ratio = abs(gyro) / abs(body)
+            if ratio < YAW_RATE_RATIO_LOW or ratio > YAW_RATE_RATIO_HIGH:
+                return gyro, "gyro_z_disagreement"
+    return body, "body_velocity"
+
+
 @dataclass
 class Pose:
     x_m: float = 0.0
     y_m: float = 0.0
     yaw_rad: float = 0.0
     last_t_ns: int | None = None
+    last_dt_s: float = 0.0
+    last_yaw_rate_radps: float = 0.0
+    last_yaw_rate_source: str = "body_velocity"
 
     def update(self, telemetry: Stm32Telemetry | None) -> None:
         if telemetry is None:
             return
+        yaw_rate, source = pose_yaw_rate(telemetry)
+        self.last_yaw_rate_radps = yaw_rate
+        self.last_yaw_rate_source = source
         if self.last_t_ns is None:
             self.last_t_ns = telemetry.t_ns
             return
@@ -126,14 +225,15 @@ class Pose:
             return
         dt = min((telemetry.t_ns - self.last_t_ns) / 1e9, 0.25)
         self.last_t_ns = telemetry.t_ns
-        half_yaw = self.yaw_rad + 0.5 * telemetry.wz_radps * dt
+        self.last_dt_s = dt
+        half_yaw = self.yaw_rad + 0.5 * yaw_rate * dt
         cosine = math.cos(half_yaw)
         sine = math.sin(half_yaw)
         self.x_m += (cosine * telemetry.vx_mps - sine * telemetry.vy_mps) * dt
         self.y_m += (sine * telemetry.vx_mps + cosine * telemetry.vy_mps) * dt
         self.yaw_rad = math.atan2(
-            math.sin(self.yaw_rad + telemetry.wz_radps * dt),
-            math.cos(self.yaw_rad + telemetry.wz_radps * dt),
+            math.sin(self.yaw_rad + yaw_rate * dt),
+            math.cos(self.yaw_rad + yaw_rate * dt),
         )
 
     def as_tuple(self) -> tuple[float, float, float]:
@@ -192,6 +292,13 @@ class OccupancyMap:
     SCAN_MATCH_YAW_WINDOW_RAD = math.radians(6.0)
     SCAN_MATCH_YAW_STEP_RAD = math.radians(2.0)
     SCAN_MATCH_MIN_INLIER_RATIO = 0.20
+    LOG_ODDS_MIN = -4.0
+    LOG_ODDS_MAX = 4.0
+    FREE_THRESHOLD = -0.7
+    OCCUPIED_THRESHOLD = 0.75
+    FREE_EVIDENCE = -0.35
+    OCCUPIED_EVIDENCE = 0.85
+    CLEAN_MIN_COMPONENT_CELLS = 3
 
     def __init__(
         self,
@@ -221,21 +328,48 @@ class OccupancyMap:
         self.scan_matching_enabled = bool(scan_matching)
         self.free: set[tuple[int, int]] = set()
         self.occupied: set[tuple[int, int]] = set()
+        self.log_odds: dict[tuple[int, int], float] = {}
         self.poses: list[tuple[float, float, float]] = []
+        self.history: list[dict[str, Any]] = []
         self.scans = 0
         self.points = 0
         self.scan_match_attempts = 0
         self.scan_match_accepted = 0
         self.last_scan_match = ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "not_run")
 
+    def _apply_evidence(self, cell: tuple[int, int], evidence: float) -> None:
+        score = max(self.LOG_ODDS_MIN, min(self.LOG_ODDS_MAX, self.log_odds.get(cell, 0.0) + evidence))
+        self.log_odds[cell] = score
+        if score >= self.OCCUPIED_THRESHOLD:
+            self.occupied.add(cell)
+            self.free.discard(cell)
+        elif score <= self.FREE_THRESHOLD:
+            self.free.add(cell)
+            self.occupied.discard(cell)
+        else:
+            self.free.discard(cell)
+            self.occupied.discard(cell)
+
     def cell(self, x_m: float, y_m: float) -> tuple[int, int]:
         return math.floor(x_m / self.resolution_m), math.floor(y_m / self.resolution_m)
 
-    def _scan_match_points(self, scan: LidarScan) -> tuple[tuple[float, float], ...]:
-        points: list[tuple[float, float]] = []
+    def _valid_points(self, scan: LidarScan) -> tuple[LidarPoint, ...]:
+        nearest: dict[float, LidarPoint] = {}
         for point in scan.points:
             distance = finite(point.range_m)
-            if distance is None or distance < self.min_range_m or distance >= self.max_range_m:
+            if distance is None or distance < self.min_range_m:
+                continue
+            angle_key = round(float(point.angle_rad), 6)
+            previous = nearest.get(angle_key)
+            if previous is None or distance < previous.range_m:
+                nearest[angle_key] = point
+        return tuple(nearest.values())
+
+    def _scan_match_points(self, scan: LidarScan) -> tuple[tuple[float, float], ...]:
+        points: list[tuple[float, float]] = []
+        for point in self._valid_points(scan):
+            distance = finite(point.range_m)
+            if distance is None or distance >= self.max_range_m:
                 continue
             angle = self.lidar_yaw_rad + point.angle_rad
             points.append(
@@ -324,10 +458,12 @@ class OccupancyMap:
         sensor_y = pose.y_m + math.sin(pose.yaw_rad) * self.lidar_x_m + math.cos(pose.yaw_rad) * self.lidar_y_m
         start_cell = self.cell(sensor_x, sensor_y)
         self.poses.append(pose.as_tuple())
+        if len(self.poses) > 5000:
+            del self.poses[:-5000]
         self.scans += 1
-        for point in scan.points:
+        for point in self._valid_points(scan):
             distance = finite(point.range_m)
-            if distance is None or distance < self.min_range_m:
+            if distance is None:
                 continue
             limited = min(distance, self.max_range_m)
             angle = pose.yaw_rad + self.lidar_yaw_rad + point.angle_rad
@@ -335,15 +471,31 @@ class OccupancyMap:
             end_y = sensor_y + limited * math.sin(angle)
             ray = bresenham(start_cell, self.cell(end_x, end_y))
             for cell in ray[:-1]:
-                if cell not in self.occupied:
-                    self.free.add(cell)
+                self._apply_evidence(cell, self.FREE_EVIDENCE)
             if distance < self.max_range_m:
-                self.occupied.add(ray[-1])
-                self.free.discard(ray[-1])
+                self._apply_evidence(ray[-1], self.OCCUPIED_EVIDENCE)
             self.points += 1
+        self.history.append(
+            {
+                "scan_index": self.scans,
+                "t_ns": scan.t_ns,
+                "pose": [round(pose.x_m, 6), round(pose.y_m, 6), round(pose.yaw_rad, 6)],
+                "occupied_cells": len(self.occupied),
+                "free_cells": len(self.free),
+                "evidence_cells": len(self.log_odds),
+                "scan_match": {
+                    "accepted": self.last_scan_match.accepted,
+                    "score": round(self.last_scan_match.score, 6),
+                    "correction_m": round(self.last_scan_match.correction_m, 6),
+                    "correction_yaw_rad": round(self.last_scan_match.correction_yaw_rad, 6),
+                },
+            }
+        )
+        if len(self.history) > 5000:
+            del self.history[:-5000]
 
-    def payload(self) -> dict[str, Any]:
-        cells = self.free | self.occupied
+    def _bounds(self) -> tuple[int, int, int, int]:
+        cells = set(self.log_odds)
         if not cells:
             min_x = min_y = 0
             max_x = max_y = 0
@@ -352,13 +504,20 @@ class OccupancyMap:
             max_x = max(cell[0] for cell in cells) + self.padding_cells
             min_y = min(cell[1] for cell in cells) - self.padding_cells
             max_y = max(cell[1] for cell in cells) + self.padding_cells
+        return min_x, max_x, min_y, max_y
+
+    def _clean_occupied(self) -> set[tuple[int, int]]:
+        return filter_occupied_components(self.occupied, self.CLEAN_MIN_COMPONENT_CELLS)
+
+    def _payload_for(self, occupied: set[tuple[int, int]], cleaning: dict[str, Any]) -> dict[str, Any]:
+        min_x, max_x, min_y, max_y = self._bounds()
         width = max_x - min_x + 1
         height = max_y - min_y + 1
         occupancy: list[int] = []
         for y in range(min_y, max_y + 1):
             for x in range(min_x, max_x + 1):
                 cell = (x, y)
-                occupancy.append(100 if cell in self.occupied else 0 if cell in self.free else -1)
+                occupancy.append(100 if cell in occupied else 0 if cell in self.free else -1)
         return {
             "frame_id": "map",
             "resolution_m": self.resolution_m,
@@ -384,12 +543,53 @@ class OccupancyMap:
                     "last_correction_m": self.last_scan_match.correction_m,
                     "last_correction_yaw_rad": self.last_scan_match.correction_yaw_rad,
                 },
+                "fusion": {
+                    "method": "bounded_log_odds",
+                    "free_threshold": self.FREE_THRESHOLD,
+                    "occupied_threshold": self.OCCUPIED_THRESHOLD,
+                    "free_evidence": self.FREE_EVIDENCE,
+                    "occupied_evidence": self.OCCUPIED_EVIDENCE,
+                },
+                "cleaning": cleaning,
+                "history": {
+                    "scan_count": self.scans,
+                    "records": self.history[-200:],
+                    "trajectory": [[round(x, 6), round(y, 6), round(yaw, 6)] for x, y, yaw in self.poses[-2000:]],
+                },
             },
         }
 
+    def payload(self) -> dict[str, Any]:
+        cleaned = self._clean_occupied()
+        return self._payload_for(
+            cleaned,
+            {
+                "enabled": True,
+                "method": "occupied_connected_components",
+                "min_component_cells": self.CLEAN_MIN_COMPONENT_CELLS,
+                "raw_occupied_cells": len(self.occupied),
+                "clean_occupied_cells": len(cleaned),
+                "removed_occupied_cells": len(self.occupied) - len(cleaned),
+            },
+        )
+
+    def raw_payload(self) -> dict[str, Any]:
+        return self._payload_for(
+            set(self.occupied),
+            {
+                "enabled": False,
+                "method": "raw_log_odds_threshold",
+                "raw_occupied_cells": len(self.occupied),
+                "clean_occupied_cells": len(self.occupied),
+                "removed_occupied_cells": 0,
+            },
+        )
+
     def save(self, root: Path) -> dict[str, Any]:
         payload = self.payload()
+        raw_payload = self.raw_payload()
         (root / "map.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        (root / "map_raw.json").write_text(json.dumps(raw_payload, indent=2) + "\n", encoding="utf-8")
         origin_x, origin_y, _ = payload["origin"]
         min_x = round(origin_x / self.resolution_m)
         min_y = round(origin_y / self.resolution_m)
@@ -450,12 +650,17 @@ class RunFiles:
     def __init__(self, root: Path) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=False)
+        self.camera_root = root / "camera"
+        self.depth_root = root / "depth"
+        self.camera_root.mkdir()
+        self.depth_root.mkdir()
         self.streams: dict[str, Any] = {}
         self.writers: dict[str, csv.DictWriter] = {}
         for name, fields in (
             ("control.csv", CONTROL_FIELDS),
             ("robot_state.csv", STATE_FIELDS),
             ("lidar.csv", LIDAR_FIELDS),
+            ("camera.csv", CAMERA_FIELDS),
             ("context.csv", CONTEXT_FIELDS),
             ("events.csv", EVENT_FIELDS),
         ):
@@ -463,9 +668,13 @@ class RunFiles:
             self.streams[name] = stream
             self.writers[name] = csv.DictWriter(stream, fieldnames=fields)
             self.writers[name].writeheader()
+        self.history_stream = (root / "map_history.jsonl").open("w", encoding="utf-8")
 
     def write(self, name: str, row: dict[str, Any]) -> None:
         self.writers[name].writerow(row)
+
+    def write_map_history(self, record: dict[str, Any]) -> None:
+        self.history_stream.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
 
     def event(self, kind: str, detail: str, sequence: int = 0) -> None:
         self.write("events.csv", {"t_ns": utc_ns(), "event_type": kind, "solve_ms": "", "status_code": 0, "sequence": sequence, "detail": detail})
@@ -494,6 +703,10 @@ class RunFiles:
             "gyro_z_radps": "",
             "voltage_v": "",
             "flag_stop": "",
+            "yaw_rate_used_radps": pose.last_yaw_rate_radps,
+            "yaw_rate_source": pose.last_yaw_rate_source,
+            "integration_dt_s": pose.last_dt_s,
+            "speed_mps": "",
             "transport": transport,
         }
         if telemetry is not None:
@@ -510,6 +723,7 @@ class RunFiles:
                     "gyro_z_radps": telemetry.gyro_z_radps,
                     "voltage_v": telemetry.voltage_v,
                     "flag_stop": telemetry.flag_stop,
+                    "speed_mps": math.hypot(telemetry.vx_mps, telemetry.vy_mps),
                 }
             )
         self.write("robot_state.csv", values)
@@ -534,6 +748,44 @@ class RunFiles:
         points = [[round(point.angle_rad, 7), round(point.range_m, 4), int(point.intensity), int(point.return_id)] for point in scan.points]
         self.write("lidar.csv", {"t_ns": scan.t_ns, "point_count": len(points), "points_json": json.dumps(points, separators=(",", ":"))})
 
+    def camera_frame(
+        self,
+        t_ns: int,
+        device_t_ns: int | None,
+        color_jpeg: bytes,
+        depth_png: bytes | None,
+        width_px: int,
+        height_px: int,
+        depth_scale_m: float,
+    ) -> str:
+        stem = str(int(t_ns))
+        color_path = self.camera_root / f"{stem}.jpg"
+        color_path.write_bytes(color_jpeg)
+        depth_path = ""
+        depth_bytes = 0
+        if depth_png:
+            depth_file = self.depth_root / f"{stem}.png"
+            depth_file.write_bytes(depth_png)
+            depth_path = depth_file.relative_to(self.root).as_posix()
+            depth_bytes = len(depth_png)
+        color_relative = color_path.relative_to(self.root).as_posix()
+        self.write(
+            "camera.csv",
+            {
+                "t_ns": int(t_ns),
+                "device_t_ns": "" if device_t_ns is None else int(device_t_ns),
+                "color_path": color_relative,
+                "color_bytes": len(color_jpeg),
+                "depth_path": depth_path,
+                "depth_bytes": depth_bytes,
+                "width_px": int(width_px),
+                "height_px": int(height_px),
+                "depth_scale_m": float(depth_scale_m),
+                "encoding": "jpeg+png16",
+            },
+        )
+        return color_relative
+
     def context(self, t_ns: int, pose: Pose, scan: LidarScan | None) -> None:
         minimum = "" if scan is None or not math.isfinite(scan.minimum_range_m) else scan.minimum_range_m
         self.write("context.csv", {"t_ns": t_ns, "position_x_m": "", "position_y_m": "", "speed_mps": "", "direction": "", "confidence": "", "context_valid": 0, "lstm_active": 0, "lstm_configured": 0, "frame_path": "", "camera_device_t_ns": "", "lidar_min_range_m": minimum, "lidar_valid": int(scan is not None)})
@@ -541,11 +793,13 @@ class RunFiles:
     def flush(self) -> None:
         for stream in self.streams.values():
             stream.flush()
+        self.history_stream.flush()
 
     def close(self) -> None:
         self.flush()
         for stream in self.streams.values():
             stream.close()
+        self.history_stream.close()
 
 
 def command_for_key(key: str, speed: float, yaw_speed: float) -> tuple[float, float, float] | None:
@@ -564,7 +818,11 @@ def command_for_key(key: str, speed: float, yaw_speed: float) -> tuple[float, fl
 
 
 def write_manifest(root: Path, args: argparse.Namespace, mapper: OccupancyMap, transport: str, started_ns: int, stopped_ns: int, status: str) -> None:
-    files = {path.name: {"bytes": path.stat().st_size, "sha256": sha256(path)} for path in root.iterdir() if path.is_file() and path.name != "manifest.json"}
+    files = {
+        path.relative_to(root).as_posix(): {"bytes": path.stat().st_size, "sha256": sha256(path)}
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "manifest.json"
+    }
     payload = {
         "schema": "cca-manual-teleop-lidar-map-v1",
         "run_id": root.name,
@@ -596,7 +854,7 @@ def write_manifest(root: Path, args: argparse.Namespace, mapper: OccupancyMap, t
 
 
 def self_test() -> None:
-    mapper = OccupancyMap(0.05, lidar_x_m=0.1, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
+    mapper = OccupancyMap(DEFAULT_MAP_RESOLUTION_M, lidar_x_m=0.1, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
     scan = LidarScan(1, (LidarPoint(1, 0.0, 1.0, 10, 0), LidarPoint(1, math.pi / 2, 0.5, 10, 0)))
     mapper.update(scan, Pose())
     payload = mapper.payload()
@@ -614,7 +872,7 @@ def self_test() -> None:
         for y_m in (-1.0, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1.0)
     )
     reference_scan = LidarScan(2, landmarks)
-    matcher = OccupancyMap(0.05, lidar_x_m=0.0, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
+    matcher = OccupancyMap(DEFAULT_MAP_RESOLUTION_M, lidar_x_m=0.0, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
     matcher.update(reference_scan, Pose())
     drifted_pose = Pose(x_m=0.10)
     matcher.update(reference_scan, drifted_pose)
@@ -638,7 +896,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--yaw-speed", type=float, default=0.60)
     result.add_argument("--command-timeout", type=float, default=1.0)
     result.add_argument("--send-rate", type=float, default=20.0)
-    result.add_argument("--resolution", type=float, default=0.05)
+    result.add_argument("--resolution", type=float, default=DEFAULT_MAP_RESOLUTION_M)
     result.add_argument("--max-range", type=float, default=8.0)
     result.add_argument("--min-range", type=float, default=0.05)
     result.add_argument("--padding-cells", type=int, default=5)
@@ -714,6 +972,7 @@ def main() -> int:
                     scan = lidar.latest
                     mapper.update(scan, pose)
                     files.scan(scan)
+                    files.write_map_history(mapper.history[-1])
                     files.context(scan.t_ns, pose, scan)
                     last_scan_ns = scan.t_ns
                 if now >= next_send:

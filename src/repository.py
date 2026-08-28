@@ -21,13 +21,11 @@ JSON_INSTANCE_SCHEMAS = {
     "experiments/registry.json": "experiment-registry.schema.json",
     "artifacts/registry.json": "artifact-registry.schema.json",
     "configs/physical_robot.json": "physical-robot.schema.json",
-    # Historical PR01 records remain hash- and schema-checked for provenance;
-    # they are deliberately excluded from the active confirmatory gate below.
+    # Historical PR01 records remain hash- and schema-checked for provenance.
+    # Retired focused-audit and claim-matrix records are not active instances.
     "research/metadata/pr01_gap_decision.json": "pr01-gap-decision.schema.json",
     "research/metadata/pr01_search_manifest.json": "pr01-search-manifest.schema.json",
     "research/metadata/pr01_raw_search_export_manifest.json": "pr01-raw-search-export-manifest.schema.json",
-    "research/metadata/focused_literature_audit.json": "focused-literature-audit.schema.json",
-    "research/metadata/claim_evidence_matrix.draft.json": "claim-evidence-matrix.schema.json",
     "references/zotero/import_queue/source_manifest.json": "zotero-source-manifest.schema.json",
     "references/zotero/export/receipt.json": "zotero-export-receipt.schema.json",
 }
@@ -59,7 +57,6 @@ PR01_SEARCH_MANIFEST_PATH = "research/metadata/pr01_search_manifest.json"
 PR01_RAW_SEARCH_EXPORT_MANIFEST_PATH = (
     "research/metadata/pr01_raw_search_export_manifest.json"
 )
-FOCUSED_AUDIT_PATH = "research/metadata/focused_literature_audit.json"
 PR01_REQUIRED_DATABASE_IDS = {
     "crossref",
     "ieee-xplore",
@@ -1480,33 +1477,8 @@ def _pr01_gate_state(
     return "CLOSED_INVALID"
 
 
-def _focused_audit_state(repository_root: Path, record: dict[str, Any]) -> str:
-    if record.get("status") not in {"IN_PROGRESS", "COMPLETE"}:
-        return "CLOSED_INVALID"
-    for key in (
-        "zotero_export",
-        "literature_review_note",
-        "literature_synthesis_note",
-        "nearest_work_matrix",
-    ):
-        reference = record.get(key)
-        if not isinstance(reference, dict):
-            return "CLOSED_EVIDENCE_INCOMPLETE"
-        path_text = reference.get("path")
-        path = repository_root / path_text if isinstance(path_text, str) else None
-        if (
-            path is None
-            or not path.is_file()
-            or str(reference.get("sha256", "")).lower() != _sha256_file(path).lower()
-        ):
-            return "CLOSED_EVIDENCE_INCOMPLETE"
-    return record["status"]
-
-
 def validate_repository(
     repository_root: Path,
-    *,
-    require_focused_audit_complete: bool = False,
 ) -> dict[str, Any]:
     root = repository_root.resolve()
     issues: list[ValidationIssue] = []
@@ -1608,20 +1580,6 @@ def validate_repository(
     vault_issues, note_count, wikilink_count = validate_obsidian_vault(root / "research/obsidian")
     issues.extend(vault_issues)
 
-    focused_audit_record = next(
-        instance
-        for label, instance in validated_instances
-        if label == FOCUSED_AUDIT_PATH
-    )
-    focused_audit = _focused_audit_state(root, focused_audit_record)
-    if require_focused_audit_complete and focused_audit != "COMPLETE":
-        issues.append(
-            ValidationIssue(
-                FOCUSED_AUDIT_PATH,
-                f"final evidence freeze requires focused audit COMPLETE; state is {focused_audit}",
-            )
-        )
-
     return {
         "schema": "cca-nmpc-repository-contract-validation-report",
         "schema_version": "1.0.0",
@@ -1630,6 +1588,6 @@ def validate_repository(
         "instance_count": len(validated_instances),
         "obsidian_note_count": note_count,
         "wikilink_count": wikilink_count,
-        "active_confirmatory_gate": focused_audit,
+        "active_confirmatory_gate": "NOT_APPLICABLE",
         "issues": [asdict(issue) for issue in issues],
     }

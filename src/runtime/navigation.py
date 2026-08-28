@@ -15,8 +15,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from simulation.context_replanner import FixedGlobalLocalPath
-from simulation.occupancy_astar import OccupancyPlanResult, plan_occupancy_map
+from .local_path import FixedGlobalLocalPath
+from .map_planner import OccupancyPlanResult, plan_occupancy_map
 
 
 @dataclass(frozen=True)
