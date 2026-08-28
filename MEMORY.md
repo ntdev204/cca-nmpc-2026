@@ -525,3 +525,21 @@ manuscript and Overleaf project locked.
   room-scale SLAM result. A moving hardware run with calibrated odometry or
   the ROS 2 `slam_toolbox` pipeline remains required before claiming a complete
   map; no moving test was issued in this correction.
+
+### Persistent scan correction and edge-load check — 2026-08-28
+
+- Runtime mapping now enables bounded scan-to-map correction every fifth scan
+  and carries the corrected map pose into the next fusion update; live odometry
+  remains separate from the map-frame pose.
+- WebRTC remains 640x480 but uses a 15 fps idle budget and 5 fps scan budget to
+  reduce CPU contention with LiDAR fusion. Zero-velocity requests during a
+  stationary scan averaged 10.8 ms with a 23.9 ms maximum.
+- Jetson `manual_map.py --self-test` and `robot_console.py --self-test` pass
+  after correcting the self-check to distinguish raw cells from cleaned cells.
+- The latest stationary check (`console-map-20260828-130448`) finished with
+  64 LiDAR scans, 14,524 mapped points, and the robot disarmed at zero command.
+- Commits `d955a35`, `cd90640`, and `0a25bcc` are on `ros2`; corresponding
+  active Jetson commits are `abd7160`, `0f619c1`, and `77041f2`.
+- The map is not yet certified as complete for moving operation: scan matching
+  is local and bounded, without loop closure. A controlled moving run or the
+  ROS 2 `slam_toolbox` path is still needed for room-scale map validation.
