@@ -2,7 +2,21 @@ import { NextResponse } from "next/server";
 
 import { sendRobotCommand, snapshot } from "@/lib/robot";
 
-const ALLOWED = new Set(["arm", "velocity", "emergency_stop", "scan_start", "scan_save", "scan_stop", "map_load"]);
+const ALLOWED = new Set([
+  "arm",
+  "velocity",
+  "move",
+  "direction",
+  "stop",
+  "emergency_stop",
+  "scan_start",
+  "scan_save",
+  "scan_stop",
+  "map_load",
+  "plan",
+  "plan_clear",
+  "clear_plan",
+]);
 
 export async function POST(request: Request) {
   try {
@@ -12,6 +26,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "command is not allowed" }, { status: 400 });
     }
     const messages = await sendRobotCommand(payload);
+    if (command === "velocity") return NextResponse.json({ backend: "online" }, { headers: { "Cache-Control": "no-store" } });
     return NextResponse.json({ backend: "online", ...snapshot(messages) });
   } catch (error) {
     return NextResponse.json(
