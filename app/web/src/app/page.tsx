@@ -3,7 +3,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import Link from "next/link";
 import {
   Activity,
   BatteryMedium,
@@ -327,6 +326,12 @@ export default function Home() {
   const [cameraFallback, setCameraFallback] = useState(false);
   const firstRefresh = useRef(true);
 
+  const selectView = useCallback((next: DashboardView) => {
+    setView(next);
+    const query = next === "overview" ? "" : `?view=${next}`;
+    window.history.pushState({}, "", `/${query}`);
+  }, []);
+
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as DashboardView | null;
     if (requested && DASHBOARD_VIEWS.some((item) => item.id === requested)) setView(requested);
@@ -418,6 +423,7 @@ export default function Home() {
   const lidarAge = formatAge(snapshot.lidar?.t_ns);
   const cameraAge = formatAge(cameraTimestamp);
   const lastEvent = snapshot.events?.[snapshot.events.length - 1];
+  const activeView = DASHBOARD_VIEWS.find((item) => item.id === view) ?? DASHBOARD_VIEWS[0];
 
   useEffect(() => {
     if (!cameraActive) {
@@ -492,10 +498,42 @@ export default function Home() {
   }, [cameraActive]);
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="min-h-screen bg-slate-50 text-foreground">
+      <div className="flex min-h-screen">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r bg-card lg:flex">
+          <div className="border-b px-5 py-5">
+            <div className="flex items-center gap-2 text-xs font-semibold tracking-[0.16em] text-primary"><Crosshair className="size-4" />MECANUM ROBOT</div>
+            <p className="mt-2 text-xs text-muted-foreground">Operator dashboard</p>
+          </div>
+          <nav className="flex-1 space-y-1 p-3" aria-label="Robot console navigation">
+            {DASHBOARD_VIEWS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => selectView(id)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${view === id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                aria-current={view === id ? "page" : undefined}
+              >
+                <Icon className="size-4" />
+                <span>{id === "mapping" ? "Mapping & data" : label}</span>
+                {view === id && <span className="ml-auto size-1.5 rounded-full bg-current" />}
+              </button>
+            ))}
+          </nav>
+          <div className="m-3 rounded-lg border bg-slate-50 p-3">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Live status</p>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between"><span>Backend</span><span className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${online ? "bg-emerald-500" : "bg-red-500"}`} />{online ? "online" : "offline"}</span></div>
+              <div className="flex items-center justify-between"><span>LiDAR</span><span className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${status.lidar === "online" ? "bg-emerald-500" : "bg-red-500"}`} />{String(status.lidar ?? "offline")}</span></div>
+              <div className="flex items-center justify-between"><span>Astra-S</span><span className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${status.camera === "online" ? "bg-emerald-500" : "bg-red-500"}`} />{String(status.camera ?? "offline")}</span></div>
+              <div className="flex items-center justify-between"><span>Motion</span><span className={armed ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>{armed ? "armed" : "disarmed"}</span></div>
+            </div>
+          </div>
+        </aside>
+        <div className="min-w-0 flex-1">
       <div className="mx-auto max-w-[1680px] space-y-4 p-4 md:p-6">
         <header className="flex flex-wrap items-end justify-between gap-3">
-          <div><div className="flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-primary"><Crosshair className="size-4" />NO-ROS WEB CONSOLE</div><h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">Mecanum Robot</h1><p className="mt-1 text-sm text-muted-foreground">Fixed map, Astra-S view and keyboard control</p></div>
+          <div><div className="flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-primary"><Crosshair className="size-4" />NO-ROS WEB CONSOLE</div><h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">{activeView.label}</h1><p className="mt-1 text-sm text-muted-foreground">Mecanum Robot · fixed map, Astra-S view and keyboard control</p></div>
           <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
             <Badge variant={online ? "default" : "destructive"} className="h-7 gap-1.5 px-3 uppercase tracking-[0.12em]"><Wifi className="size-3.5" />{snapshot.backend ?? "offline"}</Badge>
             <Badge variant="outline" className="bg-white">Pose {pose.x.toFixed(2)}, {pose.y.toFixed(2)} m · {(pose.yaw * 180 / Math.PI).toFixed(1)}°</Badge>
@@ -520,8 +558,8 @@ export default function Home() {
             </Button>
           </div>
         </header>
-        <nav className="flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1 shadow-sm" aria-label="Robot console pages">
-          {DASHBOARD_VIEWS.map(({ id, label, icon: Icon }) => <Link key={id} href={id === "overview" ? "/" : `/${id}`} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${view === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} aria-current={view === id ? "page" : undefined}><Icon className="size-3.5" />{label}</Link>)}
+        <nav className="flex gap-1 overflow-x-auto rounded-lg border bg-card p-1 shadow-sm lg:hidden" aria-label="Robot console navigation">
+          {DASHBOARD_VIEWS.map(({ id, label, icon: Icon }) => <button key={id} type="button" onClick={() => selectView(id)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${view === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} aria-current={view === id ? "page" : undefined}><Icon className="size-3.5" />{id === "mapping" ? "Mapping" : label}</button>)}
         </nav>
         {lastEvent && <div className="rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground"><span className="font-medium text-foreground">Last backend event:</span> {String(lastEvent.event ?? lastEvent.type ?? "event")} {lastEvent.message ? `· ${String(lastEvent.message)}` : ""}</div>}
 
@@ -564,6 +602,8 @@ export default function Home() {
         />}
         {(view === "overview" || view === "telemetry") && <HistoryPanel />}
         {snapshot.error && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{snapshot.error}</p>}
+      </div>
+        </div>
       </div>
     </main>
   );
