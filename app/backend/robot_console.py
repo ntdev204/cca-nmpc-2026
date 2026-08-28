@@ -37,7 +37,7 @@ SENSOR_PERIOD_S = 0.05
 MAP_PERIOD_S = 1.0
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
-LIVE_SCAN_MATCHING = False
+LIVE_SCAN_MATCHING = True
 SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
@@ -46,8 +46,9 @@ CAMERA_DEPTH_PERIOD_S = 1.0
 CAMERA_STREAM_MAX_SIZE = (640, 480)
 CAMERA_STREAM_JPEG_QUALITY = 10
 CAMERA_CAPTURE_JPEG_QUALITY = 75
-WEBRTC_IDLE_FPS = 30.0
+WEBRTC_IDLE_FPS = 15.0
 WEBRTC_SCAN_FPS = 5.0
+SCAN_MATCH_INTERVAL = 5
 WEBRTC_OFFER_PATH = "/webrtc/offer"
 STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
 COMPRESS_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
@@ -1033,6 +1034,7 @@ class RobotService:
                 padding_cells=5,
                 robot_radius_m=self.geometry["footprint_radius_m"],
                 scan_matching=LIVE_SCAN_MATCHING,
+                scan_match_interval=SCAN_MATCH_INTERVAL,
                 map_id=root.name,
             )
             self.pose = initial_pose
@@ -1499,7 +1501,9 @@ class RobotService:
             self.latest_lidar = compact_points(scan.points)
             if self.scan_active and self.mapper is not None and self.pose is not None:
                 mapper = self.mapper
-                mapping_pose = copy_pose_for_mapping(self.pose)
+                matching_enabled = bool(getattr(mapper, "scan_matching_enabled", False))
+                prior_map_pose = self.map_pose if matching_enabled and self.map_pose is not None else self.pose
+                mapping_pose = copy_pose_for_mapping(prior_map_pose)
                 capture_files = self.files
                 telemetry = self.stm.latest if self.stm is not None else None
                 mapping_pose.project_to(scan.t_ns, telemetry)
@@ -1520,7 +1524,8 @@ class RobotService:
                 with self.map_lock:
                     mapper.update(scan, mapping_pose)
                     history_record = mapper.history[-1]
-                self.map_pose = mapping_pose
+                with self.state_lock:
+                    self.map_pose = mapping_pose
                 if capture_files is not None:
                     capture_files.scan(scan)
                     capture_files.write_map_history(history_record)

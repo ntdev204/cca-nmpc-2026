@@ -328,6 +328,7 @@ class OccupancyMap:
         padding_cells: int,
         robot_radius_m: float = math.sqrt(0.2**2 + 0.2**2),
         scan_matching: bool = True,
+        scan_match_interval: int = 1,
         map_id: str = "",
     ) -> None:
         if not math.isfinite(resolution_m) or resolution_m <= 0.0:
@@ -338,6 +339,8 @@ class OccupancyMap:
             raise ValueError("map padding must be nonnegative")
         if not math.isfinite(robot_radius_m) or robot_radius_m <= 0.0:
             raise ValueError("robot radius must be positive and finite")
+        if not isinstance(scan_match_interval, int) or scan_match_interval <= 0:
+            raise ValueError("scan match interval must be a positive integer")
         self.resolution_m = float(resolution_m)
         self.lidar_x_m = float(lidar_x_m)
         self.lidar_y_m = float(lidar_y_m)
@@ -347,6 +350,7 @@ class OccupancyMap:
         self.padding_cells = int(padding_cells)
         self.robot_radius_m = float(robot_radius_m)
         self.scan_matching_enabled = bool(scan_matching)
+        self.scan_match_interval = int(scan_match_interval)
         self.map_id = str(map_id)
         self.free: set[tuple[int, int]] = set()
         self.occupied: set[tuple[int, int]] = set()
@@ -475,7 +479,12 @@ class OccupancyMap:
         )
 
     def update(self, scan: LidarScan, pose: Pose) -> None:
-        match, corrected = self._scan_match(scan, pose)
+        scheduled = self.scan_matching_enabled and self.scans % self.scan_match_interval == 0
+        if scheduled:
+            match, corrected = self._scan_match(scan, pose)
+        else:
+            match = ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "scheduled")
+            corrected = pose.as_tuple()
         self.last_scan_match = match
         if match.accepted:
             self.scan_match_accepted += 1
@@ -572,6 +581,7 @@ class OccupancyMap:
                 "scan_matching": {
                     "enabled": self.scan_matching_enabled,
                     "method": "bounded_correlative_scan_to_map",
+                    "interval": self.scan_match_interval,
                     "attempts": self.scan_match_attempts,
                     "accepted": self.scan_match_accepted,
                     "last_score": self.last_scan_match.score,
