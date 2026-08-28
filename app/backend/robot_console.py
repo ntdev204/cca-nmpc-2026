@@ -1031,6 +1031,7 @@ class RobotService:
                 min_range_m=0.05,
                 max_range_m=8.0,
                 padding_cells=5,
+                robot_radius_m=self.geometry["footprint_radius_m"],
                 scan_matching=LIVE_SCAN_MATCHING,
                 map_id=root.name,
             )
