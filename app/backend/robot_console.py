@@ -37,6 +37,7 @@ MAP_PERIOD_S = 0.50
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
 LIVE_SCAN_MATCHING = False
+SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
 CAMERA_STREAM_MAX_SIZE = (640, 480)
@@ -535,6 +536,8 @@ class RobotService:
         self.camera_status = "disabled"
         self.camera_transport = "webrtc-h264" if WEBRTC_AVAILABLE else "mjpeg-fallback"
         self.geometry = load_robot_geometry()
+        self.saved_maps_cache: list[dict[str, Any]] = []
+        self.saved_maps_cache_mono = 0.0
         # A* is a planning/visualisation layer.  It never sends a motion
         # command; the existing controller/actuation entry point consumes the
         # resulting global path only after its normal safety gates pass.
@@ -556,6 +559,10 @@ class RobotService:
         self.broadcast({"type": "event", "event": "status", "status": self.status_payload()})
 
     def saved_maps_payload(self) -> list[dict[str, Any]]:
+        now = time.monotonic()
+        if now - self.saved_maps_cache_mono < SAVED_MAP_CACHE_PERIOD_S:
+            selected = self.last_saved_root.name if self.last_saved_root is not None else None
+            return [{**entry, "selected": entry.get("run_id") == selected} for entry in self.saved_maps_cache]
         runs_root = PROJECT_ROOT / "experiments" / "runs"
         entries: list[dict[str, Any]] = []
         try:
@@ -590,7 +597,10 @@ class RobotService:
             except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 continue
         entries.sort(key=lambda item: int(item.get("saved_at_ns", 0)), reverse=True)
-        return entries[:50]
+        self.saved_maps_cache = entries[:50]
+        self.saved_maps_cache_mono = now
+        selected = self.last_saved_root.name if self.last_saved_root is not None else None
+        return [{**entry, "selected": entry.get("run_id") == selected} for entry in self.saved_maps_cache]
 
     def status_payload(self) -> dict[str, Any]:
         with self.state_lock:
@@ -937,6 +947,7 @@ class RobotService:
                 self._write_manifest(root, mapper, reason)
                 self.scan_saved = True
                 self.last_saved_root = root
+                self.saved_maps_cache_mono = 0.0
                 self.scan_active = False
                 self.files = None
                 self.status["scan"] = "saved"
@@ -1007,6 +1018,7 @@ class RobotService:
         with self.state_lock:
             self.plan_payload = plan
             self.last_saved_root = map_path.parent
+            self.saved_maps_cache_mono = 0.0
             self.last_broadcast_map_signature = ""
         self.broadcast({"type": "map", "t_ns": now_ns(), "map": payload, "plan": plan})
         self.broadcast(
