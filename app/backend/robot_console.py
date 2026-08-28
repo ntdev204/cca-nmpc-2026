@@ -34,17 +34,18 @@ CAMERA_HTTP_PORT = 8766
 MAX_POINTS = 360
 STATE_PERIOD_S = 0.10
 SENSOR_PERIOD_S = 0.05
-MAP_PERIOD_S = 0.50
+MAP_PERIOD_S = 1.0
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
 LIVE_SCAN_MATCHING = False
 SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
-CAMERA_CAPTURE_PERIOD_S = 0.20
+CAMERA_CAPTURE_PERIOD_S = 0.50
+CAMERA_DEPTH_PERIOD_S = 1.0
 CAMERA_STREAM_MAX_SIZE = (640, 480)
 CAMERA_STREAM_JPEG_QUALITY = 10
-CAMERA_CAPTURE_JPEG_QUALITY = 90
+CAMERA_CAPTURE_JPEG_QUALITY = 75
 WEBRTC_IDLE_FPS = 30.0
 WEBRTC_SCAN_FPS = 5.0
 WEBRTC_OFFER_PATH = "/webrtc/offer"
@@ -549,6 +550,7 @@ class RobotService:
         self.camera_capture_t_ns = 0
         self.camera_frames_saved = 0
         self.last_camera_save_mono = 0.0
+        self.last_depth_save_mono = 0.0
         self.camera_frames_read = 0
         self.camera_rate_hz = 0.0
         self.camera_rate_start_mono = time.monotonic()
@@ -850,9 +852,13 @@ class RobotService:
                 encoded_bytes = self._encode_camera(frame.color_bgr) if has_mjpeg else None
                 with self.state_lock:
                     capture_files = self.files if self.scan_active else None
-                    save_frame = capture_files is not None and time.monotonic() - self.last_camera_save_mono >= CAMERA_CAPTURE_PERIOD_S
+                    capture_mono = time.monotonic()
+                    save_frame = capture_files is not None and capture_mono - self.last_camera_save_mono >= CAMERA_CAPTURE_PERIOD_S
+                    save_depth = save_frame and capture_mono - self.last_depth_save_mono >= CAMERA_DEPTH_PERIOD_S
                     if save_frame:
-                        self.last_camera_save_mono = time.monotonic()
+                        self.last_camera_save_mono = capture_mono
+                    if save_depth:
+                        self.last_depth_save_mono = capture_mono
                     self.latest_camera_bytes = encoded_bytes
                     if has_webrtc:
                         self.latest_camera_color = frame.color_bgr.copy()
@@ -873,7 +879,7 @@ class RobotService:
                                 int(frame.t_ns),
                                 frame.device_timestamp_ns,
                                 frame.color_bgr.copy(),
-                                frame.depth_raw.copy(),
+                                frame.depth_raw.copy() if save_depth else None,
                                 int(frame.color_bgr.shape[1]),
                                 int(frame.color_bgr.shape[0]),
                                 float(frame.depth_scale_m),
@@ -907,7 +913,7 @@ class RobotService:
                     height_px,
                     depth_scale_m,
                 ) = item
-                depth_bytes = self._encode_depth(depth_raw)
+                depth_bytes = self._encode_depth(depth_raw) if depth_raw is not None else None
                 color_bytes = self._encode_camera(
                     color_bgr,
                     max_size=None,
@@ -959,7 +965,7 @@ class RobotService:
             from PIL import Image
 
             stream = io.BytesIO()
-            Image.fromarray(depth_raw).save(stream, format="PNG", optimize=True)
+            Image.fromarray(depth_raw).save(stream, format="PNG", optimize=False, compress_level=1)
             return stream.getvalue()
         except (AttributeError, OSError, TypeError, ValueError):
             return None
@@ -1004,6 +1010,7 @@ class RobotService:
             with self.camera_count_lock:
                 self.camera_frames_saved = 0
             self.last_camera_save_mono = 0.0
+            self.last_depth_save_mono = 0.0
             self.camera_capture_t_ns = 0
             self.camera_device_t_ns = None
             self.files.event("console_scan_started", f"lidar=N10P; target_hz={LIDAR_TARGET_HZ:g}; map_resolution_m={MAP_RESOLUTION_M:.3f}")

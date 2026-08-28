@@ -798,7 +798,7 @@ class RunFiles:
                     "width_px": int(width_px),
                     "height_px": int(height_px),
                     "depth_scale_m": float(depth_scale_m),
-                    "encoding": "jpeg+png16",
+                    "encoding": "jpeg+png16" if depth_png else "jpeg",
                 }
             )
             return color_relative
