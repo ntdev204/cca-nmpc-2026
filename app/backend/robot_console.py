@@ -1454,6 +1454,7 @@ class RobotService:
         mapper: Any = None
         mapping_pose: Any = None
         capture_files: Any = None
+        telemetry: Any = None
         with self.state_lock:
             if self.lidar is None:
                 return None
@@ -1466,6 +1467,8 @@ class RobotService:
                 mapper = self.mapper
                 mapping_pose = copy_pose_for_mapping(self.pose)
                 capture_files = self.files
+                telemetry = self.stm.latest if self.stm is not None else None
+                mapping_pose.project_to(scan.t_ns, telemetry)
         if mapper is not None and mapping_pose is not None:
             try:
                 self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
