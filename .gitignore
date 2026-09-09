@@ -99,6 +99,9 @@ cmake-build-*/
 # Read-only robot geometry provenance keeps URDF/xacro and hashes; CAD meshes
 # remain local reference payloads and are not versioned.
 /reference/robot/**/meshes/**
+!/reference/robot/rai_robot_urdf/rai_robot_urdf/meshes/
+!/reference/robot/rai_robot_urdf/rai_robot_urdf/meshes/senior_mec_bs_robot_meshes/
+!/reference/robot/rai_robot_urdf/rai_robot_urdf/meshes/senior_mec_bs_robot_meshes/**
 
 # Model weights and binary numerical checkpoints
 /models/**
