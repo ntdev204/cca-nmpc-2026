@@ -92,6 +92,21 @@ function formatAge(timestampNs: unknown): string {
   return `${(ageMs / 1000).toFixed(1)} s ago`;
 }
 
+function decodeOccupancy(data?: Record<string, unknown>): number[] | undefined {
+  const rawOccupancy = data?.occupancy;
+  if (Array.isArray(rawOccupancy)) return rawOccupancy as number[];
+  const rawRle = data?.occupancy_rle;
+  if (!Array.isArray(rawRle)) return undefined;
+  const decoded: number[] = [];
+  for (const run of rawRle) {
+    if (!Array.isArray(run) || run.length < 2) continue;
+    const value = asNumber(run[0], -1);
+    const count = Math.max(0, Math.floor(asNumber(run[1], 0)));
+    for (let index = 0; index < count; index += 1) decoded.push(value);
+  }
+  return decoded;
+}
+
 function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; viewport: MapViewport }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const width = Math.max(1, Math.floor(asNumber(data?.width, 1)));
@@ -100,20 +115,7 @@ function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; v
   const origin = (data?.origin as number[] | undefined) ?? [0, 0, 0];
   const originX = asNumber(origin[0]);
   const originY = asNumber(origin[1]);
-  const rawOccupancy = data?.occupancy;
-  const rawRle = data?.occupancy_rle;
-  const occupancy = useMemo(() => {
-    if (Array.isArray(rawOccupancy)) return rawOccupancy as number[];
-    if (!Array.isArray(rawRle)) return undefined;
-    const decoded: number[] = [];
-    for (const run of rawRle) {
-      if (!Array.isArray(run) || run.length < 2) continue;
-      const value = asNumber(run[0], -1);
-      const count = Math.max(0, Math.floor(asNumber(run[1], 0)));
-      for (let index = 0; index < count; index += 1) decoded.push(value);
-    }
-    return decoded;
-  }, [rawOccupancy, rawRle]);
+  const occupancy = useMemo(() => decodeOccupancy(data), [data]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -123,6 +125,7 @@ function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; v
     canvas.height = pixelsHigh;
     const context = canvas.getContext("2d");
     if (!context) return;
+    context.imageSmoothingEnabled = false;
     const image = context.createImageData(pixelsWide, pixelsHigh);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
@@ -147,7 +150,7 @@ function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; v
     }
     context.putImageData(image, 0, 0);
   }, [height, occupancy, originX, originY, resolution, viewport.height, viewport.width, viewport.x, viewport.y, width]);
-  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full object-contain" aria-hidden="true" />;
+  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full object-contain [image-rendering:pixelated]" aria-hidden="true" />;
 }
 
 function MapView({
@@ -172,12 +175,54 @@ function MapView({
 
   const mapWidth = width * resolution;
   const mapHeight = height * resolution;
-  const mapBounds = useMemo<MapViewport>(() => ({
-    x: originX - 0.25,
-    y: -(originY + mapHeight) - 0.25,
-    width: Math.max(mapWidth + 0.5, 2),
-    height: Math.max(mapHeight + 0.5, 2),
-  }), [mapHeight, mapWidth, originX, originY]);
+  const occupancy = useMemo(() => decodeOccupancy(data), [data]);
+  const occupiedBounds = useMemo(() => {
+    if (!occupancy) return null;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    let count = 0;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (occupancy[y * width + x] !== 100) continue;
+        count += 1;
+        minX = Math.min(minX, originX + x * resolution);
+        maxX = Math.max(maxX, originX + (x + 1) * resolution);
+        minY = Math.min(minY, -(originY + (y + 1) * resolution));
+        maxY = Math.max(maxY, -(originY + y * resolution));
+      }
+    }
+    return count > 0 ? { minX, minY, maxX, maxY, count } : null;
+  }, [height, occupancy, originX, originY, resolution, width]);
+  const mapBounds = useMemo<MapViewport>(() => {
+    const fullBounds = {
+      minX: originX - 0.25,
+      minY: -(originY + mapHeight) - 0.25,
+      maxX: originX + mapWidth + 0.25,
+      maxY: -originY + 0.25,
+    };
+    if (!occupiedBounds || occupiedBounds.count < 4) {
+      return {
+        x: fullBounds.minX,
+        y: fullBounds.minY,
+        width: Math.max(fullBounds.maxX - fullBounds.minX, 2),
+        height: Math.max(fullBounds.maxY - fullBounds.minY, 2),
+      };
+    }
+    const span = Math.max(occupiedBounds.maxX - occupiedBounds.minX, occupiedBounds.maxY - occupiedBounds.minY, 2);
+    const padding = Math.max(0.75, Math.min(1.5, span * 0.15));
+    const minX = Math.max(fullBounds.minX, Math.min(occupiedBounds.minX, pose.x) - padding);
+    const minY = Math.max(fullBounds.minY, Math.min(occupiedBounds.minY, -pose.y) - padding);
+    const maxX = Math.min(fullBounds.maxX, Math.max(occupiedBounds.maxX, pose.x) + padding);
+    const maxY = Math.min(fullBounds.maxY, Math.max(occupiedBounds.maxY, -pose.y) + padding);
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(maxX - minX, 2),
+      height: Math.max(maxY - minY, 2),
+    };
+  }, [mapHeight, mapWidth, occupiedBounds, originX, originY, pose.x, pose.y]);
   const [fixedViewport, setFixedViewport] = useState<MapViewport | null>(null);
   const previousScans = useRef(0);
   const previousMapKey = useRef("");
@@ -187,7 +232,10 @@ function MapView({
   // SLAM keeps the same map id while growing or changing its origin. Include
   // the geometry so a save/continued scan cannot leave the robot marker
   // outside the viewport captured from the first map frame.
-  const mapKey = `${mapId}:${width}:${height}:${resolution}:${originX}:${originY}`;
+  const occupiedKey = occupiedBounds
+    ? `${occupiedBounds.minX}:${occupiedBounds.minY}:${occupiedBounds.maxX}:${occupiedBounds.maxY}:${occupiedBounds.count}`
+    : "none";
+  const mapKey = `${mapId}:${width}:${height}:${resolution}:${originX}:${originY}:${occupiedKey}`;
   useEffect(() => {
     if (previousMapKey.current !== mapKey) {
       previousMapKey.current = mapKey;
