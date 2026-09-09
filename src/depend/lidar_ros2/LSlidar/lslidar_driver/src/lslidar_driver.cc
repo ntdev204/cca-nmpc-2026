@@ -680,15 +680,12 @@ namespace lslidar_driver
 			}
 		}
 
-		// --- Step 6: CRC check (bypass for N10_P with CH343 adapter) ---
+		// Reject corrupted serial frames before parsing. Accepting a bad N10-P
+		// frame produces plausible-looking but unrelated ranges that poison SLAM.
 		if (lidar_name == "N10" || lidar_name == "L10" || lidar_name == "N10_P")
 		{
 			if (packet_bytes[PACKET_SIZE - 1] != N10_CalCRC8(packet_bytes, PACKET_SIZE - 1))
-			{
-				// For N10_P: accept packet despite CRC fail (CH343 adapter workaround)
-				if (lidar_name != "N10_P")
-					return 0;
-			}
+				return 0;
 		}
 		return len;
 	}
