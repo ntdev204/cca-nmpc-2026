@@ -1080,10 +1080,24 @@ namespace lslidar_driver
 					}
 
 					scan->angle_min = 0;
-					scan->angle_max = 2 * M_PI;
 					scan->angle_increment = 2 * M_PI / (double)(FIXED_SCAN_NUM);
+					// angle_max describes the last sample, not a duplicated 0-degree
+					// endpoint. Keeping it consistent with the 360-value array avoids
+					// a one-beam geometry mismatch in SLAM Toolbox.
+					scan->angle_max = scan->angle_min + scan->angle_increment * (scan_num - 1);
 					scan->range_min = min_range;
 					scan->range_max = max_range;
+					// N10-P measurements span one complete motor revolution. Publish
+					// the acquisition timing so motion during a scan is not treated as
+					// an instantaneous 360-degree observation.
+					const double measured_scan_time = static_cast<double>(scan_time);
+					const double sweep_duration = std::isfinite(measured_scan_time) &&
+						measured_scan_time > 0.001 && measured_scan_time < 1.0
+						? measured_scan_time
+						: 0.1;
+					scan->scan_time = static_cast<float>(sweep_duration);
+					scan->time_increment = static_cast<float>(
+						sweep_duration / static_cast<double>(std::max(1, scan_num - 1)));
 					scan->ranges.assign(scan_num, std::numeric_limits<float>::infinity());
 					scan->intensities.assign(scan_num, 0);
 
