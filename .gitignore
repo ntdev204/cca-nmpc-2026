@@ -48,6 +48,9 @@ codegen/
 
 # Native and embedded build output
 build/
+/install/
+/log/
+/maps/
 cmake-build-*/
 *.o
 *.obj
