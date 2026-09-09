@@ -1,122 +1,281 @@
-import net from "node:net";
-import { inflateSync } from "node:zlib";
-import JSONbig from "json-bigint";
+import { Buffer } from "node:buffer";
 
 export type RobotMessage = Record<string, unknown>;
 
-const ROBOT_HOST = process.env.ROBOT_HOST ?? "100.69.39.18";
-const ROBOT_PORT = Number(process.env.ROBOT_PORT ?? "8765");
-const WIRE_ENCODING = "zlib+base64";
-const parseJson = JSONbig({ storeAsString: true }).parse;
-const STREAM_TYPES = new Set(["state", "lidar", "map"]);
+/**
+ * The website talks to the FastAPI runtime bridge only through HTTP. Keep the
+ * URL server-side so browser requests stay on the Next.js API surface and do
+ * not need CORS access to the Jetson.
+ */
+export const ROBOT_BRIDGE_URL = (process.env.ROBOT_BRIDGE_URL ?? "http://100.69.39.18:8000").replace(/\/+$/, "");
+
 const HISTORY_LIMIT = 2400;
+const SYSTEM_CACHE_MS = 1000;
+const MAP_CACHE_MS = 1000;
+const MAP_RETRY_MS = 2500;
+const MAP_SNAPSHOT_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = 3000;
+const MAP_OPERATION_TIMEOUT_MS = 15000;
 
-function decodeWireMessage(value: RobotMessage): RobotMessage {
-  if (value.encoding !== WIRE_ENCODING) return value;
-  if (typeof value.payload !== "string") throw new Error("compressed robot message has no payload");
-  const decoded = parseJson(inflateSync(Buffer.from(value.payload, "base64")).toString("utf8")) as RobotMessage;
-  if (String(decoded.type ?? "") !== String(value.type ?? "")) throw new Error("compressed robot message type mismatch");
-  return decoded;
+type BridgeComponent = {
+  id?: string;
+  label?: string;
+  host_device?: string;
+  action?: string;
+  running?: boolean;
+  pid?: number | null;
+  launch_file?: string;
+  description?: string;
+  capabilities?: Record<string, unknown>;
+};
+
+type ComponentsResponse = {
+  device_role?: string;
+  device_label?: string;
+  allowed_actions?: string[];
+  bridge_host?: string;
+  bridge_port?: number;
+  operation_mode?: string;
+  components?: BridgeComponent[];
+  mapping?: Record<string, unknown>;
+};
+
+type TelemetryResponse = {
+  timestamp?: number;
+  telemetry?: Record<string, unknown>;
+};
+
+type BridgeMap = {
+  width?: number;
+  height?: number;
+  resolution?: number;
+  origin_x?: number;
+  origin_y?: number;
+  grid_data?: string;
+  timestamp?: number;
+};
+
+type MapResponse = {
+  available?: boolean;
+  map?: BridgeMap | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function encodeCommand(payload: RobotMessage): string {
-  return `${JSON.stringify({ ...payload, compression: [WIRE_ENCODING] })}\n`;
+function asNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function asBoolean(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function toNanoseconds(value: unknown): string {
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0) return String(Math.round(seconds * 1e9));
+  return String(Date.now() * 1e6);
+}
+
+function isZeroVelocity(vx: number, vy: number, wz: number): boolean {
+  return Math.abs(vx) < 0.000001 && Math.abs(vy) < 0.000001 && Math.abs(wz) < 0.000001;
+}
+
+export async function requestBridge<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  const signal = init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const response = await fetch(`${ROBOT_BRIDGE_URL}${path}`, {
+    ...init,
+    headers,
+    signal,
+    cache: "no-store",
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body: unknown = contentType.includes("application/json") ? await response.json() : await response.text();
+  if (!response.ok) {
+    const record = asRecord(body);
+    const detail = typeof record.detail === "string" ? record.detail : typeof body === "string" ? body : "request failed";
+    throw new Error(`HTTP bridge ${response.status}: ${detail}`);
+  }
+  return body as T;
+}
+
+function postJson<T>(path: string, payload: Record<string, unknown> = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  return requestBridge<T>(path, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+function componentRunning(components: BridgeComponent[], id: string): boolean {
+  return components.some((component) => String(component.id ?? "") === id && component.running === true);
+}
+
+function decodeGrid(value: unknown): number[] {
+  if (typeof value !== "string" || !value) return [];
+  return Array.from(Buffer.from(value, "base64"), (cell) => cell === 255 ? -1 : cell);
+}
+
+function encodeRle(values: number[]): number[][] {
+  const runs: number[][] = [];
+  for (const value of values) {
+    const last = runs[runs.length - 1];
+    if (last && last[0] === value) last[1] += 1;
+    else runs.push([value, 1]);
+  }
+  return runs;
+}
+
+function normalizeMap(source: BridgeMap): RobotMessage {
+  const width = Math.max(1, Math.floor(asNumber(source.width, 1)));
+  const height = Math.max(1, Math.floor(asNumber(source.height, 1)));
+  const resolution = Math.max(0.001, asNumber(source.resolution, 0.05));
+  const occupancy = decodeGrid(source.grid_data);
+  const expected = width * height;
+  const cells = occupancy.length >= expected ? occupancy.slice(0, expected) : [...occupancy, ...new Array(expected - occupancy.length).fill(-1)];
+  let occupiedCells = 0;
+  let knownCells = 0;
+  for (const cell of cells) {
+    if (cell === 100) occupiedCells += 1;
+    if (cell === 0 || cell === 100) knownCells += 1;
+  }
+  return {
+    width,
+    height,
+    resolution_m: resolution,
+    origin: [asNumber(source.origin_x), asNumber(source.origin_y), 0],
+    occupancy_rle: encodeRle(cells),
+    metadata: {
+      map_id: "ros-map",
+      scans: 0,
+      points: 0,
+      occupied_cells: occupiedCells,
+      known_cells: knownCells,
+      robot_radius_m: 0.2828427,
+      history: { trajectory: [] },
+    },
+  };
+}
+
+function directionVelocity(payload: RobotMessage): { vx: number; vy: number; wz: number } {
+  const direction = String(payload.direction ?? "stop");
+  const speed = Math.max(0, Math.min(1.5, asNumber(payload.speed_mps, 0.2)));
+  const yaw = Math.max(0, Math.min(3, asNumber(payload.yaw_radps, 0.6)));
+  const diagonal = speed / Math.sqrt(2);
+  const velocities: Record<string, { vx: number; vy: number; wz: number }> = {
+    forward: { vx: speed, vy: 0, wz: 0 },
+    backward: { vx: -speed, vy: 0, wz: 0 },
+    left: { vx: 0, vy: speed, wz: 0 },
+    right: { vx: 0, vy: -speed, wz: 0 },
+    forward_left: { vx: diagonal, vy: diagonal, wz: 0 },
+    forward_right: { vx: diagonal, vy: -diagonal, wz: 0 },
+    backward_left: { vx: -diagonal, vy: diagonal, wz: 0 },
+    backward_right: { vx: -diagonal, vy: -diagonal, wz: 0 },
+    rotate_left: { vx: 0, vy: 0, wz: yaw },
+    rotate_right: { vx: 0, vy: 0, wz: -yaw },
+    stop: { vx: 0, vy: 0, wz: 0 },
+  };
+  return velocities[direction] ?? velocities.stop;
+}
+
+function velocityFromPayload(payload: RobotMessage): { vx: number; vy: number; wz: number } {
+  return {
+    vx: asNumber(payload.vx ?? payload.linear_x),
+    vy: asNumber(payload.vy ?? payload.linear_y),
+    wz: asNumber(payload.wz ?? payload.angular_z),
+  };
 }
 
 class RobotBridge {
-  private socket: net.Socket | null = null;
-  private connecting: Promise<void> | null = null;
-  private buffer = "";
-  private connected = false;
   private readonly latest = new Map<string, RobotMessage>();
   private readonly recentEvents: RobotMessage[] = [];
   private readonly historyByType = new Map<string, RobotMessage[]>();
-  private commandQueue: Promise<RobotMessage[]> = Promise.resolve([]);
+  private commandQueue: Promise<void> = Promise.resolve();
+  private motionArmed = false;
+  private systemCache: ComponentsResponse | null = null;
+  private systemCacheAt = 0;
+  private systemRequest: Promise<ComponentsResponse> | null = null;
+  private systemRequestGeneration = -1;
+  private systemGeneration = 0;
+  private mapCache: RobotMessage | null = null;
+  private mapCacheAt = 0;
+  private mapRequest: Promise<void> | null = null;
+  private readRequest: Promise<RobotMessage[]> | null = null;
 
-  async ensureConnected(): Promise<void> {
-    if (this.socket && !this.socket.destroyed && this.connected) return;
-    if (this.connecting) return this.connecting;
-
-    this.connecting = new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection({ host: ROBOT_HOST, port: ROBOT_PORT });
-      let settled = false;
-      const finish = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (error) reject(error);
-        else resolve();
-      };
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        finish(new Error(`robot backend connection timed out (${ROBOT_HOST}:${ROBOT_PORT})`));
-      }, 3000);
-
-      this.socket = socket;
-      this.buffer = "";
-      this.connected = false;
-      socket.setNoDelay(true);
-      socket.setKeepAlive(true, 5000);
-      socket.on("data", (chunk: Buffer) => this.ingest(chunk));
-      socket.once("connect", () => {
-        this.connected = true;
-        try {
-          socket.write(encodeCommand({ command: "ping" }));
-          finish();
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-      socket.once("error", (error) => {
-        this.markDisconnected(socket);
-        finish(error);
-      });
-      socket.once("close", () => {
-        this.markDisconnected(socket);
-        finish(new Error("robot backend connection closed"));
-      });
-    }).finally(() => {
-      this.connecting = null;
-    });
-    return this.connecting;
+  private invalidateSystemCache(): void {
+    this.systemCacheAt = 0;
+    this.systemGeneration += 1;
   }
 
-  private markDisconnected(socket: net.Socket): void {
-    if (this.socket === socket) {
-      this.socket = null;
-      this.connected = false;
-    }
+  private clearMapCache(): void {
+    this.mapCache = null;
+    this.mapCacheAt = 0;
+    this.latest.delete("map");
   }
 
-  private ingest(chunk: Buffer): void {
-    this.buffer += chunk.toString("utf8");
-    const lines = this.buffer.split("\n");
-    this.buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const message = decodeWireMessage(parseJson(line) as RobotMessage);
-        const type = String(message.type ?? "event");
-        if (type === "pong") continue;
-        if (STREAM_TYPES.has(type)) {
-          this.latest.set(type, message);
-          this.appendHistory(type, message);
+  private async readSystem(): Promise<ComponentsResponse> {
+    const now = Date.now();
+    if (this.systemCache && now - this.systemCacheAt < SYSTEM_CACHE_MS) return this.systemCache;
+    if (this.systemRequest && this.systemRequestGeneration === this.systemGeneration) return this.systemRequest;
+    const generation = this.systemGeneration;
+    const request = requestBridge<ComponentsResponse>("/api/system/components")
+      .then((response) => {
+        if (generation === this.systemGeneration) {
+          this.systemCache = response;
+          this.systemCacheAt = Date.now();
         }
-        else {
-          this.recentEvents.push(message);
-          this.appendHistory("event", message);
-          while (this.recentEvents.length > 8) this.recentEvents.shift();
+        return response;
+      });
+    this.systemRequest = request;
+    this.systemRequestGeneration = generation;
+    request.then(
+      () => {
+        if (this.systemRequest === request) {
+          this.systemRequest = null;
+          this.systemRequestGeneration = -1;
         }
-      } catch {
-        this.recentEvents.push({ type: "event", event: "decode_error", message: "invalid robot stream item" });
-        this.appendHistory("event", { type: "event", event: "decode_error", message: "invalid robot stream item" });
-        while (this.recentEvents.length > 8) this.recentEvents.shift();
-      }
-    }
+      },
+      () => {
+        if (this.systemRequest === request) {
+          this.systemRequest = null;
+          this.systemRequestGeneration = -1;
+        }
+      },
+    );
+    return request;
+  }
+
+  private refreshMapIfNeeded(): void {
+    const now = Date.now();
+    const interval = this.mapCache ? MAP_CACHE_MS : MAP_RETRY_MS;
+    if (this.mapRequest || now - this.mapCacheAt < interval) return;
+    this.mapRequest = requestBridge<MapResponse>("/api/map/snapshot", {
+      signal: AbortSignal.timeout(MAP_SNAPSHOT_TIMEOUT_MS),
+    })
+      .then((response) => {
+        if (response.available && response.map) {
+          const nextMap = {
+            type: "map",
+            t_ns: toNanoseconds(response.map.timestamp),
+            map: normalizeMap(response.map),
+          };
+          const previousTimestamp = String(this.mapCache?.t_ns ?? "");
+          this.mapCache = nextMap;
+          if (previousTimestamp !== String(nextMap.t_ns)) this.appendHistory("map", nextMap);
+        } else {
+          this.clearMapCache();
+        }
+        this.mapCacheAt = Date.now();
+      })
+      .catch(() => {
+        // A missing ROS map must not mark the healthy HTTP bridge offline.
+        this.mapCacheAt = Date.now();
+      })
+      .finally(() => { this.mapRequest = null; });
   }
 
   private appendHistory(type: string, message: RobotMessage): void {
@@ -126,19 +285,140 @@ class RobotBridge {
     this.historyByType.set(type, history);
   }
 
+  private addEvent(event: string, message: string): void {
+    const record = { type: "event", t_ns: toNanoseconds(Date.now() / 1000), event, message };
+    this.recentEvents.push(record);
+    this.appendHistory("event", record);
+    while (this.recentEvents.length > 8) this.recentEvents.shift();
+  }
+
   private messages(): RobotMessage[] {
     return [...this.latest.values(), ...this.recentEvents];
   }
 
-  private async waitForState(): Promise<void> {
-    const deadline = Date.now() + 420;
-    while (!this.latest.has("state") && Date.now() < deadline) await sleep(40);
+  private buildState(response: TelemetryResponse, system: ComponentsResponse): RobotMessage {
+    const telemetry = asRecord(response.telemetry);
+    const odom = asRecord(telemetry.odom);
+    const battery = asRecord(telemetry.battery);
+    const hasMapPose = telemetry.map_pose !== null
+      && telemetry.map_pose !== undefined
+      && typeof telemetry.map_pose === "object"
+      && !Array.isArray(telemetry.map_pose);
+    const mapPose = asRecord(telemetry.map_pose);
+    const cameraCaptureNs = asNumber(telemetry.camera_capture_t_ns, 0);
+    const components = Array.isArray(system.components) ? system.components : [];
+    const x = asNumber(odom.x);
+    const y = asNumber(odom.y);
+    const yaw = asNumber(odom.theta);
+    const mapX = asNumber(mapPose.x, x);
+    const mapY = asNumber(mapPose.y, y);
+    const mapYaw = asNumber(mapPose.yaw, yaw);
+    const vx = asNumber(odom.linear_x);
+    const vy = asNumber(odom.linear_y);
+    const wz = asNumber(odom.angular_z);
+    const lidarOnline = componentRunning(components, "lidar");
+    const cameraOnline = componentRunning(components, "camera");
+    const datasetOnline = componentRunning(components, "dataset");
+    const mapping = asRecord(system.mapping);
+    const mappingScanning = "scanning" in mapping ? asBoolean(mapping.scanning) : true;
+    const mappingPaused = "paused" in mapping ? asBoolean(mapping.paused) : false;
+    const mapData = asRecord(this.mapCache?.map);
+    const mapResolution = this.mapCache ? asNumber(mapData.resolution_m, 0.05) : 0.05;
+    const status = {
+      armed: this.motionArmed,
+      lidar: lidarOnline ? "online" : "offline",
+      camera: cameraOnline ? "online" : "offline",
+      camera_transport: "webrtc-h264",
+      camera_rate_hz: asNumber(telemetry.camera_rate_hz),
+      lidar_rate_hz: asNumber(telemetry.lidar_rate_hz),
+      scan: datasetOnline ? "recording" : "idle",
+      dataset: { active: datasetOnline, running: datasetOnline },
+      maps: [],
+      selected_map: "",
+      map_resolution_m: mapResolution,
+      map_available: Boolean(this.mapCache),
+      map_width: asNumber(mapData.width),
+      map_height: asNumber(mapData.height),
+      mapping: { ...mapping, scanning: mappingScanning, paused: mappingPaused },
+      map_scanning: mappingScanning,
+      map_paused: mappingPaused,
+      map_save_root: mapping.map_save_root,
+      allowed_actions: system.allowed_actions ?? [],
+      components,
+      operation_mode: system.operation_mode ?? "real",
+    };
+    return {
+      type: "state",
+      t_ns: toNanoseconds(response.timestamp),
+      pose: [x, y, yaw],
+      ...(hasMapPose ? { map_pose: [mapX, mapY, mapYaw] } : {}),
+      camera_capture_t_ns: cameraCaptureNs > 0 ? String(Math.round(cameraCaptureNs)) : undefined,
+      telemetry: {
+        vx_mps: vx,
+        vy_mps: vy,
+        wz_radps: wz,
+        gyro_z_radps: wz,
+        voltage_v: asNumber(battery.voltage),
+        battery_percentage: asNumber(battery.percentage),
+        charging: asBoolean(telemetry.charging),
+        lidar_rate_hz: asNumber(telemetry.lidar_rate_hz),
+        camera_rate_hz: asNumber(telemetry.camera_rate_hz),
+        camera_capture_t_ns: cameraCaptureNs > 0 ? cameraCaptureNs : undefined,
+        context: telemetry.context,
+        humans: telemetry.humans,
+        solver: telemetry.solver,
+      },
+      pose_diagnostics: {
+        speed_mps: Math.hypot(vx, vy),
+        yaw_rate_source: "odom",
+        map_pose_available: Boolean(telemetry.map_pose),
+      },
+      status,
+      bridge: {
+        device_role: system.device_role,
+        device_label: system.device_label,
+        allowed_actions: system.allowed_actions,
+        operation_mode: system.operation_mode,
+      },
+    };
+  }
+
+  private async readOnce(): Promise<RobotMessage[]> {
+    while (true) {
+      const generation = this.systemGeneration;
+      const [telemetry, system] = await Promise.all([
+        requestBridge<TelemetryResponse>("/api/telemetry/current"),
+        this.readSystem(),
+      ]);
+      // A map command may invalidate the component cache while the two reads
+      // above are in flight. Retry inside this request instead of returning a
+      // stale snapshot to one of the many polling callers.
+      if (generation !== this.systemGeneration) continue;
+      const state = this.buildState(telemetry, system);
+      this.latest.set("state", state);
+      this.appendHistory("state", state);
+      this.refreshMapIfNeeded();
+      if (this.mapCache) this.latest.set("map", this.mapCache);
+      return this.messages();
+    }
   }
 
   async read(): Promise<RobotMessage[]> {
-    await this.ensureConnected();
-    await this.waitForState();
-    return this.messages();
+    // The dashboard polls faster than the bridge can sometimes answer. Share
+    // one in-flight read so those polls cannot pile up and self-trigger the
+    // three-second HTTP timeout that would falsely show the backend offline.
+    if (this.readRequest) return this.readRequest;
+    const request = this.readOnce();
+    this.readRequest = request;
+    request.then(
+      () => {
+        if (this.readRequest === request) this.readRequest = null;
+      },
+      () => {
+        if (this.readRequest === request) this.readRequest = null;
+      },
+    );
+    return request;
   }
 
   async readHistory(type: string, page: number, pageSize: number): Promise<{
@@ -148,17 +428,15 @@ class RobotBridge {
     total: number;
     totalPages: number;
   }> {
-    await this.ensureConnected();
-    await this.waitForState();
+    await this.read();
     const source = this.historyByType.get(type) ?? [];
     const total = source.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(Math.max(1, page), totalPages);
     const end = total - (safePage - 1) * pageSize;
     const start = Math.max(0, end - pageSize);
-    const records = source.slice(start, end).reverse();
     return {
-      items: records.map((item) => historyItem(type, item)),
+      items: source.slice(start, end).reverse().map((item) => historyItem(type, item)),
       page: safePage,
       pageSize,
       total,
@@ -166,39 +444,126 @@ class RobotBridge {
     };
   }
 
-  send(payload: RobotMessage): Promise<RobotMessage[]> {
-    if (String(payload.command ?? "") === "velocity") return this.sendVelocity(payload);
-    const request = this.commandQueue.then(async () => {
-      await this.ensureConnected();
-      if (!this.socket || this.socket.destroyed || !this.connected) throw new Error("robot backend is not connected");
-      this.socket.write(encodeCommand(payload));
-      await this.waitForState();
-      return this.messages();
-    });
-    this.commandQueue = request.catch(() => []);
-    return request;
+  private async postVelocity(vx: number, vy: number, wz: number): Promise<void> {
+    await postJson("/api/robot/cmd_vel", { linear_x: vx, linear_y: vy, angular_z: wz });
   }
 
-  private async sendVelocity(payload: RobotMessage): Promise<RobotMessage[]> {
-    await this.ensureConnected();
-    if (!this.socket || this.socket.destroyed || !this.connected) throw new Error("robot backend is not connected");
-    this.socket.write(encodeCommand(payload));
-    return this.messages();
+  private async dispatch(payload: RobotMessage): Promise<void> {
+    const command = String(payload.command ?? "");
+    if (command === "arm") {
+      this.motionArmed = asBoolean(payload.enabled);
+      if (!this.motionArmed) await this.postVelocity(0, 0, 0);
+      this.addEvent("motion", this.motionArmed ? "Motion enabled in this browser session." : "Motion disabled; zero velocity sent.");
+      return;
+    }
+    if (command === "velocity") {
+      const { vx, vy, wz } = velocityFromPayload(payload);
+      if (!this.motionArmed && !isZeroVelocity(vx, vy, wz)) {
+        this.addEvent("motion_blocked", "Velocity ignored while motion is disabled.");
+        return;
+      }
+      await this.postVelocity(vx, vy, wz);
+      return;
+    }
+    if (command === "move" || command === "direction") {
+      const velocity = directionVelocity(payload);
+      if (!this.motionArmed && !isZeroVelocity(velocity.vx, velocity.vy, velocity.wz)) {
+        this.addEvent("motion_blocked", "Direction ignored while motion is disabled.");
+        return;
+      }
+      await this.postVelocity(velocity.vx, velocity.vy, velocity.wz);
+      return;
+    }
+    if (command === "stop" || command === "emergency_stop") {
+      await this.postVelocity(0, 0, 0);
+      if (command === "emergency_stop") this.motionArmed = false;
+      this.addEvent(command, "Zero velocity sent through the HTTP bridge.");
+      return;
+    }
+    if (command === "nav_goal") {
+      const goal = Array.isArray(payload.goal_xy) ? payload.goal_xy : [];
+      await postJson("/api/robot/nav/goal", {
+        x: asNumber(payload.x ?? goal[0]),
+        y: asNumber(payload.y ?? goal[1]),
+        yaw: asNumber(payload.yaw),
+      });
+      this.addEvent("navigation", "Navigation goal sent.");
+      return;
+    }
+    if (command === "nav_cancel") {
+      await postJson("/api/robot/nav/cancel");
+      this.addEvent("navigation", "Navigation cancelled.");
+      return;
+    }
+    if (command === "map_scan_start") {
+      await postJson("/api/map/scan/start", {}, MAP_OPERATION_TIMEOUT_MS);
+      this.invalidateSystemCache();
+      this.addEvent("map", "SLAM map scanning started.");
+      return;
+    }
+    if (command === "map_scan_stop") {
+      await postJson("/api/map/scan/stop", {}, MAP_OPERATION_TIMEOUT_MS);
+      this.invalidateSystemCache();
+      this.addEvent("map", "SLAM map scanning paused.");
+      return;
+    }
+    if (command === "map_clear") {
+      await postJson("/api/map/clear", {}, MAP_OPERATION_TIMEOUT_MS);
+      this.invalidateSystemCache();
+      this.clearMapCache();
+      this.addEvent("map", "Current SLAM map cleared and a fresh scan session started; saved map files were kept.");
+      return;
+    }
+    if (command === "map_save") {
+      const response = await postJson<Record<string, unknown>>(
+        "/api/map/save",
+        { name: typeof payload.name === "string" ? payload.name : "" },
+        MAP_OPERATION_TIMEOUT_MS,
+      );
+      this.invalidateSystemCache();
+      const name = String(response.name ?? payload.name ?? "map");
+      const basePath = String(response.base_path ?? response.directory ?? "");
+      this.addEvent("map", `Map saved: ${name}${basePath ? ` (${basePath})` : ""}`);
+      return;
+    }
+    if (command === "dataset_start") {
+      await postJson("/api/dataset/launch/start", payload);
+      this.addEvent("dataset", "Dataset launch started.");
+      return;
+    }
+    if (command === "dataset_stop") {
+      await postJson("/api/dataset/launch/stop");
+      this.addEvent("dataset", "Dataset launch stopped.");
+      return;
+    }
+    throw new Error(`HTTP bridge command is not supported: ${command || "empty"}`);
+  }
+
+  send(payload: RobotMessage): Promise<RobotMessage[]> {
+    const command = String(payload.command ?? "");
+    if (command === "velocity") return this.dispatch(payload).then(() => this.messages());
+    const request = this.commandQueue.then(async () => {
+      await this.dispatch(payload);
+      await this.read();
+      return this.messages();
+    });
+    this.commandQueue = request.then(() => undefined, () => undefined);
+    return request;
   }
 }
 
 function mapHistoryRecord(message: RobotMessage): RobotMessage {
-  const map = message.map as RobotMessage | undefined;
-  const metadata = map?.metadata as RobotMessage | undefined;
+  const map = asRecord(message.map);
+  const metadata = asRecord(map.metadata);
   return {
     type: "map",
     t_ns: message.t_ns,
     map: {
-      width: map?.width ?? 0,
-      height: map?.height ?? 0,
+      width: map.width ?? 0,
+      height: map.height ?? 0,
       metadata: {
-        scans: metadata?.scans ?? 0,
-        points: metadata?.points ?? 0,
+        scans: metadata.scans ?? 0,
+        points: metadata.points ?? 0,
       },
     },
   };
@@ -237,19 +602,19 @@ function historyItem(type: string, item: RobotMessage): RobotMessage {
     return {
       type,
       t_ns: item.t_ns,
-      points: Array.isArray(item.points) ? item.points.length : 0,
+      points: Array.isArray(item.points) ? item.points.length : Number(item.points ?? 0),
     };
   }
   if (type === "map") {
-    const map = item.map as RobotMessage | undefined;
-    const metadata = map?.metadata as RobotMessage | undefined;
+    const map = asRecord(item.map);
+    const metadata = asRecord(map.metadata);
     return {
       type,
       t_ns: item.t_ns,
-      scans: metadata?.scans ?? 0,
-      points: metadata?.points ?? 0,
-      width: map?.width ?? 0,
-      height: map?.height ?? 0,
+      scans: metadata.scans ?? 0,
+      points: metadata.points ?? 0,
+      width: map.width ?? 0,
+      height: map.height ?? 0,
     };
   }
   return {
@@ -263,30 +628,23 @@ type SnapshotOptions = { full?: boolean };
 const deliveredStreams = { map: "" };
 
 export function snapshot(messages: RobotMessage[], options: SnapshotOptions = {}) {
-  const result: { state?: RobotMessage; lidar?: RobotMessage; map?: RobotMessage; events: RobotMessage[] } = { events: [] };
+  const result: { state?: RobotMessage; map?: RobotMessage; events: RobotMessage[] } = { events: [] };
   for (const message of messages) {
     const type = String(message.type ?? "");
     if (type === "state") result.state = message;
-    else if (type === "lidar") result.lidar = message;
     else if (type === "map") result.map = message;
     else result.events.push(message);
   }
-  // Map frames are delivered once per new timestamp; the browser keeps the last frame.
-  // State and LiDAR remain frequent because they are small and drive the UI.
   if (!options.full) {
-    for (const type of ["map"] as const) {
-      const message = result[type];
-      const timestamp = String(message?.t_ns ?? message?.capture_t_ns ?? "");
-      if (!message || !timestamp) continue;
-      if (deliveredStreams[type] === timestamp) delete result[type];
-      else deliveredStreams[type] = timestamp;
+    const message = result.map;
+    const timestamp = String(message?.t_ns ?? "");
+    if (message && timestamp) {
+      if (deliveredStreams.map === timestamp) delete result.map;
+      else deliveredStreams.map = timestamp;
     }
   } else {
-    for (const type of ["map"] as const) {
-      const message = result[type];
-      const timestamp = String(message?.t_ns ?? message?.capture_t_ns ?? "");
-      if (timestamp) deliveredStreams[type] = timestamp;
-    }
+    const timestamp = String(result.map?.t_ns ?? "");
+    if (timestamp) deliveredStreams.map = timestamp;
   }
   return result;
 }

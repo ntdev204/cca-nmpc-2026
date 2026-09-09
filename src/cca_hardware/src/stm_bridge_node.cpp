@@ -16,6 +16,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/float32.hpp"
+#include "std_srvs/srv/trigger.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/transform_broadcaster.h"
@@ -28,22 +30,47 @@ public:
     timeout_ms_ = declare_parameter<int>("timeout_ms", 20);
     const double publish_rate_hz = declare_parameter<double>("publish_rate_hz", 50.0);
     command_timeout_s_ = declare_parameter<double>("command_timeout_s", 0.20);
+    command_topic_ = declare_parameter<std::string>("command_topic", "/cmd_vel");
+    manual_command_topic_ = declare_parameter<std::string>("manual_command_topic", "/manual_cmd_vel");
+    manual_command_timeout_s_ = declare_parameter<double>("manual_command_timeout_s", 0.35);
     odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     odom_topic_ = declare_parameter<std::string>("odom_topic", "/odometry/raw");
     imu_topic_ = declare_parameter<std::string>("imu_topic", "/imu/data");
     connected_topic_ = declare_parameter<std::string>("connected_topic", "/hardware/connected");
+    voltage_topic_ = declare_parameter<std::string>("voltage_topic", "/battery/voltage");
+    odom_reset_service_ = declare_parameter<std::string>("odom_reset_service", "/odometry/reset");
     if (port_.empty() || baudrate_ <= 0 || timeout_ms_ <= 0 || !(publish_rate_hz > 0.0) ||
-        !(command_timeout_s_ > 0.0)) {
+        !(command_timeout_s_ > 0.0) || command_topic_.empty() || manual_command_topic_.empty() ||
+        !(manual_command_timeout_s_ > 0.0) || odom_reset_service_.empty()) {
       throw std::invalid_argument("STM bridge parameters are invalid");
     }
 
     command_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-        "/cmd_vel", rclcpp::QoS(1).reliable().durability_volatile(),
-        [this](const geometry_msgs::msg::Twist::SharedPtr message) { onCommand(*message); });
+        command_topic_, rclcpp::QoS(1).reliable().durability_volatile(),
+        [this](const geometry_msgs::msg::Twist::SharedPtr message) { onControllerCommand(*message); });
+    manual_command_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+        manual_command_topic_, rclcpp::QoS(1).reliable().durability_volatile(),
+        [this](const geometry_msgs::msg::Twist::SharedPtr message) { onManualCommand(*message); });
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(odom_topic_, rclcpp::SensorDataQoS());
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(imu_topic_, rclcpp::SensorDataQoS());
     connected_pub_ = create_publisher<std_msgs::msg::Bool>(connected_topic_, rclcpp::QoS(1).best_effort());
+    voltage_pub_ = create_publisher<std_msgs::msg::Float32>(voltage_topic_, rclcpp::SensorDataQoS());
+    odom_reset_server_ = create_service<std_srvs::srv::Trigger>(
+        odom_reset_service_,
+        [this](const std_srvs::srv::Trigger::Request::SharedPtr,
+               std_srvs::srv::Trigger::Response::SharedPtr response) {
+          serial_.SendZero();
+          last_command_ = {0.0, 0.0, 0.0};
+          last_command_time_ = now();
+          manual_override_active_ = false;
+          x_ = 0.0;
+          y_ = 0.0;
+          theta_ = 0.0;
+          last_sample_ns_ = 0U;
+          response->success = true;
+          response->message = "Odometry reset to the current robot position.";
+        });
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     last_command_time_ = now();
     timer_ = create_wall_timer(
@@ -77,7 +104,31 @@ private:
     connected_pub_->publish(message);
   }
 
-  void onCommand(const geometry_msgs::msg::Twist& message) {
+  bool manualOverrideActive() {
+    if (!manual_override_active_) {
+      return false;
+    }
+    if ((now() - last_manual_command_time_).seconds() > manual_command_timeout_s_) {
+      manual_override_active_ = false;
+      return false;
+    }
+    return true;
+  }
+
+  void onControllerCommand(const geometry_msgs::msg::Twist& message) {
+    if (manualOverrideActive()) {
+      return;
+    }
+    applyCommand(message);
+  }
+
+  void onManualCommand(const geometry_msgs::msg::Twist& message) {
+    manual_override_active_ = true;
+    last_manual_command_time_ = now();
+    applyCommand(message);
+  }
+
+  void applyCommand(const geometry_msgs::msg::Twist& message) {
     const std::array<double, 3U> command{
         message.linear.x, message.linear.y, message.angular.z};
     if (!std::all_of(command.begin(), command.end(), [](double value) {
@@ -105,6 +156,7 @@ private:
       publishConnection(false);
       return;
     }
+    manualOverrideActive();
     if ((now() - last_command_time_).seconds() > command_timeout_s_) {
       serial_.SendZero();
       last_command_ = {0.0, 0.0, 0.0};
@@ -150,6 +202,10 @@ private:
     odom.twist.twist.angular.z = sample.wz_radps;
     odom_pub_->publish(odom);
 
+    std_msgs::msg::Float32 voltage;
+    voltage.data = static_cast<float>(sample.voltage_v);
+    voltage_pub_->publish(voltage);
+
     sensor_msgs::msg::Imu imu;
     imu.header.stamp = stamp;
     imu.header.frame_id = "imu_link";
@@ -174,11 +230,16 @@ private:
   int baudrate_{115200};
   int timeout_ms_{20};
   double command_timeout_s_{0.20};
+  double manual_command_timeout_s_{0.35};
+  std::string command_topic_;
+  std::string manual_command_topic_;
   std::string odom_frame_;
   std::string base_frame_;
   std::string odom_topic_;
   std::string imu_topic_;
   std::string connected_topic_;
+  std::string voltage_topic_;
+  std::string odom_reset_service_;
   cca::hardware::SerialPort serial_;
   std::array<double, 3U> last_command_{};
   rclcpp::Time last_command_time_{0, 0, RCL_ROS_TIME};
@@ -187,11 +248,16 @@ private:
   double y_{0.0};
   double theta_{0.0};
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr command_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr manual_command_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr connected_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_pub_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr odom_reset_server_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Time last_manual_command_time_{0, 0, RCL_ROS_TIME};
+  bool manual_override_active_{false};
 };
 
 int main(int argc, char** argv) {

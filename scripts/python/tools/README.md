@@ -314,40 +314,19 @@ default LiDAR mount is 0.10 m forward of the robot centre; override
 Run `--self-test` before a hardware session to validate the decoder and grid
 writer without opening devices.
 
-14. The operator runtime is under `app/`. Run the Jetson service with
-    `PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server`; it
-    discovers the STM32, N10P and the ARM64 OpenNI2 directory automatically. Run
-    the Next.js dashboard in `app/web`. Motion is ready automatically when the
-    STM32 is available. Hold a direction button (or
+14. The operator runtime is the ROS 2 bringup under `src/`. On the Jetson,
+    build and source the workspace, then run
+    `ros2 launch turn_on_robot bringup.launch.py`; this starts the STM32,
+    N10P, Astra-S, SLAM Toolbox and FastAPI/WebRTC bridge together. Run the
+    Next.js dashboard in `app/web`. Motion is armed explicitly in the browser;
+    hold a direction button (or
     use the keyboard controls) for forward, reverse, lateral and diagonal
     motion; release sends zero velocity. The emergency-stop button is always
-    available. The server also accepts
-    `{"command":"move","direction":"forward_left","speed_mps":0.2,"yaw_radps":0}`
-    and the directions `forward`, `backward`, `left`, `right`,
-    `forward_left`, `forward_right`, `backward_left`, `backward_right`,
-    `rotate_left`, `rotate_right` and `stop`. The window
-    also provides a live 2-D occupancy view with a map-frame robot marker,
-    reduced-rate Astra-S frames, and scan controls. Camera/state updates use a
-    newest-frame queue so a slow Wi-Fi/VPN link cannot delay keyboard commands.
-    A new client receives the current map snapshot even when no scan cell has
-    changed. **View last saved map** requests the newest saved `map.json` from
-    Jetson; **Open local map.json** displays a package copied to the laptop.
-    Left-click the map to choose a goal, then press **Plan shortest
-    path (A*)**; the Jetson uses `src/runtime/map_planner.py`, draws the returned
-    route, and
-    saves `navigation_plan.json`. Unknown cells are fail-closed and the frozen
-    robot footprint radius is used for inflation. Planning is preview-only and
-    never sends a velocity command.
-    Start scan creates one ignored run
-    directory; Save map writes `map.json`, `map.pgm`, `map.yaml`, the four CSV
-    streams and a manifest. The service watchdog sends zero velocity during a
-    short GUI/network stall without disabling the session; disconnect and
-    emergency-stop paths still disarm the service; reconnect after an emergency
-    stop to start a new automatically armed session. The app accepts one control
-    client at a time so stale GUI sessions cannot overwrite keyboard commands;
-    reconnect waits for the previous reader to close before opening a new peer. It
-    is a transport and commissioning surface; it does not change the locked
-    manuscript or manufacture research evidence.
+    available. The dashboard reads telemetry and `/map` snapshots from the
+    bridge over HTTP, sends velocity and CCA path goals through REST, and
+    receives Astra-S frames through the bridge's WebRTC endpoint. There is no
+    direct socket console or second camera service. The bridge watchdog sends a
+    zero command when HTTP velocity refreshes stop.
 
 15. `plan_map.py` converts a saved `map.json` plus `--start X Y --goal X Y` to
     a controller-ready JSON containing `global_path_xy`. It wraps the result

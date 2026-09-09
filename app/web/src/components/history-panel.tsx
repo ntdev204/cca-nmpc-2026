@@ -76,7 +76,7 @@ export function HistoryPanel() {
     <Card className="shadow-sm">
       <CardHeader className="border-b bg-slate-50/70 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><CardTitle className="flex items-center gap-2 text-base">{icon}Telemetry, maps &amp; events</CardTitle><CardDescription>Lossless timestamps are retained in the browser-facing history API; large sensor payloads are represented by counts.</CardDescription></div>
+          <div><CardTitle className="flex items-center gap-2 text-base">{icon}Telemetry, maps &amp; events</CardTitle><CardDescription>HTTP bridge snapshots are retained in a bounded history window; large sensor payloads are represented by counts.</CardDescription></div>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">Rows
             <Select value={String(pageSize)} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
               <SelectTrigger size="sm" className="w-[78px] bg-background text-foreground"><SelectValue /></SelectTrigger>

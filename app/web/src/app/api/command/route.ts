@@ -9,13 +9,14 @@ const ALLOWED = new Set([
   "direction",
   "stop",
   "emergency_stop",
-  "scan_start",
-  "scan_save",
-  "scan_stop",
-  "map_load",
-  "plan",
-  "plan_clear",
-  "clear_plan",
+  "nav_goal",
+  "nav_cancel",
+  "map_scan_start",
+  "map_scan_stop",
+  "map_clear",
+  "map_save",
+  "dataset_start",
+  "dataset_stop",
 ]);
 
 export async function POST(request: Request) {

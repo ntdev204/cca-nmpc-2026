@@ -2,12 +2,18 @@
 <package format="3">
   <name>turn_on_robot</name>
   <version>0.1.0</version>
-  <description>One-command startup for the robot and all configured sensors.</description>
+  <description>Canonical robot bringup, sensor startup and HTTP bridge launch files.</description>
   <maintainer email="thientn204@users.noreply.github.com">Nguyen Ngoc Thien</maintainer>
   <license>Proprietary research code</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <exec_depend>cca_bringup</exec_depend>
+  <exec_depend>cca_hardware</exec_depend>
+  <exec_depend>cca_runtime</exec_depend>
+  <exec_depend>cca_slam</exec_depend>
+  <exec_depend>rai_runtime_bridge</exec_depend>
+  <exec_depend>astra_camera</exec_depend>
+  <exec_depend>lslidar_driver</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

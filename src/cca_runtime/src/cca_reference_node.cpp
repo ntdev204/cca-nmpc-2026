@@ -32,7 +32,7 @@ public:
     const double rate_hz = declare_parameter<double>("publish_rate_hz", 20.0);
     global_topic_ = declare_parameter<std::string>("global_path_topic", "/cca/global_path");
     local_topic_ = declare_parameter<std::string>("local_reference_topic", "/cca/local_reference");
-    state_topic_ = declare_parameter<std::string>("state_topic", "/odometry/filtered");
+    state_topic_ = declare_parameter<std::string>("state_topic", "/odometry/raw");
     context_topic_ = declare_parameter<std::string>("context_topic", "/cca/context_score");
     if (horizon_ == 0U || !(rate_hz > 0.0)) {
       throw std::invalid_argument("CCA reference parameters are invalid");

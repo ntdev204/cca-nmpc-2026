@@ -1,76 +1,51 @@
 # Web operator dashboard
 
-This is a Next.js 16.3.1 App Router dashboard. It polls the Next.js route
-handlers, which bridge to the no-ROS TCP backend on Jetson. The interface uses
-the CLI-installed shadcn/ui base-nova components with a light, cold-blue theme.
+This is a Next.js 16.3.1 App Router dashboard for the FastAPI runtime bridge.
+All robot requests go through HTTP REST endpoints on the bridge; the website
+does not open a raw socket or use the legacy JSON-lines transport.
 
-The project was bootstrapped with the official CLI:
-
-```powershell
-npx create-next-app@latest app/web --ts --eslint --app --empty --use-npm `
-  --import-alias "@/*" --disable-git --yes
-```
+From `app/web`:
 
 ```powershell
-$env:ROBOT_HOST = '100.69.39.18'
-$env:ROBOT_PORT = '8765'
-$env:ROBOT_CAMERA_PORT = '8766'
-$env:NEXT_PUBLIC_ROBOT_WEBRTC_URL = 'http://100.69.39.18:8766/webrtc/offer'
+$env:ROBOT_BRIDGE_URL = 'http://100.69.39.18:8000'
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The web dashboard is the single operator client.
-Its server-side bridge keeps one persistent TCP connection to the Jetson, so
-status polling and control requests cannot race to occupy the backend's
-single-client slot. It decodes compressed state/LiDAR/map frames losslessly and
-uses a JSON-bigint parser so nanosecond timestamps are not rounded before the
-data reaches the UI.
+Open `http://localhost:3000`. Next.js route handlers proxy telemetry, map,
+commands and the WebRTC offer to the Jetson bridge, so the browser only talks
+to the local website origin.
 
-The browser receives state and new LiDAR scans at the monitoring rate; map
-updates are published at 2 Hz while the full-resolution map remains on the
-Jetson. Camera bytes never enter the JSON control stream, which keeps the 4G/
-EDGE path bounded without changing saved measurements.
+The dashboard reads:
 
-When the robot bridge is online the service starts in the motion-ready state.
-The map view uses the odometry pose as the shared robot/map pose, displays
-accumulated log-odds occupancy and scan-history trajectory, and intentionally
-does not expose TF or sensor-frame controls. The Astra-S panel is placed beside
-the fixed map for synchronized monitoring. The dashboard also includes a
-standalone polar LiDAR view, continuous keyboard control (`W/S/A/D`, arrows,
-`Q/E`), watchdog-safe stop handling, map reload, and a dataset capture panel.
-Simultaneous keys are combined: W+D commands diagonal motion and W+Q commands
-forward motion with a left turn. `Start capture` and `Save dataset` create a
-Jetson-side run containing state, commands, LiDAR scans, RGB/depth frames, map
-history and a recursive hash manifest; the run identifier and live sample
-counts remain visible in the dashboard for provenance.
+- `GET /api/telemetry/current` for odometry, battery and controller telemetry;
+- `GET /api/system/components` for runtime/component status;
+- `GET /api/map/snapshot` for the ROS occupancy map;
+- `GET /api/map/status` plus `POST /api/map/scan/start`, `/api/map/scan/stop`,
+  `/api/map/clear` and `/api/map/save` for SLAM map control;
+- `POST /api/robot/cmd_vel` for velocity commands;
+- `POST /api/robot/nav/goal` and `/api/robot/nav/cancel` for navigation;
+- `POST /api/webrtc/offer` for the camera's HTTP SDP exchange.
 
-The Jetson serves the live Astra-S camera through a WebRTC offer endpoint at
-`8766/webrtc/offer`, separate from the control/telemetry port `8765`. The FE
-creates a receive-only `RTCPeerConnection`, exchanges one SDP offer/answer, and
-renders the H.264 track in a muted `<video>` element. No camera bytes enter
-JSON, Base64, or the Next.js polling path. The negotiated camera frame is
-640x480; status metadata carries only timing and transport state. The old raw
-MJPEG endpoint remains at `/mjpeg` as a diagnostic fallback during deployment.
+The browser-side motion gate starts disabled. Enabling motion is a website
+session safety gate; velocity commands then go to the bridge's manual override
+channel and the STM bridge prioritizes them over autonomous `/cmd_vel` only
+while the short command watchdog is refreshed. Emergency stop sends zero
+velocity and disables the website session gate.
 
-## Sidebar views
+The current HTTP bridge exposes the ROS map and runtime components rather than
+the old custom scan/saved-map protocol. Dataset controls are shown only when
+the bridge role grants the `dataset` action. Camera preview uses the bridge's
+WebRTC endpoint; there is no MJPEG or separate camera port fallback.
 
-The root dashboard is a single operator surface. The desktop sidebar (and the
-compact mobile navigation) switches views in place without opening separate
-robot clients or pages:
+SLAM is owned by a single supervisor launched from `turn_on_robot/bringup.launch.py`.
+Start/Stop pause or resume new laser measurements without losing the active map;
+Clear asks the supervisor to restart one fresh SLAM launch session, then Save calls
+`/slam_toolbox/save_map`. Saves use the standard Jetson root
+`/home/rai/cca-nmpc-ros2/maps/<name>.yaml` and `<name>.pgm`; the UI only accepts
+the map name and creates the file names automatically without creating a per-map
+folder. Leaving the name empty generates `map-YYYYMMDD-HHMMSS`. Clear never
+removes saved map files.
 
-- `Overview` — fixed map, camera, LiDAR, controls, map capture and history.
-- `Monitor` — fixed map, robot pose, trajectory, planned path, LiDAR overlay,
-  polar returns and camera.
-- `Control` — continuous keyboard/button motion, zero velocity, stop and
-  emergency stop, plus map-frame A* planning.
-- `Mapping & data` — scan start/stop/save, saved-map selection and map loading.
-- `Telemetry` — paginated state, LiDAR, map-update and event histories.
-
-The optional `?view=monitor|control|mapping|telemetry` query is retained for
-bookmarks; it still renders inside the same root dashboard.
-
-The history route is `/api/history?kind=state|lidar|map|event&page=1&pageSize=12`.
-It keeps only a bounded in-memory window in the server bridge. Full-resolution
-map and sensor payloads are not duplicated into the history table; the table
-shows timestamps and counts while the current stream remains lossless.
+The `/api/history?kind=state|lidar|map|event&page=1&pageSize=12` route keeps a
+bounded in-memory history of the HTTP snapshots for the telemetry view.

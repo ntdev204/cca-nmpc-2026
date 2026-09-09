@@ -61,45 +61,43 @@ corresponding schema. No legacy number or figure may be reused.
 
 ## ROS 2 robot runtime
 
-The active hardware entrypoint is the ROS 2 package `turn_on_robot`. It starts
-the CCA-NMPC runtime, STM bridge, LSLiDAR N10P, Astra-S and SLAM Toolbox:
+The active hardware entrypoint is the ROS 2 package `turn_on_robot`. Its
+`bringup.launch.py` starts the CCA-NMPC runtime, STM bridge, LSLiDAR N10P,
+Astra-S, SLAM Toolbox and the HTTP/WebRTC bridge:
 
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/cca_ws/install/setup.bash
-ros2 launch turn_on_robot turn_on_robot.launch.py
+ros2 launch turn_on_robot bringup.launch.py
 ```
 
 The source tree contains only ROS 2 packages. The manufacturer's STM32 image
 remains on the robot and is not rebuilt here. Optional driver packages are
 kept under `src/depend/` and are built with the same ROS 2 workspace after
 their system and sensor-library dependencies are installed. CA-NMPC remains
-the sole motion-command authority; Nav2 is not allowed to publish competing
-`/cmd_vel` commands.
+the autonomous motion authority on `/cmd_vel`; operator commands use the
+separate `/manual_cmd_vel` override, which the STM bridge prioritizes only
+while its short manual-command watchdog is refreshed. Nav2 is not allowed to
+publish competing `/cmd_vel` commands.
 
 ### Robot application
 
 The runtime is under `app/`, not under the utility directory. On the Jetson
-run the backend service:
+run the canonical bringup (the bridge is included by default):
 
 ```bash
-PYTHONPATH=src:app python3 -B app/backend/robot_console.py --server --bind 0.0.0.0 --port 8765
+source /opt/ros/humble/setup.bash
+source ~/cca-nmpc-ros2/install/setup.bash
+ros2 launch turn_on_robot bringup.launch.py bridge_role:=robot bridge_host:=0.0.0.0 bridge_port:=8000
 ```
 
 On the laptop start the web dashboard in `app/web` (Next.js 16.3.1). It is the
-single operator surface: motion is ready automatically when STM32 is online,
-while emergency stop and teleoperation remain available. The advanced 2-D monitor shows occupancy,
-map-frame pose, TF frames, the robot footprint and LiDAR rays whose visual
-origins are placed on the circumscribed footprint. It also provides Astra-S
-preview, scan start/stop and map/data saving. The server-side bridge keeps one
-persistent Jetson connection so polling cannot occupy the control slot. State,
-LiDAR and map stream frames use fast zlib framing when smaller than raw JSON;
-the camera uses a direct H.264 WebRTC track at 640x480, and TCP_NODELAY keeps
-control packets responsive. A `/mjpeg` endpoint remains only as a diagnostic
-fallback. The service discovers
-`openni2_redist/arm64` automatically and keeps the watchdog beside the STM32
-transport. Saved runs remain ignored until the physical package is checked by
-the existing evidence gates.
+single operator surface and calls the FastAPI runtime bridge over HTTP at
+`ROBOT_BRIDGE_URL` (default `http://100.69.39.18:8000`). Telemetry, component
+state, ROS map snapshots, velocity/navigation commands and the WebRTC SDP
+exchange all use the bridge's REST API; the browser does not open a raw robot
+socket. The bridge remains responsible for device-role permissions and its
+command watchdog.
 
 ```bash
 export PYTHONPATH=src:scripts/python

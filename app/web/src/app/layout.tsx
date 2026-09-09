@@ -8,7 +8,7 @@ const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
   title: "Mecanum Robot Console",
-  description: "No-ROS operator dashboard for the Mecanum robot",
+  description: "HTTP operator dashboard for the Mecanum robot",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

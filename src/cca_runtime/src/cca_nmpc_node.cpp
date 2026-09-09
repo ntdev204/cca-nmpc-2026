@@ -30,7 +30,7 @@ public:
     const double human_radius = declare_parameter<double>("human_radius_m", 0.34);
     const double human_clearance = declare_parameter<double>("human_clearance_m", 0.623);
     state_timeout_s_ = declare_parameter<double>("state_timeout_s", 0.25);
-    state_topic_ = declare_parameter<std::string>("state_topic", "/odometry/filtered");
+    state_topic_ = declare_parameter<std::string>("state_topic", "/odometry/raw");
     reference_topic_ = declare_parameter<std::string>("reference_topic", "/cca/local_reference");
     context_topic_ = declare_parameter<std::string>("context_topic", "/cca/context_prediction");
     command_topic_ = declare_parameter<std::string>("command_topic", "/cmd_vel");
