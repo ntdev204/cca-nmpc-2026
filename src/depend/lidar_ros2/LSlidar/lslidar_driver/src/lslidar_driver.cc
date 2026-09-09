@@ -1095,16 +1095,38 @@ namespace lslidar_driver
 						int point_idx = round((360.0 - points[i].degree) * FIXED_SCAN_NUM / 360.0);
 						if (point_idx < 0) point_idx += FIXED_SCAN_NUM;
 						if (point_idx >= FIXED_SCAN_NUM) point_idx -= FIXED_SCAN_NUM;
-						if (points[i].range == 0.0)
+
+						// N10_P carries near and far returns in separate buffers.  Use
+						// the closest valid return so valid far-channel measurements are
+						// not published as an artificial no-return.
+						double dist = points[i].range;
+						int intensity = points[i].intensity;
+						if (i + 3000 < (int)points.size())
+						{
+							const double far_dist = points[i + 3000].range;
+							const bool near_valid = dist >= min_range && dist <= max_range;
+							const bool far_valid = far_dist >= min_range && far_dist <= max_range;
+							if (!near_valid && far_valid)
+							{
+								dist = far_dist;
+								intensity = points[i + 3000].intensity;
+							}
+							else if (near_valid && far_valid && far_dist < dist)
+							{
+								dist = far_dist;
+								intensity = points[i + 3000].intensity;
+							}
+						}
+
+						if (dist < min_range || dist > max_range || !std::isfinite(dist))
 						{
 							scan->ranges[point_idx] = std::numeric_limits<float>::infinity();
 							scan->intensities[point_idx] = 0;
 						}
 						else
 						{
-							double dist = points[i].range;
 							scan->ranges[point_idx] = (float)dist;
-							scan->intensities[point_idx] = points[i].intensity;
+							scan->intensities[point_idx] = intensity;
 						}
 					}
 					scan_pub->publish(std::move(scan));
