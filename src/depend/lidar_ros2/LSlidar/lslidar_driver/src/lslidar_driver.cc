@@ -1081,10 +1081,9 @@ namespace lslidar_driver
 
 					scan->angle_min = 0;
 					scan->angle_increment = 2 * M_PI / (double)(FIXED_SCAN_NUM);
-					// angle_max describes the last sample, not a duplicated 0-degree
-					// endpoint. Keeping it consistent with the 360-value array avoids
-					// a one-beam geometry mismatch in SLAM Toolbox.
-					scan->angle_max = scan->angle_min + scan->angle_increment * (scan_num - 1);
+					// Keep the full 360-degree extent so SLAM Toolbox recognizes this
+					// as a circular scanner with the N10-P's 360-value array.
+					scan->angle_max = 2 * M_PI;
 					scan->range_min = min_range;
 					scan->range_max = max_range;
 					// N10-P measurements span one complete motor revolution. Publish
