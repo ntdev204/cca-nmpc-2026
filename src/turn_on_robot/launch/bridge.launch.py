@@ -42,6 +42,8 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "map_save_root", default_value="/home/rai/cca-nmpc-ros2/maps"
             ),
+            DeclareLaunchArgument("map_cleanup_enabled", default_value="true"),
+            DeclareLaunchArgument("map_cleanup_min_component_cells", default_value="3"),
             SetEnvironmentVariable("RAI_DEVICE_ROLE", LaunchConfiguration("role")),
             SetEnvironmentVariable("RAI_DEVICE_LABEL", LaunchConfiguration("label")),
             SetEnvironmentVariable("RAI_BRIDGE_HOST", LaunchConfiguration("host")),
@@ -67,6 +69,10 @@ def generate_launch_description():
                         "slam_enabled": LaunchConfiguration("slam_enabled"),
                         "slam_save_service": LaunchConfiguration("slam_save_service"),
                         "map_save_root": LaunchConfiguration("map_save_root"),
+                        "map_cleanup_enabled": LaunchConfiguration("map_cleanup_enabled"),
+                        "map_cleanup_min_component_cells": LaunchConfiguration(
+                            "map_cleanup_min_component_cells"
+                        ),
                     }
                 ],
                 condition=IfCondition(LaunchConfiguration("enabled")),

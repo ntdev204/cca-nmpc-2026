@@ -20,6 +20,9 @@
     compensation: false				                              #M10系列是否使用角度补偿功能
     pubScan: true                                           #是否发布scan话题
     pubPointCloud2: false                                    #是否发布pointcloud2话题
+    filter_outliers: true                                    #抑制孤立/跳变测距点，避免污染SLAM
+    outlier_neighbor_window: 2                              #每侧检查的相邻束数
+    outlier_jump_threshold_m: 0.35                          #允许的局部距离跳变下限
     pointcloud_topic: /lslidar_point_cloud                  #设置激光数据topic名称
 #    pcap: /home/ls/1.pcap                                  #雷达是否使用pcap包读取功能
 #    in_file_name: /home/ls/1.txt                           #雷达是否使用txt文件读取功能

@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <netinet/in.h>
 #include <string>
+#include <vector>
 
 #include <boost/shared_ptr.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
@@ -80,6 +81,7 @@ private:
     void data_processing_2(unsigned char *packet_bytes,int len);
     void difop_processing(unsigned char *packet_bytes);
     void pubScanThread();
+    void filterScanOutliers(sensor_msgs::msg::LaserScan &scan);
     void recvThread_crc(int &count,int &link_time);
     int receive_data(unsigned char *packet_bytes);
     int getScan(std::vector<ScanPoint> &points, rclcpp::Time &scan_time, float &scan_duration);
@@ -109,6 +111,7 @@ private:
     bool first_compensation = true;
     bool pubScan;
     bool pubPointCloud2;
+    bool filter_outliers_;
 
     double min_range;
     double max_range;
@@ -116,6 +119,8 @@ private:
     double angle_disable_max;
     double angle_able_min;
     double angle_able_max;
+    double outlier_jump_threshold_m_;
+    int outlier_neighbor_window_;
     double last_degree = 0.0;	
     double degree_compensation = 0.0;
 

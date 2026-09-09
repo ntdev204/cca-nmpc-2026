@@ -15,7 +15,9 @@
  * along with the driver.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <string>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -78,6 +80,9 @@ namespace lslidar_driver
 		compensation = true;
 		pubScan = true;
 		pubPointCloud2 = true;
+		filter_outliers_ = true;
+		outlier_jump_threshold_m_ = 0.35;
+		outlier_neighbor_window_ = 2;
 		angle_disable_min = 0.0;
 		angle_disable_max = 0.0;
 
@@ -92,6 +97,9 @@ namespace lslidar_driver
 		this->declare_parameter<bool>("compensation", false);
 		this->declare_parameter<bool>("pubScan", true);
 		this->declare_parameter<bool>("pubPointCloud2", false);
+		this->declare_parameter<bool>("filter_outliers", true);
+		this->declare_parameter<int>("outlier_neighbor_window", 2);
+		this->declare_parameter<double>("outlier_jump_threshold_m", 0.35);
 		this->declare_parameter<double>("angle_disable_min", 0.0);
 		this->declare_parameter<double>("angle_disable_max", 0.0);
 		this->declare_parameter<std::string>("interface_selection", "net");
@@ -107,6 +115,9 @@ namespace lslidar_driver
 		this->get_parameter("pointcloud_topic", pointcloud_topic);
 		this->get_parameter("pubScan", pubScan);
 		this->get_parameter("pubPointCloud2", pubPointCloud2);
+		this->get_parameter("filter_outliers", filter_outliers_);
+		this->get_parameter("outlier_neighbor_window", outlier_neighbor_window_);
+		this->get_parameter("outlier_jump_threshold_m", outlier_jump_threshold_m_);
 		this->get_parameter("angle_disable_min", angle_disable_min);
 		this->get_parameter("angle_disable_max", angle_disable_max);
 		this->get_parameter("interface_selection", interface_selection);
@@ -118,6 +129,8 @@ namespace lslidar_driver
 			angle_disable_min -= 360;
 		while (angle_disable_max > 360)
 			angle_disable_max -= 360;
+		outlier_neighbor_window_ = std::max(1, std::min(outlier_neighbor_window_, 8));
+		outlier_jump_threshold_m_ = std::max(0.05, std::min(outlier_jump_threshold_m_, 2.0));
 		if (angle_disable_max == angle_disable_min)
 		{
 			angle_able_min = 0;
@@ -240,6 +253,58 @@ namespace lslidar_driver
 			point_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(pointcloud_topic, 10);
 		difop_switch = this->create_subscription<std_msgs::msg::Int8>("lslidar_order", 1, std::bind(&LslidarDriver::lidar_order, this, std::placeholders::_1)); // 转速输入
 		return true;
+	}
+
+	void LslidarDriver::filterScanOutliers(sensor_msgs::msg::LaserScan &scan)
+	{
+		if (!filter_outliers_ || scan.ranges.size() < 5)
+			return;
+
+		const int scan_size = static_cast<int>(scan.ranges.size());
+		const auto valid = [&](int index) {
+			const float range = scan.ranges[static_cast<std::size_t>(index)];
+			return std::isfinite(range) && range >= scan.range_min && range <= scan.range_max;
+		};
+		const auto wrapped_index = [scan_size](int index) {
+			index %= scan_size;
+			return index < 0 ? index + scan_size : index;
+		};
+		const auto is_supported_by = [&](float range, float neighbour) {
+			const double scale = std::max(0.5, std::min(
+				static_cast<double>(range), static_cast<double>(neighbour)));
+			const double allowed_jump = std::max(outlier_jump_threshold_m_, 0.12 * scale);
+			return std::abs(static_cast<double>(range) - static_cast<double>(neighbour)) <= allowed_jump;
+		};
+
+		std::vector<float> filtered = scan.ranges;
+		for (int index = 0; index < scan_size; ++index)
+		{
+			if (!valid(index))
+				continue;
+
+			const float range = scan.ranges[static_cast<std::size_t>(index)];
+			int support = 0;
+			for (int offset = 1; offset <= outlier_neighbor_window_; ++offset)
+			{
+				const int left = wrapped_index(index - offset);
+				const int right = wrapped_index(index + offset);
+				if (valid(left) && is_supported_by(range, scan.ranges[static_cast<std::size_t>(left)]))
+					++support;
+				if (valid(right) && is_supported_by(range, scan.ranges[static_cast<std::size_t>(right)]))
+					++support;
+			}
+
+			// A single return with no nearby range at a compatible distance is a
+			// serial/optical outlier.  Publish it as no-return instead of letting
+			// SLAM turn it into a false obstacle.  Real wall segments have support
+			// on at least one neighbouring beam and are preserved.
+			if (support == 0)
+			{
+				filtered[static_cast<std::size_t>(index)] = std::numeric_limits<float>::infinity();
+				scan.intensities[static_cast<std::size_t>(index)] = 0;
+			}
+		}
+		scan.ranges.swap(filtered);
 	}
 
 	void LslidarDriver::lidar_difop()
@@ -1139,6 +1204,7 @@ namespace lslidar_driver
 							scan->intensities[point_idx] = intensity;
 						}
 					}
+					filterScanOutliers(*scan);
 					scan_pub->publish(std::move(scan));
 				}
 				if (pubPointCloud2)

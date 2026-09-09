@@ -35,6 +35,66 @@ def _as_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _kept_occupied_components(
+    width: int, height: int, occupied: set[int], min_component_cells: int
+) -> set[int]:
+    """Keep connected obstacle components large enough to be map evidence."""
+    remaining = set(occupied)
+    kept: set[int] = set()
+    while remaining:
+        start = remaining.pop()
+        component = [start]
+        stack = [start]
+        while stack:
+            index = stack.pop()
+            x = index % width
+            y = index // width
+            neighbours: list[int] = []
+            if x > 0:
+                neighbours.append(index - 1)
+            if x + 1 < width:
+                neighbours.append(index + 1)
+            if y > 0:
+                neighbours.append(index - width)
+            if y + 1 < height:
+                neighbours.append(index + width)
+            for neighbour in neighbours:
+                if neighbour not in remaining:
+                    continue
+                remaining.remove(neighbour)
+                component.append(neighbour)
+                stack.append(neighbour)
+        if len(component) >= min_component_cells:
+            kept.update(component)
+    return kept
+
+
+def _clean_occupancy_data(
+    values: list[int], width: int, height: int, min_component_cells: int
+) -> tuple[list[int], dict[str, int]]:
+    expected = max(0, width * height)
+    cleaned = [int(value) for value in values[:expected]]
+    if len(cleaned) < expected:
+        cleaned.extend([-1] * (expected - len(cleaned)))
+    if width <= 0 or height <= 0:
+        return cleaned, {
+            "raw_occupied_cells": 0,
+            "occupied_cells": 0,
+            "removed_occupied_cells": 0,
+        }
+    occupied = {index for index, value in enumerate(cleaned) if value >= 65}
+    kept = _kept_occupied_components(
+        width, height, occupied, min_component_cells
+    ) if occupied else set()
+    for index in occupied - kept:
+        cleaned[index] = -1
+    return cleaned, {
+        "raw_occupied_cells": len(occupied),
+        "occupied_cells": len(kept),
+        "removed_occupied_cells": len(occupied) - len(kept),
+    }
+
+
 class WebBridgeNode(Node):
     """Thread-safe ROS facade used by the HTTP and WebRTC endpoints.
 
@@ -101,6 +161,20 @@ class WebBridgeNode(Node):
         )
         if self.map_service_timeout_s <= 0.0:
             raise ValueError("map_service_timeout_s must be positive")
+        self.map_cleanup_enabled = _as_bool(
+            self.declare_parameter("map_cleanup_enabled", True).value
+        )
+        self.map_cleanup_min_component_cells = max(
+            1,
+            min(
+                64,
+                int(
+                    self.declare_parameter(
+                        "map_cleanup_min_component_cells", 3
+                    ).value
+                ),
+            ),
+        )
         self.odom_frame = str(self.declare_parameter("odom_frame", "odom").value)
         self.map_frame = str(self.declare_parameter("map_frame", "map").value)
         self.control_frame = str(
@@ -495,16 +569,91 @@ class WebBridgeNode(Node):
             str(root / f"{name}.yaml"),
             str(root / f"{name}.pgm"),
         ]
+        cleanup: dict[str, Any] = {"enabled": self.map_cleanup_enabled}
+        if self.map_cleanup_enabled:
+            pgm_path = root / f"{name}.pgm"
+            for _ in range(20):
+                if pgm_path.is_file():
+                    break
+                time.sleep(0.05)
+            try:
+                cleanup.update(self._clean_saved_pgm(pgm_path))
+            except Exception as error:
+                # Keep the successful SLAM save even if an optional image
+                # cleanup cannot parse a vendor-specific PGM header.
+                cleanup["error"] = str(error)
         saved = {
             "name": name,
             "directory": str(root),
             "base_path": str(base_path),
             "files": files,
             "result": result,
+            "cleanup": cleanup,
         }
         with self._lock:
             self._last_map_save = saved
         return {"accepted": True, **saved, "mapping": self.mapping_status()}
+
+    def _clean_saved_pgm(self, path: FilePath) -> dict[str, Any]:
+        raw = path.read_bytes()
+        if not raw.startswith(b"P5"):
+            return {"format": "unsupported", "removed_occupied_cells": 0}
+
+        def next_token(offset: int) -> tuple[bytes, int]:
+            length = len(raw)
+            while offset < length:
+                byte = raw[offset]
+                if byte in b" \t\r\n":
+                    offset += 1
+                    continue
+                if byte == ord("#"):
+                    while offset < length and raw[offset] not in b"\r\n":
+                        offset += 1
+                    continue
+                break
+            start = offset
+            while offset < length and raw[offset] not in b" \t\r\n":
+                offset += 1
+            return raw[start:offset], offset
+
+        magic, offset = next_token(0)
+        width_token, offset = next_token(offset)
+        height_token, offset = next_token(offset)
+        max_value_token, offset = next_token(offset)
+        if magic != b"P5":
+            return {"format": "unsupported", "removed_occupied_cells": 0}
+        width = int(width_token)
+        height = int(height_token)
+        max_value = int(max_value_token)
+        if width <= 0 or height <= 0 or max_value != 255:
+            return {"format": "unsupported", "removed_occupied_cells": 0}
+        while offset < len(raw) and raw[offset] in b" \t\r\n":
+            offset += 1
+        pixel_count = width * height
+        end = offset + pixel_count
+        if end > len(raw):
+            raise ValueError("PGM pixel payload is truncated")
+
+        pixels = bytearray(raw[offset:end])
+        occupied = {index for index, value in enumerate(pixels) if value <= 65}
+        kept = _kept_occupied_components(
+            width, height, occupied, self.map_cleanup_min_component_cells
+        ) if occupied else set()
+        removed = occupied - kept
+        for index in removed:
+            # Unknown is safer than free: a removed speck must not become a
+            # traversable cell for a later navigation stack.
+            pixels[index] = 205
+        if removed:
+            path.write_bytes(raw[:offset] + bytes(pixels) + raw[end:])
+        return {
+            "format": "P5",
+            "width": width,
+            "height": height,
+            "raw_occupied_cells": len(occupied),
+            "occupied_cells": len(kept),
+            "removed_occupied_cells": len(removed),
+        }
 
     def _call_service(self, client: Any, request: Any, service_name: str) -> Any:
         if not client.wait_for_service(timeout_sec=self.map_service_timeout_s):
@@ -760,9 +909,25 @@ class WebBridgeNode(Node):
             }
 
     def _map_callback(self, message: OccupancyGrid) -> None:
-        data = bytes(int(value) & 0xFF for value in message.data)
         width = int(message.info.width)
         height = int(message.info.height)
+        raw_values = [int(value) for value in message.data]
+        if self.map_cleanup_enabled:
+            cleaned_values, cleanup = _clean_occupancy_data(
+                raw_values,
+                width,
+                height,
+                self.map_cleanup_min_component_cells,
+            )
+        else:
+            cleaned_values = raw_values
+            occupied_cells = sum(1 for value in raw_values if value >= 65)
+            cleanup = {
+                "raw_occupied_cells": occupied_cells,
+                "occupied_cells": occupied_cells,
+                "removed_occupied_cells": 0,
+            }
+        data = bytes(int(value) & 0xFF for value in cleaned_values)
         resolution = float(message.info.resolution)
         origin_x = float(message.info.origin.position.x)
         origin_y = float(message.info.origin.position.y)
@@ -789,6 +954,11 @@ class WebBridgeNode(Node):
                 "origin_x": origin_x,
                 "origin_y": origin_y,
                 "grid_data": base64.b64encode(data).decode("ascii"),
+                **cleanup,
+                "map_cleanup": {
+                    "enabled": self.map_cleanup_enabled,
+                    "min_component_cells": self.map_cleanup_min_component_cells,
+                },
                 "timestamp": time.time(),
                 "frame_id": message.header.frame_id or self.map_frame,
             }
