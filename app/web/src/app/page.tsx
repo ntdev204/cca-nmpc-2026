@@ -67,8 +67,26 @@ function asNumber(value: unknown, fallback = 0) {
 }
 
 function poseFrom(snapshot: Snapshot): Pose {
-  const pose = (snapshot.state?.map_pose as number[] | undefined) ?? (snapshot.state?.pose as number[] | undefined) ?? [0, 0, 0];
+  const pose = (snapshot.state?.sensor_pose as number[] | undefined)
+    ?? (snapshot.state?.map_pose as number[] | undefined)
+    ?? (snapshot.state?.pose as number[] | undefined)
+    ?? [0, 0, 0];
   return { x: asNumber(pose[0]), y: asNumber(pose[1]), yaw: asNumber(pose[2]) };
+}
+
+function poseSourceFrom(snapshot: Snapshot): string {
+  return String(snapshot.state?.pose_source ?? "odometry_feedback");
+}
+
+function poseTimestampFrom(snapshot: Snapshot): string {
+  const value = snapshot.state?.pose_timestamp_ns;
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function poseSourceLabel(source: string): string {
+  if (source === "slam_tf") return "sensor TF";
+  if (source === "odometry_feedback") return "sensor odom";
+  return source;
 }
 
 function worldToSvg(x: number, y: number): Point {
@@ -296,6 +314,7 @@ export default function Home() {
   const [cameraConnection, setCameraConnection] = useState("idle");
   const firstRefresh = useRef(true);
   const commandEpoch = useRef(0);
+  const lastPoseMeasurement = useRef("");
 
   const selectView = useCallback((next: DashboardView) => {
     setView(next);
@@ -334,7 +353,13 @@ export default function Home() {
       if (refreshEpoch !== commandEpoch.current) return;
       setSnapshot((previous) => mergeSnapshot(previous, body));
       const nextPose = body.state ? poseFrom(body) : null;
-      if (!nextPose) return;
+      const poseTimestamp = poseTimestampFrom(body);
+      if (!nextPose || !poseTimestamp || poseTimestamp === "0") return;
+      // Polling may return the same sensor sample several times. Keep the
+      // trace tied to measurement timestamps instead of HTTP polling or
+      // recently sent control commands.
+      if (poseTimestamp === lastPoseMeasurement.current) return;
+      lastPoseMeasurement.current = poseTimestamp;
       setTrace((previous) => {
         const last = previous[previous.length - 1];
         if (last && Math.hypot(nextPose.x - last[0], nextPose.y - last[1]) < 0.01) return previous;
@@ -363,6 +388,7 @@ export default function Home() {
       if (requestEpoch !== commandEpoch.current) return;
       if (payload.command === "map_clear") {
         setTrace([]);
+        lastPoseMeasurement.current = "";
         setSnapshot((previous) => ({ ...mergeSnapshot(previous, body), map: undefined }));
       } else {
         setSnapshot((previous) => mergeSnapshot(previous, body));
@@ -380,6 +406,7 @@ export default function Home() {
   const armed = status.armed === true || status.armed === "true";
   const telemetry = (state.telemetry as Record<string, unknown> | undefined) ?? {};
   const poseDiagnostics = (state.pose_diagnostics as Record<string, unknown> | undefined) ?? {};
+  const poseSource = poseSourceLabel(poseSourceFrom(snapshot));
   const mapData = snapshot.map?.map as Record<string, unknown> | undefined;
   const mapMetadata = mapData?.metadata as Record<string, unknown> | undefined;
   const occupiedCells = asNumber(mapMetadata?.occupied_cells, -1);
@@ -503,11 +530,12 @@ export default function Home() {
           <div><div className="flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-primary"><Crosshair className="size-4" />HTTP ROBOT CONSOLE</div><h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">{activeView.label}</h1><p className="mt-1 text-sm text-muted-foreground">Mecanum Robot · FastAPI bridge · fixed map, Astra-S view and keyboard control</p></div>
           <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
             <Badge variant={online ? "default" : "destructive"} className="h-7 gap-1.5 px-3 uppercase tracking-[0.12em]"><Wifi className="size-3.5" />{snapshot.backend ?? "offline"}</Badge>
-            <Badge variant="outline" className="bg-white">Pose {pose.x.toFixed(2)}, {pose.y.toFixed(2)} m · {(pose.yaw * 180 / Math.PI).toFixed(1)}°</Badge>
+            <Badge variant="outline" className="bg-white">Pose (sensor) {pose.x.toFixed(2)}, {pose.y.toFixed(2)} m · {(pose.yaw * 180 / Math.PI).toFixed(1)}°</Badge>
             <Badge variant="outline" className="bg-white">v {asNumber(telemetry.vx_mps).toFixed(2)} / {asNumber(telemetry.vy_mps).toFixed(2)} m/s</Badge>
             <Badge variant="outline" className="bg-white">speed {asNumber(poseDiagnostics.speed_mps).toFixed(2)} m/s</Badge>
             <Badge variant="outline" className="bg-white">ω {asNumber(telemetry.wz_radps).toFixed(2)} / gyro {asNumber(telemetry.gyro_z_radps).toFixed(2)}</Badge>
             <Badge variant="outline" className="bg-white">yaw source {String(poseDiagnostics.yaw_rate_source ?? "none")}</Badge>
+            <Badge variant="outline" className="bg-white">pose source {poseSource}</Badge>
             <Badge variant="outline" className="gap-1 bg-white"><BatteryMedium className="size-3.5 text-primary" />{asNumber(telemetry.voltage_v).toFixed(2)} V</Badge>
             <Badge variant="outline" className="gap-1 bg-white"><Radar className="size-3.5 text-primary" />{asNumber(status.lidar_rate_hz).toFixed(1)} Hz</Badge>
             <Badge variant="outline" className="gap-1 bg-white"><Camera className="size-3.5 text-primary" />{String(status.camera_transport ?? "webrtc-h264")} · {asNumber(status.camera_rate_hz).toFixed(1)} fps</Badge>
@@ -532,7 +560,7 @@ export default function Home() {
 
         {(view === "overview" || view === "monitor" || view === "control" || view === "mapping") && <Card className="overflow-hidden shadow-sm">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
-            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · odometry marker</CardDescription></div>
+            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · sensor pose marker (commands are not used for display)</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
               <MapToggle checked={showTrace} label="Trace" onChange={setShowTrace} />
               <Badge variant="outline" className="bg-white">{mapData && occupiedCells >= 0 ? `${occupiedCells} occupied` : `${asNumber((mapData?.metadata as Record<string, unknown> | undefined)?.scans)} scans`}</Badge>

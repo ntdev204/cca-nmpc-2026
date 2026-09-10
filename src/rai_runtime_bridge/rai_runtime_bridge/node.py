@@ -225,6 +225,9 @@ class WebBridgeNode(Node):
             "camera_rate_hz": 0.0,
             "lidar_clearance": {"left": 5.0, "right": 5.0},
             "map_pose": None,
+            "map_pose_timestamp_ns": 0,
+            "pose_source": "odometry_feedback",
+            "pose_timestamp_ns": 0,
             "camera_capture_t_ns": None,
             "last_update": 0.0,
         }
@@ -830,6 +833,10 @@ class WebBridgeNode(Node):
         self._cmd_pub.publish(message)
 
     def _odom_callback(self, message: Odometry) -> None:
+        stamp_ns = (
+            int(message.header.stamp.sec) * 1_000_000_000
+            + int(message.header.stamp.nanosec)
+        )
         with self._lock:
             self._telemetry["odom"] = {
                 "x": round(float(message.pose.pose.position.x), 4),
@@ -838,7 +845,11 @@ class WebBridgeNode(Node):
                 "linear_x": round(float(message.twist.twist.linear.x), 4),
                 "linear_y": round(float(message.twist.twist.linear.y), 4),
                 "angular_z": round(float(message.twist.twist.angular.z), 4),
+                "gyro_z": float(self._telemetry["odom"].get("gyro_z", 0.0)),
+                "timestamp_ns": stamp_ns,
             }
+            self._telemetry["pose_source"] = "odometry_feedback"
+            self._telemetry["pose_timestamp_ns"] = stamp_ns
             self._telemetry["last_update"] = time.time()
 
     def _scan_callback(self, message: LaserScan) -> None:
@@ -987,8 +998,24 @@ class WebBridgeNode(Node):
                 self.map_frame, self.control_frame, Time()
             )
         except Exception:
+            # Never keep displaying an old map pose after TF disappears. The
+            # frontend may fall back to the newest measured odometry pose, but
+            # it must not mistake stale SLAM data for current feedback.
+            with self._lock:
+                self._telemetry["map_pose"] = None
+                self._telemetry["map_pose_timestamp_ns"] = 0
+                self._telemetry["pose_source"] = "odometry_feedback"
+                self._telemetry["pose_timestamp_ns"] = int(
+                    self._telemetry["odom"].get("timestamp_ns", 0)
+                )
             return
+        stamp_ns = (
+            int(transform.header.stamp.sec) * 1_000_000_000
+            + int(transform.header.stamp.nanosec)
+        )
         with self._lock:
+            if stamp_ns <= 0:
+                stamp_ns = int(self._telemetry["odom"].get("timestamp_ns", 0))
             translation = transform.transform.translation
             rotation = transform.transform.rotation
             self._telemetry["map_pose"] = {
@@ -996,6 +1023,9 @@ class WebBridgeNode(Node):
                 "y": round(float(translation.y), 4),
                 "yaw": round(self._yaw(rotation), 4),
             }
+            self._telemetry["map_pose_timestamp_ns"] = stamp_ns
+            self._telemetry["pose_source"] = "slam_tf"
+            self._telemetry["pose_timestamp_ns"] = stamp_ns
 
     def _map_to_path_pose(self, x: float, y: float, yaw: float) -> tuple[float, float, float]:
         if self.map_frame == self.odom_frame:

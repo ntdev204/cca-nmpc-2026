@@ -316,6 +316,17 @@ class RobotBridge {
     const vx = asNumber(odom.linear_x);
     const vy = asNumber(odom.linear_y);
     const wz = asNumber(odom.angular_z);
+    const gyroZ = asNumber(odom.gyro_z, wz);
+    const poseSource = String(
+      telemetry.pose_source ?? (hasMapPose ? "slam_tf" : "odometry_feedback"),
+    );
+    const reportedPoseTimestampNs = telemetry.pose_timestamp_ns;
+    const poseTimestampNs = reportedPoseTimestampNs !== undefined
+      && reportedPoseTimestampNs !== null
+      && String(reportedPoseTimestampNs) !== "0"
+      ? reportedPoseTimestampNs
+      : odom.timestamp_ns ?? response.timestamp;
+    const displayPose = hasMapPose ? [mapX, mapY, mapYaw] : [x, y, yaw];
     const lidarOnline = componentRunning(components, "lidar");
     const cameraOnline = componentRunning(components, "camera");
     const datasetOnline = componentRunning(components, "dataset");
@@ -350,14 +361,20 @@ class RobotBridge {
     return {
       type: "state",
       t_ns: toNanoseconds(response.timestamp),
-      pose: [x, y, yaw],
+      // `pose` is the measured pose used by the dashboard. It is never
+      // integrated from the command sent to the robot.
+      pose: displayPose,
+      sensor_pose: displayPose,
+      odom_pose: [x, y, yaw],
       ...(hasMapPose ? { map_pose: [mapX, mapY, mapYaw] } : {}),
+      pose_source: poseSource,
+      pose_timestamp_ns: poseTimestampNs,
       camera_capture_t_ns: cameraCaptureNs > 0 ? String(Math.round(cameraCaptureNs)) : undefined,
       telemetry: {
         vx_mps: vx,
         vy_mps: vy,
         wz_radps: wz,
-        gyro_z_radps: wz,
+        gyro_z_radps: gyroZ,
         voltage_v: asNumber(battery.voltage),
         battery_percentage: asNumber(battery.percentage),
         charging: asBoolean(telemetry.charging),
@@ -370,7 +387,9 @@ class RobotBridge {
       },
       pose_diagnostics: {
         speed_mps: Math.hypot(vx, vy),
-        yaw_rate_source: "odom",
+        yaw_rate_source: "imu_feedback",
+        pose_source: poseSource,
+        pose_timestamp_ns: poseTimestampNs,
         map_pose_available: Boolean(telemetry.map_pose),
       },
       status,
@@ -592,7 +611,11 @@ function historyItem(type: string, item: RobotMessage): RobotMessage {
       type,
       t_ns: item.t_ns,
       pose: item.pose,
+      sensor_pose: item.sensor_pose,
+      odom_pose: item.odom_pose,
       map_pose: item.map_pose,
+      pose_source: item.pose_source,
+      pose_timestamp_ns: item.pose_timestamp_ns,
       telemetry: item.telemetry,
       command: item.command,
       status: item.status,
