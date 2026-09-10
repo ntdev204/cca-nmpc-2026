@@ -151,6 +151,14 @@ async def mapping_stop() -> dict[str, Any]:
         raise _map_operation_error(error) from error
 
 
+@app.post("/api/map/select")
+async def mapping_select(request: MapSaveRequest) -> dict[str, Any]:
+    try:
+        return _require_node().select_map(request.name)
+    except Exception as error:
+        raise _map_operation_error(error) from error
+
+
 @app.post("/api/map/clear")
 async def mapping_clear() -> dict[str, Any]:
     try:

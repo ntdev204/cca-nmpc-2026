@@ -95,6 +95,46 @@ def _clean_occupancy_data(
     }
 
 
+def _parse_p5_pgm(raw: bytes) -> tuple[int, int, bytes]:
+    """Read the 8-bit binary PGM format produced by ROS map saving."""
+
+    def next_token(offset: int) -> tuple[bytes, int]:
+        length = len(raw)
+        while offset < length:
+            byte = raw[offset]
+            if byte in b" \t\r\n":
+                offset += 1
+                continue
+            if byte == ord("#"):
+                while offset < length and raw[offset] not in b"\r\n":
+                    offset += 1
+                continue
+            break
+        start = offset
+        while offset < length and raw[offset] not in b" \t\r\n":
+            offset += 1
+        return raw[start:offset], offset
+
+    magic, offset = next_token(0)
+    width_token, offset = next_token(offset)
+    height_token, offset = next_token(offset)
+    max_value_token, offset = next_token(offset)
+    if magic != b"P5":
+        raise ValueError("saved map image must use binary P5 PGM")
+    width = int(width_token)
+    height = int(height_token)
+    max_value = int(max_value_token)
+    if width <= 0 or height <= 0 or max_value != 255:
+        raise ValueError("saved map image must be an 8-bit PGM")
+    if offset < len(raw) and raw[offset] in b" \t\r\n":
+        offset += 1
+    pixel_count = width * height
+    end = offset + pixel_count
+    if end > len(raw):
+        raise ValueError("saved map PGM pixel payload is truncated")
+    return width, height, raw[offset:end]
+
+
 class WebBridgeNode(Node):
     """Thread-safe ROS facade used by the HTTP and WebRTC endpoints.
 
@@ -248,6 +288,8 @@ class WebBridgeNode(Node):
         )
         self._map_control_lock = threading.Lock()
         self._last_map_save: dict[str, Any] | None = None
+        self._selected_map_name: str | None = None
+        self._selected_map_snapshot: dict[str, Any] | None = None
         self._map_ignore_before_ns = 0
 
         self._sensor_qos = QoSProfile(
@@ -414,27 +456,125 @@ class WebBridgeNode(Node):
             # Values are replaced atomically by _map_callback, so a shallow
             # copy gives the HTTP handler its own mapping without copying the
             # grid itself.
-            return dict(self._latest_map) if self._latest_map is not None else None
+            selected = self._selected_map_snapshot
+            current = selected if selected is not None else self._latest_map
+            return dict(current) if current is not None else None
+
+    def saved_maps(self) -> list[dict[str, Any]]:
+        """Return the saved map pairs visible to the operator dashboard."""
+        root = self.map_save_root.resolve()
+        if not root.is_dir():
+            return []
+
+        maps: list[dict[str, Any]] = []
+        for yaml_path in sorted(
+            root.glob("*.yaml"),
+            key=lambda path: path.stat().st_mtime if path.is_file() else 0.0,
+            reverse=True,
+        ):
+            if not yaml_path.is_file():
+                continue
+            name = yaml_path.stem
+            try:
+                if self._normalise_map_name(name) != name:
+                    continue
+            except ValueError:
+                continue
+
+            image_name = f"{name}.pgm"
+            try:
+                yaml_text = yaml_path.read_text(encoding="utf-8")
+                image_match = re.search(
+                    r"(?m)^\s*image\s*:\s*(.+?)\s*$", yaml_text
+                )
+                if image_match:
+                    image_value = image_match.group(1).split("#", 1)[0].strip()
+                    image_value = image_value.strip("'\"")
+                    candidate = (yaml_path.parent / image_value).resolve()
+                    if candidate.parent == root and candidate.suffix.lower() == ".pgm":
+                        image_name = candidate.name
+            except OSError:
+                pass
+
+            pgm_path = (root / image_name).resolve()
+            if pgm_path.parent != root:
+                pgm_path = root / f"{name}.pgm"
+            ready = pgm_path.is_file()
+            try:
+                yaml_mtime = yaml_path.stat().st_mtime
+                pgm_mtime = pgm_path.stat().st_mtime if ready else 0.0
+                size_bytes = yaml_path.stat().st_size + (
+                    pgm_path.stat().st_size if ready else 0
+                )
+            except OSError:
+                continue
+            maps.append(
+                {
+                    "name": name,
+                    "yaml": yaml_path.name,
+                    "pgm": pgm_path.name if ready else None,
+                    "ready": ready,
+                    "updated_at": max(yaml_mtime, pgm_mtime),
+                    "size_bytes": size_bytes,
+                }
+            )
+        return maps
 
     def mapping_status(self) -> dict[str, Any]:
         with self._lock:
             paused = self._slam_paused
-            map_available = self._latest_map is not None
+            selected_name = self._selected_map_name or ""
+            map_available = (
+                self._selected_map_snapshot is not None
+                or self._latest_map is not None
+            )
             last_save = copy.deepcopy(self._last_map_save)
+        saved_maps = self.saved_maps()
         return {
             "slam_enabled": self.slam_enabled,
-            "scanning": not paused,
-            "paused": paused,
+            "scanning": not paused and not selected_name,
+            "paused": paused or bool(selected_name),
             "slam_running": self._has_publisher(self.map_topic),
             "map_available": map_available,
             "map_save_root": str(self.map_save_root),
             "last_saved": last_save,
+            "map_source": "saved" if selected_name else "live_slam",
+            "selected_map": selected_name,
+            "maps": saved_maps,
         }
+
+    def select_map(self, requested_name: str | None) -> dict[str, Any]:
+        """Load a saved map into the dashboard map view without changing files."""
+        name = self._normalise_map_name(requested_name)
+        loaded = self._load_saved_map(name)
+
+        # Selecting a saved map switches the operator surface out of live
+        # capture mode. Keep the running SLAM session paused so a later map
+        # selection cannot silently continue changing the displayed reference.
+        if self.slam_enabled:
+            with self._lock:
+                already_paused = self._slam_paused
+            if not already_paused:
+                self.set_mapping_enabled(False)
+
+        with self._lock:
+            self._selected_map_name = name
+            self._selected_map_snapshot = loaded
+        status = self.mapping_status()
+        status["changed"] = True
+        return {"accepted": True, "name": name, "mapping": status}
 
     def set_mapping_enabled(self, enabled: bool) -> dict[str, Any]:
         """Pause or resume measurements while preserving the active map."""
         if not self.slam_enabled:
             raise RuntimeError("SLAM is disabled in the current bringup")
+        if enabled:
+            with self._lock:
+                selected_name = self._selected_map_name
+            if selected_name:
+                raise ValueError(
+                    "a saved map is selected; use New scan to start a fresh map"
+                )
         desired_paused = not bool(enabled)
         with self._map_control_lock:
             with self._lock:
@@ -512,6 +652,8 @@ class WebBridgeNode(Node):
                 with self._lock:
                     self._latest_map = None
                     self._latest_map_signature = None
+                    self._selected_map_name = None
+                    self._selected_map_snapshot = None
                     self._map_ignore_before_ns = time.time_ns()
                     self._telemetry["map_pose"] = None
                 try:
@@ -548,6 +690,11 @@ class WebBridgeNode(Node):
 
     def save_map(self, requested_name: str | None = None) -> dict[str, Any]:
         """Save the active SLAM map as <name>.yaml and <name>.pgm in the root."""
+        with self._lock:
+            if self._selected_map_name:
+                raise ValueError(
+                    "a saved map is selected; use New scan before saving a map"
+                )
         name = self._normalise_map_name(requested_name)
         root = self.map_save_root.resolve()
         base_path = (root / name).resolve()
@@ -596,6 +743,108 @@ class WebBridgeNode(Node):
         with self._lock:
             self._last_map_save = saved
         return {"accepted": True, **saved, "mapping": self.mapping_status()}
+
+    def _load_saved_map(self, requested_name: str) -> dict[str, Any]:
+        name = self._normalise_map_name(requested_name)
+        root = self.map_save_root.resolve()
+        yaml_path = (root / f"{name}.yaml").resolve()
+        if yaml_path.parent != root or not yaml_path.is_file():
+            raise ValueError(f"saved map does not exist: {name}")
+
+        try:
+            yaml_text = yaml_path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise RuntimeError(f"could not read saved map metadata: {error}") from error
+
+        image_match = re.search(r"(?m)^\s*image\s*:\s*(.+?)\s*$", yaml_text)
+        image_value = image_match.group(1).split("#", 1)[0].strip() if image_match else ""
+        image_value = image_value.strip("'\"")
+        image_path = (yaml_path.parent / image_value).resolve() if image_value else yaml_path
+        if (
+            image_path.parent != root
+            or image_path.suffix.lower() != ".pgm"
+            or not image_path.is_file()
+        ):
+            image_path = (root / f"{name}.pgm").resolve()
+        if image_path.parent != root or not image_path.is_file():
+            raise ValueError(f"saved map image is missing: {name}.pgm")
+
+        try:
+            width, height, pixels = _parse_p5_pgm(image_path.read_bytes())
+        except (OSError, ValueError) as error:
+            raise ValueError(f"saved map image is invalid: {error}") from error
+
+        def yaml_number(key: str, fallback: float) -> float:
+            match = re.search(
+                rf"(?m)^\s*{re.escape(key)}\s*:\s*([-+0-9.eE]+)",
+                yaml_text,
+            )
+            if not match:
+                return fallback
+            try:
+                value = float(match.group(1))
+            except ValueError:
+                return fallback
+            return value if math.isfinite(value) else fallback
+
+        origin_match = re.search(
+            r"(?m)^\s*origin\s*:\s*\[([^\]]+)\]", yaml_text
+        )
+        origin_values: list[float] = []
+        if origin_match:
+            for token in re.split(r"[,\s]+", origin_match.group(1).strip()):
+                try:
+                    value = float(token)
+                except ValueError:
+                    continue
+                if math.isfinite(value):
+                    origin_values.append(value)
+        origin_x = origin_values[0] if len(origin_values) > 0 else 0.0
+        origin_y = origin_values[1] if len(origin_values) > 1 else 0.0
+        origin_yaw = origin_values[2] if len(origin_values) > 2 else 0.0
+        resolution = max(0.001, yaml_number("resolution", 0.05))
+        negate = yaml_number("negate", 0.0) != 0.0
+        occupied_threshold = max(0.0, min(1.0, yaml_number("occupied_thresh", 0.65)))
+        free_threshold = max(0.0, min(1.0, yaml_number("free_thresh", 0.196)))
+
+        # PGM rows start at the top while OccupancyGrid rows start at y=0 at
+        # the map origin. Reverse the image rows so the saved map aligns with
+        # the live ROS map and the dashboard's fixed map frame.
+        cells = bytearray(width * height)
+        for source_y in range(height):
+            grid_y = height - source_y - 1
+            for x in range(width):
+                pixel = pixels[source_y * width + x] / 255.0
+                occupancy_probability = pixel if negate else 1.0 - pixel
+                index = grid_y * width + x
+                if occupancy_probability > occupied_threshold:
+                    cells[index] = 100
+                elif occupancy_probability < free_threshold:
+                    cells[index] = 0
+                else:
+                    cells[index] = 255
+
+        occupied_cells = sum(1 for value in cells if value == 100)
+        known_cells = sum(1 for value in cells if value != 255)
+        return {
+            "width": width,
+            "height": height,
+            "resolution": resolution,
+            "origin_x": origin_x,
+            "origin_y": origin_y,
+            "origin_yaw": origin_yaw,
+            "grid_data": base64.b64encode(bytes(cells)).decode("ascii"),
+            "raw_occupied_cells": occupied_cells,
+            "occupied_cells": occupied_cells,
+            "removed_occupied_cells": 0,
+            "map_cleanup": {"enabled": False, "source": "saved_map"},
+            "timestamp": time.time(),
+            "frame_id": self.map_frame,
+            "map_source": "saved",
+            "map_name": name,
+            "map_yaml": yaml_path.name,
+            "map_pgm": image_path.name,
+        }
 
     def _clean_saved_pgm(self, path: FilePath) -> dict[str, Any]:
         raw = path.read_bytes()
@@ -972,6 +1221,7 @@ class WebBridgeNode(Node):
                 },
                 "timestamp": time.time(),
                 "frame_id": message.header.frame_id or self.map_frame,
+                "map_source": "live_slam",
             }
 
     def _camera_callback(self, message: Image) -> None:

@@ -22,7 +22,7 @@ The dashboard reads:
 - `GET /api/system/components` for runtime/component status;
 - `GET /api/map/snapshot` for the ROS occupancy map;
 - `GET /api/map/status` plus `POST /api/map/scan/start`, `/api/map/scan/stop`,
-  `/api/map/clear` and `/api/map/save` for SLAM map control;
+  `/api/map/select`, `/api/map/clear` and `/api/map/save` for SLAM map control;
 - `POST /api/robot/cmd_vel` for velocity commands;
 - `POST /api/robot/nav/goal` and `/api/robot/nav/cancel` for navigation;
 - `POST /api/webrtc/offer` for the camera's HTTP SDP exchange.
@@ -45,7 +45,10 @@ Clear asks the supervisor to restart one fresh SLAM launch session, then Save ca
 `/home/rai/cca-nmpc-ros2/maps/<name>.yaml` and `<name>.pgm`; the UI only accepts
 the map name and creates the file names automatically without creating a per-map
 folder. Leaving the name empty generates `map-YYYYMMDD-HHMMSS`. Clear never
-removes saved map files.
+removes saved map files. The Mapping panel lists valid YAML/PGM pairs from that
+root; selecting one loads it into the dashboard and pauses live SLAM. This is a
+read-only map reference for the operator surface; click New scan to return to a
+fresh live SLAM map.
 
 The `/api/history?kind=state|lidar|map|event&page=1&pageSize=12` route keeps a
 bounded in-memory history of the HTTP snapshots for the telemetry view.

@@ -71,8 +71,11 @@ measurements while preserving the active map, `POST /api/map/clear` restarts the
 `/home/rai/cca-nmpc-ros2/maps/<name>.yaml` and `<name>.pgm` files. The caller
 supplies only the map name; no per-map folder or file extension is needed. An
 omitted name uses `map-YYYYMMDD-HHMMSS`; user names are normalized to safe file
-names. Clear only affects the active map and leaves saved map files untouched.
-previously saved map files untouched.
+names. `POST /api/map/select` reads a saved YAML/PGM pair into the dashboard map
+view and pauses live SLAM; it does not alter saved files or pretend to provide
+localization. `POST /api/map/clear` (the web button is labelled New scan) returns
+to a fresh live map. Clear only affects the active map and leaves saved map files
+untouched.
 
 The N10P launch default is `lsn10p_launch.py`; override it with
 `lidar_launch_file:=lsn10p_net_launch.py` for the Ethernet configuration.

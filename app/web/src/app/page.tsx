@@ -386,7 +386,7 @@ export default function Home() {
       const response = await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const body = (await response.json()) as Snapshot;
       if (requestEpoch !== commandEpoch.current) return;
-      if (payload.command === "map_clear") {
+      if (["map_clear", "map_new_scan", "map_select"].includes(String(payload.command))) {
         setTrace([]);
         lastPoseMeasurement.current = "";
         setSnapshot((previous) => ({ ...mergeSnapshot(previous, body), map: undefined }));

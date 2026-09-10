@@ -51,8 +51,13 @@ type BridgeMap = {
   resolution?: number;
   origin_x?: number;
   origin_y?: number;
+  origin_yaw?: number;
   grid_data?: string;
   timestamp?: number;
+  map_source?: string;
+  map_name?: string;
+  map_yaml?: string;
+  map_pgm?: string;
 };
 
 type MapResponse = {
@@ -134,6 +139,8 @@ function normalizeMap(source: BridgeMap): RobotMessage {
   const width = Math.max(1, Math.floor(asNumber(source.width, 1)));
   const height = Math.max(1, Math.floor(asNumber(source.height, 1)));
   const resolution = Math.max(0.001, asNumber(source.resolution, 0.05));
+  const mapSource = String(source.map_source ?? "live_slam");
+  const mapName = String(source.map_name ?? "");
   const occupancy = decodeGrid(source.grid_data);
   const expected = width * height;
   const cells = occupancy.length >= expected ? occupancy.slice(0, expected) : [...occupancy, ...new Array(expected - occupancy.length).fill(-1)];
@@ -147,10 +154,14 @@ function normalizeMap(source: BridgeMap): RobotMessage {
     width,
     height,
     resolution_m: resolution,
-    origin: [asNumber(source.origin_x), asNumber(source.origin_y), 0],
+    origin: [asNumber(source.origin_x), asNumber(source.origin_y), asNumber(source.origin_yaw)],
     occupancy_rle: encodeRle(cells),
     metadata: {
-      map_id: "ros-map",
+      map_id: mapSource === "saved" && mapName ? `saved:${mapName}` : "ros-map",
+      map_source: mapSource,
+      ...(mapName ? { map_name: mapName } : {}),
+      ...(source.map_yaml ? { map_yaml: source.map_yaml } : {}),
+      ...(source.map_pgm ? { map_pgm: source.map_pgm } : {}),
       scans: 0,
       points: 0,
       occupied_cells: occupiedCells,
@@ -335,6 +346,8 @@ class RobotBridge {
     const mappingPaused = "paused" in mapping ? asBoolean(mapping.paused) : false;
     const mapData = asRecord(this.mapCache?.map);
     const mapResolution = this.mapCache ? asNumber(mapData.resolution_m, 0.05) : 0.05;
+    const mapLibrary = Array.isArray(mapping.maps) ? mapping.maps : [];
+    const selectedMap = String(mapping.selected_map ?? "");
     const status = {
       armed: this.motionArmed,
       lidar: lidarOnline ? "online" : "offline",
@@ -344,10 +357,11 @@ class RobotBridge {
       lidar_rate_hz: asNumber(telemetry.lidar_rate_hz),
       scan: datasetOnline ? "recording" : "idle",
       dataset: { active: datasetOnline, running: datasetOnline },
-      maps: [],
-      selected_map: "",
+      maps: mapLibrary,
+      selected_map: selectedMap,
+      map_source: String(mapping.map_source ?? "live_slam"),
       map_resolution_m: mapResolution,
-      map_available: Boolean(this.mapCache),
+      map_available: Boolean(this.mapCache) || asBoolean(mapping.map_available),
       map_width: asNumber(mapData.width),
       map_height: asNumber(mapData.height),
       mapping: { ...mapping, scanning: mappingScanning, paused: mappingPaused },
@@ -526,11 +540,28 @@ class RobotBridge {
       this.addEvent("map", "SLAM map scanning paused.");
       return;
     }
-    if (command === "map_clear") {
+    if (command === "map_select") {
+      const name = typeof payload.name === "string" ? payload.name.trim() : "";
+      const response = await postJson<Record<string, unknown>>(
+        "/api/map/select",
+        { name },
+        MAP_OPERATION_TIMEOUT_MS,
+      );
+      this.invalidateSystemCache();
+      this.clearMapCache();
+      this.addEvent("map", `Saved map selected: ${String(response.name ?? name)}.`);
+      return;
+    }
+    if (command === "map_clear" || command === "map_new_scan") {
       await postJson("/api/map/clear", {}, MAP_OPERATION_TIMEOUT_MS);
       this.invalidateSystemCache();
       this.clearMapCache();
-      this.addEvent("map", "Current SLAM map cleared and a fresh scan session started; saved map files were kept.");
+      this.addEvent(
+        "map",
+        command === "map_new_scan"
+          ? "New SLAM map scan started; saved map files were kept."
+          : "Current SLAM map cleared and a fresh scan session started; saved map files were kept.",
+      );
       return;
     }
     if (command === "map_save") {
