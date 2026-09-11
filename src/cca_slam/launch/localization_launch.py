@@ -12,6 +12,7 @@ def generate_launch_description():
         package="nav2_map_server",
         executable="map_server",
         name="map_server",
+        namespace="",
         output="screen",
         parameters=[
             {
@@ -25,6 +26,7 @@ def generate_launch_description():
         package="nav2_amcl",
         executable="amcl",
         name="amcl",
+        namespace="",
         output="screen",
         parameters=[
             {
@@ -55,6 +57,7 @@ def generate_launch_description():
                 "recovery_alpha_slow": 0.0,
                 "resample_interval": 1,
                 "robot_model_type": "nav2_amcl::OmniMotionModel",
+                "scan_topic": "/scan",
                 "save_pose_rate": 0.5,
                 "set_initial_pose": True,
                 "sigma_hit": 0.2,
