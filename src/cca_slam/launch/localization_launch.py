@@ -100,7 +100,9 @@ def generate_launch_description():
         output="screen",
         on_exit=[map_activate],
     )
-    activate_nodes = TimerAction(period=2.0, actions=[map_configure])
+    # Map server needs a little startup time on the Jetson before its
+    # lifecycle services are available.
+    activate_nodes = TimerAction(period=5.0, actions=[map_configure])
 
     return LaunchDescription(
         [
