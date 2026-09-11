@@ -280,7 +280,7 @@ function MapView({
   const viewport = fixedViewport ?? mapBounds;
   const viewBox = `${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`;
   const mapMetadata = data?.metadata as Record<string, unknown> | undefined;
-  const radius = Math.max(0.05, asNumber(mapMetadata?.robot_radius_m, 0.2828427));
+  const radius = Math.max(0.05, asNumber(mapMetadata?.robot_radius_m, 0.29));
   const robotSvg = worldToSvg(pose.x, pose.y);
   const goalSvg = goal ? worldToSvg(goal.x, goal.y) : null;
   const tracePoints = (history.length > 1 ? history : trace).map(([x, y]) => worldToSvg(x, y).join(",")).join(" ");

@@ -330,7 +330,7 @@ class OccupancyMap:
         min_range_m: float,
         max_range_m: float,
         padding_cells: int,
-        robot_radius_m: float = math.sqrt(0.2**2 + 0.2**2),
+        robot_radius_m: float = 0.29,
         scan_matching: bool = True,
         scan_match_interval: int = 1,
         map_id: str = "",

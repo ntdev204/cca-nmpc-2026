@@ -15,14 +15,23 @@ cca_nmpc_node:
     period_s: 0.05
     horizon: 6
     deadline_ms: 40.0
-    robot_radius_m: 0.283
+    robot_radius_m: 0.29
     human_radius_m: 0.34
     human_clearance_m: 0.623
     max_speed_mps: 0.30
+    max_linear_accel_mps2: 1.0
+    max_lateral_accel_mps2: 1.0
+    max_yaw_accel_radps2: 1.6
     scan_topic: /scan
     lidar_timeout_s: 0.25
-    obstacle_stop_distance_m: 0.38
-    obstacle_inflation_m: 0.10
+    obstacle_stop_distance_m: 0.29
+    obstacle_inflation_m: 0.0
+    obstacle_inflation_min_m: 0.0
+    obstacle_inflation_max_m: 0.12
+    obstacle_reaction_time_s: 0.25
+    obstacle_deceleration_mps2: 0.8
+    obstacle_narrow_corridor_m: 0.90
+    obstacle_narrow_scale_min: 0.25
     lidar_max_range_m: 3.0
     state_timeout_s: 0.25
     state_topic: /odometry/raw

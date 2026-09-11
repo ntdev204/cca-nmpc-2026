@@ -166,7 +166,7 @@ function normalizeMap(source: BridgeMap): RobotMessage {
       points: 0,
       occupied_cells: occupiedCells,
       known_cells: knownCells,
-      robot_radius_m: 0.2828427,
+      robot_radius_m: 0.29,
       history: { trajectory: [] },
     },
   };

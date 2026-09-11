@@ -27,14 +27,23 @@ public:
     period_s_ = declare_parameter<double>("period_s", 0.05);
     horizon_ = static_cast<std::size_t>(declare_parameter<int64_t>("horizon", 6));
     const double deadline_ms = declare_parameter<double>("deadline_ms", 40.0);
-    const double robot_radius = declare_parameter<double>("robot_radius_m", 0.283);
+    robot_radius_m_ = declare_parameter<double>("robot_radius_m", 0.29);
     const double human_radius = declare_parameter<double>("human_radius_m", 0.34);
     const double human_clearance = declare_parameter<double>("human_clearance_m", 0.623);
     max_speed_mps_ = declare_parameter<double>("max_speed_mps", 0.30);
+    max_linear_accel_mps2_ = declare_parameter<double>("max_linear_accel_mps2", 1.0);
+    max_lateral_accel_mps2_ = declare_parameter<double>("max_lateral_accel_mps2", 1.0);
+    max_yaw_accel_radps2_ = declare_parameter<double>("max_yaw_accel_radps2", 1.6);
     scan_topic_ = declare_parameter<std::string>("scan_topic", "/scan");
     lidar_timeout_s_ = declare_parameter<double>("lidar_timeout_s", 0.25);
-    obstacle_stop_distance_m_ = declare_parameter<double>("obstacle_stop_distance_m", 0.38);
-    obstacle_inflation_m_ = declare_parameter<double>("obstacle_inflation_m", 0.10);
+    obstacle_stop_distance_m_ = declare_parameter<double>("obstacle_stop_distance_m", 0.29);
+    obstacle_inflation_m_ = declare_parameter<double>("obstacle_inflation_m", 0.0);
+    obstacle_inflation_min_m_ = declare_parameter<double>("obstacle_inflation_min_m", 0.0);
+    obstacle_inflation_max_m_ = declare_parameter<double>("obstacle_inflation_max_m", 0.12);
+    obstacle_reaction_time_s_ = declare_parameter<double>("obstacle_reaction_time_s", 0.25);
+    obstacle_deceleration_mps2_ = declare_parameter<double>("obstacle_deceleration_mps2", 0.8);
+    obstacle_narrow_corridor_m_ = declare_parameter<double>("obstacle_narrow_corridor_m", 0.90);
+    obstacle_narrow_scale_min_ = declare_parameter<double>("obstacle_narrow_scale_min", 0.25);
     lidar_max_range_m_ = declare_parameter<double>("lidar_max_range_m", 3.0);
     state_timeout_s_ = declare_parameter<double>("state_timeout_s", 0.25);
     state_topic_ = declare_parameter<std::string>("state_topic", "/odometry/raw");
@@ -45,8 +54,15 @@ public:
     diagnostics_topic_ = declare_parameter<std::string>("diagnostics_topic", "/cca/controller_diagnostics");
     if (kind != "cca_nmpc" || !(period_s_ > 0.0) || horizon_ == 0U ||
         !(deadline_ms > 0.0) || !(state_timeout_s_ > 0.0) || !(max_speed_mps_ > 0.0) ||
+        !(robot_radius_m_ > 0.0) || !(max_linear_accel_mps2_ > 0.0) ||
+        !(max_lateral_accel_mps2_ > 0.0) || !(max_yaw_accel_radps2_ > 0.0) ||
         !(lidar_timeout_s_ > 0.0) || !(obstacle_stop_distance_m_ > 0.0) ||
-        !(obstacle_inflation_m_ >= 0.0) || !(lidar_max_range_m_ > 0.0)) {
+        !(obstacle_inflation_m_ >= 0.0) || !(obstacle_inflation_min_m_ >= 0.0) ||
+        !(obstacle_inflation_max_m_ >= obstacle_inflation_min_m_) ||
+        !(obstacle_reaction_time_s_ >= 0.0) || !(obstacle_deceleration_mps2_ > 0.0) ||
+        !(obstacle_narrow_corridor_m_ > robot_radius_m_) ||
+        !(obstacle_narrow_scale_min_ > 0.0) || !(obstacle_narrow_scale_min_ <= 1.0) ||
+        !(lidar_max_range_m_ > 0.0)) {
       throw std::invalid_argument("CA-NMPC parameters are invalid");
     }
 
@@ -54,10 +70,13 @@ public:
     config.dt_s = period_s_;
     config.horizon = horizon_;
     config.deadline_ms = deadline_ms;
-    config.robot_radius_m = robot_radius;
+    config.robot_radius_m = robot_radius_m_;
     config.human_radius_m = human_radius;
     config.human_clearance_m = human_clearance;
     config.max_speed_mps = max_speed_mps_;
+    config.max_linear_accel_mps2 = max_linear_accel_mps2_;
+    config.max_lateral_accel_mps2 = max_lateral_accel_mps2_;
+    config.max_yaw_accel_radps2 = max_yaw_accel_radps2_;
     controller_ = std::make_unique<cca::control::Controller>(
         cca::control::ControllerKind::cca_nmpc, config);
     reference_.assign((horizon_ + 1U) * 6U, 0.0);
@@ -151,6 +170,8 @@ private:
     std::vector<double> next_obstacles;
     next_obstacles.reserve((message.ranges.size() / stride + 1U) * 4U);
     double closest = std::numeric_limits<double>::infinity();
+    double left_clearance = usable_max;
+    double right_clearance = usable_max;
     bool have_measurement = false;
     const double yaw = state_[2];
     const double c = std::cos(yaw);
@@ -166,10 +187,24 @@ private:
       const double angle = message.angle_min + static_cast<double>(index) * message.angle_increment;
       const double local_x = range * std::cos(angle);
       const double local_y = range * std::sin(angle);
+      constexpr double quarter_pi = 0.78539816339744830962;
+      constexpr double three_quarter_pi = 2.35619449019234492885;
+      if (angle > quarter_pi && angle < three_quarter_pi) {
+        left_clearance = std::min(left_clearance, range);
+      } else if (angle < -quarter_pi && angle > -three_quarter_pi) {
+        right_clearance = std::min(right_clearance, range);
+      }
       next_obstacles.push_back(state_[0] + c * local_x - s * local_y);
       next_obstacles.push_back(state_[1] + s * local_x + c * local_y);
-      next_obstacles.push_back(obstacle_inflation_m_);
-      next_obstacles.push_back(obstacle_inflation_m_);
+      next_obstacles.push_back(0.0);
+      next_obstacles.push_back(0.0);
+    }
+    left_clearance_m_ = std::clamp(left_clearance, 0.05, lidar_max_range_m_);
+    right_clearance_m_ = std::clamp(right_clearance, 0.05, lidar_max_range_m_);
+    dynamic_inflation_m_ = dynamicObstacleInflation();
+    for (std::size_t index = 2U; index + 1U < next_obstacles.size(); index += 4U) {
+      next_obstacles[index] = dynamic_inflation_m_;
+      next_obstacles[index + 1U] = dynamic_inflation_m_;
     }
     obstacles_ = std::move(next_obstacles);
     closest_lidar_range_m_ = closest;
@@ -216,7 +251,9 @@ private:
       command.linear.x = output.first_command_mps[0];
       command.linear.y = output.first_command_mps[1];
       command.angular.z = output.first_command_mps[2];
-      if (closest_lidar_range_m_ <= obstacle_stop_distance_m_) {
+      const double stop_distance = std::max(
+          obstacle_stop_distance_m_, robot_radius_m_ + dynamic_inflation_m_);
+      if (closest_lidar_range_m_ <= stop_distance) {
         command.linear.x = 0.0;
         command.linear.y = 0.0;
       }
@@ -235,6 +272,8 @@ private:
           std::isfinite(closest_lidar_range_m_) ? closest_lidar_range_m_ : -1.0,
           static_cast<double>(obstacles_.size() / 4U),
           max_speed_mps_,
+          dynamic_inflation_m_,
+          stop_distance,
       };
       diagnostics_pub_->publish(diagnostics);
       if (output.deadline_missed) {
@@ -247,6 +286,23 @@ private:
       controller_->Reset();
       publishZero();
     }
+  }
+
+  double dynamicObstacleInflation() const {
+    const double speed = std::hypot(state_[3], state_[4]);
+    const double braking_margin = speed * obstacle_reaction_time_s_ +
+        (speed * speed) / (2.0 * obstacle_deceleration_mps2_);
+    double margin = std::clamp(
+        obstacle_inflation_m_ + braking_margin,
+        obstacle_inflation_min_m_, obstacle_inflation_max_m_);
+    const double side_clearance = std::min(left_clearance_m_, right_clearance_m_);
+    const double corridor_span = std::max(
+        obstacle_narrow_corridor_m_ - robot_radius_m_, 1.0e-3);
+    const double narrow_scale = std::clamp(
+        (side_clearance - robot_radius_m_) / corridor_span,
+        obstacle_narrow_scale_min_, 1.0);
+    margin *= narrow_scale;
+    return std::clamp(margin, obstacle_inflation_min_m_, obstacle_inflation_max_m_);
   }
 
   void publishPrediction(const std::vector<double>& predicted) {
@@ -272,11 +328,24 @@ private:
   double period_s_{0.05};
   double state_timeout_s_{0.25};
   double max_speed_mps_{0.30};
+  double robot_radius_m_{0.29};
+  double max_linear_accel_mps2_{1.0};
+  double max_lateral_accel_mps2_{1.0};
+  double max_yaw_accel_radps2_{1.6};
   double lidar_timeout_s_{0.25};
-  double obstacle_stop_distance_m_{0.38};
-  double obstacle_inflation_m_{0.10};
+  double obstacle_stop_distance_m_{0.29};
+  double obstacle_inflation_m_{0.0};
+  double obstacle_inflation_min_m_{0.0};
+  double obstacle_inflation_max_m_{0.12};
+  double obstacle_reaction_time_s_{0.25};
+  double obstacle_deceleration_mps2_{0.8};
+  double obstacle_narrow_corridor_m_{0.90};
+  double obstacle_narrow_scale_min_{0.25};
   double lidar_max_range_m_{3.0};
   double closest_lidar_range_m_{std::numeric_limits<double>::infinity()};
+  double left_clearance_m_{3.0};
+  double right_clearance_m_{3.0};
+  double dynamic_inflation_m_{0.0};
   std::size_t horizon_{6U};
   std::string state_topic_;
   std::string reference_topic_;

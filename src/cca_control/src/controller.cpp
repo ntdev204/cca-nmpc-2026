@@ -35,7 +35,10 @@ void ValidateInput(const ControllerConfig& config, const ControllerInput& input)
     if (!(config.dt_s > 0.0) || config.horizon == 0U || !(config.deadline_ms > 0.0) ||
         !(config.max_speed_mps > 0.0) || !(config.max_yaw_rate_radps > 0.0) ||
         !(config.robot_radius_m > 0.0) || !(config.human_radius_m > 0.0) ||
-        !(config.human_clearance_m > 0.0)) {
+        !(config.human_clearance_m > 0.0) ||
+        !(config.max_linear_accel_mps2 > 0.0) ||
+        !(config.max_lateral_accel_mps2 > 0.0) ||
+        !(config.max_yaw_accel_radps2 > 0.0)) {
         throw std::invalid_argument("controller configuration is invalid");
     }
     if (input.state.size() != 6U || input.reference.size() != 6U * (config.horizon + 1U) ||
@@ -79,23 +82,37 @@ std::array<double, 3U> LimitWorldVelocity(
     return {x * scale, y * scale, std::clamp(yaw_rate, -yaw_limit, yaw_limit)};
 }
 
+std::array<double, 3U> RateLimitBodyCommand(
+    const std::array<double, 3U>& command,
+    const std::array<double, 3U>& previous,
+    const ControllerConfig& config
+) {
+    const std::array<double, 3U> limits{
+        config.max_linear_accel_mps2 * config.dt_s,
+        config.max_lateral_accel_mps2 * config.dt_s,
+        config.max_yaw_accel_radps2 * config.dt_s,
+    };
+    std::array<double, 3U> limited = command;
+    for (std::size_t index = 0U; index < limited.size(); ++index) {
+        limited[index] = previous[index] + std::clamp(
+            limited[index] - previous[index], -limits[index], limits[index]
+        );
+    }
+    return limited;
+}
+
 std::array<double, 3U> BodyCommand(
     const double yaw,
     const std::array<double, 3U>& world,
-    const std::array<double, 3U>& previous
+    const std::array<double, 3U>& previous,
+    const ControllerConfig& config
 ) {
     std::array<double, 3U> command{
         std::cos(yaw) * world[0] + std::sin(yaw) * world[1],
         -std::sin(yaw) * world[0] + std::cos(yaw) * world[1],
         world[2],
     };
-    const std::array<double, 3U> limits{0.20, 0.20, 0.35};
-    for (std::size_t index = 0U; index < command.size(); ++index) {
-        command[index] = previous[index] + std::clamp(
-            command[index] - previous[index], -limits[index], limits[index]
-        );
-    }
-    return command;
+    return RateLimitBodyCommand(command, previous, config);
 }
 
 std::array<double, 6U> Step(
@@ -136,7 +153,10 @@ std::array<double, 3U> NominalCommand(
         config.max_speed_mps,
         config.max_yaw_rate_radps
     );
-    return BodyCommand(state[2], world, {input.previous_command[0], input.previous_command[1], input.previous_command[2]});
+    return BodyCommand(
+        state[2], world,
+        {input.previous_command[0], input.previous_command[1], input.previous_command[2]},
+        config);
 }
 
 double InverseNormalApproximation(const double probability) {
@@ -352,6 +372,17 @@ ControllerOutput Controller::Command(const ControllerInput& input) {
     const double linear_norm = Norm2(command[0], command[1]);
     if (linear_norm > config_.max_speed_mps) {
         const double scale = config_.max_speed_mps / linear_norm;
+        command[0] *= scale;
+        command[1] *= scale;
+    }
+    command[2] = std::clamp(command[2], -config_.max_yaw_rate_radps, config_.max_yaw_rate_radps);
+    command = RateLimitBodyCommand(
+        command,
+        {input.previous_command[0], input.previous_command[1], input.previous_command[2]},
+        config_);
+    const double rate_limited_norm = Norm2(command[0], command[1]);
+    if (rate_limited_norm > config_.max_speed_mps) {
+        const double scale = config_.max_speed_mps / rate_limited_norm;
         command[0] *= scale;
         command[1] *= scale;
     }

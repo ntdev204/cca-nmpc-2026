@@ -9,6 +9,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <exec_depend>cca_hardware</exec_depend>
   <exec_depend>cca_runtime</exec_depend>
+  <exec_depend>cca_perception</exec_depend>
   <exec_depend>cca_slam</exec_depend>
   <exec_depend>rai_runtime_bridge</exec_depend>
   <exec_depend>astra_camera</exec_depend>

@@ -228,7 +228,7 @@ class WebBridgeNode(Node):
         self.odom_frame = str(self.declare_parameter("odom_frame", "odom").value)
         self.map_frame = str(self.declare_parameter("map_frame", "map").value)
         self.navigation_inflation_m = float(
-            self.declare_parameter("navigation_inflation_m", 0.38).value
+            self.declare_parameter("navigation_inflation_m", 0.29).value
         )
         self.navigation_snap_radius_m = float(
             self.declare_parameter("navigation_snap_radius_m", 0.45).value
@@ -278,6 +278,14 @@ class WebBridgeNode(Node):
                 "tracking_quality": 0.0,
             },
             "humans": [],
+            "perception": {
+                "model_loaded": False,
+                "camera_detections": 0,
+                "lidar_fused_detections": 0,
+                "context_score": 0.0,
+                "scan_age_s": None,
+                "image_age_s": None,
+            },
             "solver": {},
             "lidar_rate_hz": 0.0,
             "camera_rate_hz": 0.0,
@@ -367,6 +375,7 @@ class WebBridgeNode(Node):
         self._context_sub = None
         self._context_prediction_sub = None
         self._diagnostics_sub = None
+        self._perception_diagnostics_sub = None
         self._map_sub = None
         self._camera_sub = None
 
@@ -424,6 +433,13 @@ class WebBridgeNode(Node):
                     Float64MultiArray,
                     "/cca/controller_diagnostics",
                     self._diagnostics_callback,
+                    self._sensor_qos,
+                )
+            if self._perception_diagnostics_sub is None:
+                self._perception_diagnostics_sub = self.create_subscription(
+                    Float64MultiArray,
+                    "/cca/perception_diagnostics",
+                    self._perception_diagnostics_callback,
                     self._sensor_qos,
                 )
 
@@ -1337,6 +1353,27 @@ class WebBridgeNode(Node):
                         "max_speed_mps": round(values[9], 4),
                     }
                 )
+            if len(values) >= 12:
+                self._telemetry["solver"].update(
+                    {
+                        "lidar_dynamic_inflation_m": round(values[10], 4),
+                        "lidar_stop_distance_m": round(values[11], 4),
+                    }
+                )
+
+    def _perception_diagnostics_callback(self, message: Float64MultiArray) -> None:
+        values = [float(value) for value in message.data]
+        if len(values) < 6 or not all(math.isfinite(value) for value in values[:6]):
+            return
+        with self._lock:
+            self._telemetry["perception"] = {
+                "model_loaded": bool(values[0]),
+                "camera_detections": int(max(0.0, values[1])),
+                "lidar_fused_detections": int(max(0.0, values[2])),
+                "context_score": round(max(0.0, min(1.0, values[3])), 4),
+                "scan_age_s": round(values[4], 4) if values[4] >= 0.0 else None,
+                "image_age_s": round(values[5], 4) if values[5] >= 0.0 else None,
+            }
 
     def _map_callback(self, message: OccupancyGrid) -> None:
         width = int(message.info.width)

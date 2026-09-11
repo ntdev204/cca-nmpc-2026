@@ -13,6 +13,7 @@ def generate_launch_description():
     use_bridge = LaunchConfiguration("use_bridge")
     use_lidar = LaunchConfiguration("use_lidar")
     use_camera = LaunchConfiguration("use_camera")
+    use_perception = LaunchConfiguration("use_perception")
     use_sim_time = LaunchConfiguration("use_sim_time")
     port = LaunchConfiguration("port")
     map_file = LaunchConfiguration("map")
@@ -21,6 +22,12 @@ def generate_launch_description():
     lidar_launch_file = LaunchConfiguration("lidar_launch_file")
     camera_package = LaunchConfiguration("camera_package")
     camera_launch_file = LaunchConfiguration("camera_launch_file")
+    perception_model_path = LaunchConfiguration("perception_model_path")
+    perception_device = LaunchConfiguration("perception_device")
+    perception_confidence = LaunchConfiguration("perception_confidence")
+    perception_rate_hz = LaunchConfiguration("perception_rate_hz")
+    camera_horizontal_fov_rad = LaunchConfiguration("camera_horizontal_fov_rad")
+    camera_yaw_offset_rad = LaunchConfiguration("camera_yaw_offset_rad")
 
     declarations = [
         DeclareLaunchArgument("use_slam", default_value="true"),
@@ -28,6 +35,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_bridge", default_value="true"),
         DeclareLaunchArgument("use_lidar", default_value="true"),
         DeclareLaunchArgument("use_camera", default_value="true"),
+        DeclareLaunchArgument("use_perception", default_value="true"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("port", default_value="/dev/rai_controller"),
         DeclareLaunchArgument("map", default_value=""),
@@ -41,6 +49,15 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_launch_file", default_value="lsn10p_launch.py"),
         DeclareLaunchArgument("camera_package", default_value="astra_camera"),
         DeclareLaunchArgument("camera_launch_file", default_value="astra.launch.xml"),
+        DeclareLaunchArgument(
+            "perception_model_path",
+            default_value="/home/rai/cca-nmpc-ros2/models/yolo26s-pose.pt",
+        ),
+        DeclareLaunchArgument("perception_device", default_value="auto"),
+        DeclareLaunchArgument("perception_confidence", default_value="0.45"),
+        DeclareLaunchArgument("perception_rate_hz", default_value="5.0"),
+        DeclareLaunchArgument("camera_horizontal_fov_rad", default_value="1.0472"),
+        DeclareLaunchArgument("camera_yaw_offset_rad", default_value="0.0"),
         DeclareLaunchArgument("laser_frame", default_value="laser"),
         DeclareLaunchArgument("laser_x", default_value="0.0"),
         DeclareLaunchArgument("laser_y", default_value="0.0"),
@@ -83,7 +100,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "map_save_root", default_value="/home/rai/cca-nmpc-ros2/maps"
         ),
-        DeclareLaunchArgument("navigation_inflation_m", default_value="0.38"),
+        DeclareLaunchArgument("navigation_inflation_m", default_value="0.29"),
         DeclareLaunchArgument("navigation_snap_radius_m", default_value="0.45"),
         DeclareLaunchArgument("ros_domain_id", default_value="0"),
         DeclareLaunchArgument("rmw_implementation", default_value="rmw_fastrtps_cpp"),
@@ -149,6 +166,29 @@ def generate_launch_description():
         condition=IfCondition(use_slam),
     )
 
+    perception = Node(
+        package="cca_perception",
+        executable="cca_perception_node",
+        name="cca_perception_node",
+        output="screen",
+        parameters=[
+            {
+                "image_topic": LaunchConfiguration("camera_topic"),
+                "scan_topic": LaunchConfiguration("scan_topic"),
+                "odom_topic": LaunchConfiguration("odom_topic"),
+                "model_path": perception_model_path,
+                "device": perception_device,
+                "confidence": perception_confidence,
+                "inference_rate_hz": perception_rate_hz,
+                "camera_horizontal_fov_rad": camera_horizontal_fov_rad,
+                "camera_yaw_offset_rad": camera_yaw_offset_rad,
+                "horizon": 6,
+                "period_s": 0.05,
+            }
+        ],
+        condition=IfCondition(use_perception),
+    )
+
     map_server = Node(
         package="nav2_map_server",
         executable="map_server",
@@ -202,6 +242,7 @@ def generate_launch_description():
             ),
             runtime,
             sensors,
+            perception,
             slam_supervisor,
             map_server,
             bridge,

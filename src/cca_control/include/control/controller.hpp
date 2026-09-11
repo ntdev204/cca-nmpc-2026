@@ -24,6 +24,11 @@ struct ControllerConfig {
     double max_speed_mps{0.85};
     double max_yaw_rate_radps{1.4};
     double human_clearance_m{0.5172541986};
+    // Command slew limits are applied after context and obstacle sampling so
+    // those layers cannot inject a step change into the actuator command.
+    double max_linear_accel_mps2{1.0};
+    double max_lateral_accel_mps2{1.0};
+    double max_yaw_accel_radps2{1.6};
 };
 
 struct ControllerInput {

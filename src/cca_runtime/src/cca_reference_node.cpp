@@ -131,6 +131,8 @@ public:
         [this](const nav_msgs::msg::Path::SharedPtr message) {
           global_path_ = *message;
           lstm_.reset();
+          active_count_ = 2U;
+          have_active_count_ = false;
         });
     state_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         state_topic_, rclcpp::SensorDataQoS(),
@@ -197,15 +199,23 @@ private:
     const double obstacle_scale = std::clamp(front_clearance_ / 0.9, 0.25, 1.0);
     const double follower_scale = std::clamp(
         0.55 * lstm_.lookaheadScale() + 0.45 * lstm_.speedScale(), 0.30, 1.0);
-    const std::size_t active_count = std::max<std::size_t>(
+    const std::size_t target_active_count = std::max<std::size_t>(
         2U, static_cast<std::size_t>(std::llround(
                   nominal_count * context_scale * follower_scale * obstacle_scale)));
+    if (!have_active_count_) {
+      active_count_ = target_active_count;
+      have_active_count_ = true;
+    } else {
+      const std::size_t lower = active_count_ > 2U ? active_count_ - 1U : 2U;
+      const std::size_t upper = std::min(nominal_count, active_count_ + 1U);
+      active_count_ = std::clamp(target_active_count, lower, upper);
+    }
     nav_msgs::msg::Path local;
     local.header = global_path_.header;
     local.header.stamp = now();
     local.poses.reserve(nominal_count);
     for (std::size_t step = 0U; step < nominal_count; ++step) {
-      const std::size_t offset = std::min(step, active_count - 1U);
+      const std::size_t offset = std::min(step, active_count_ - 1U);
       const std::size_t index = std::min(start + offset, global_path_.poses.size() - 1U);
       auto pose = global_path_.poses[index];
       pose.header = local.header;
@@ -215,7 +225,7 @@ private:
     std_msgs::msg::Float64MultiArray diagnostics;
     diagnostics.data = {
         lstm_.lookaheadScale(), lstm_.speedScale(), front_clearance_,
-        left_clearance_, right_clearance_, static_cast<double>(active_count),
+        left_clearance_, right_clearance_, static_cast<double>(active_count_),
     };
     lstm_diagnostics_pub_->publish(diagnostics);
   }
@@ -259,6 +269,8 @@ private:
   double front_clearance_{5.0};
   double left_clearance_{5.0};
   double right_clearance_{5.0};
+  std::size_t active_count_{2U};
+  bool have_active_count_{false};
   bool have_state_{false};
   LstmPathFollower lstm_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr global_sub_;

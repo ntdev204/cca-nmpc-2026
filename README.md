@@ -15,6 +15,9 @@ unregistered and cannot support manuscript claims.
 - LSTM supplies context features and adapts local trajectory lookahead from
   tracking error and LiDAR clearance; the safety layer remains deterministic.
 - YOLO26s-pose is a perception interface, not the novelty claim.
+- The hardware bringup fuses YOLO26s-pose person observations with the planar
+  LiDAR range before publishing CCA context; camera-only detections are never
+  allowed to command motion without a matching LiDAR range.
 - The global path is fixed; only a conflict-triggered local path is regenerated.
 - New evidence must compare the declared controller baselines and preserve failed
   runs, metrics, provenance, and uncertainty.
@@ -80,6 +83,11 @@ the autonomous motion authority on `/cmd_vel`; operator commands use the
 separate `/manual_cmd_vel` override, which the STM bridge prioritizes only
 while its short manual-command watchdog is refreshed. Nav2 is not allowed to
 publish competing `/cmd_vel` commands.
+
+The operational footprint radius is `0.29 m`. LiDAR avoidance adds a bounded,
+speed-dependent braking margin and reduces only that extra margin in narrow
+spaces; the physical footprint radius itself is never reduced. The controller
+also applies a final command slew limit after CCA/context sampling.
 
 ### Robot application
 
