@@ -1,7 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import LifecycleNode, Node
+from launch_ros.actions import LifecycleNode
 
 
 def generate_launch_description():
@@ -77,20 +77,30 @@ def generate_launch_description():
         ],
     )
 
-    lifecycle_manager = Node(
-        package="nav2_lifecycle_manager",
-        executable="lifecycle_manager",
-        name="lifecycle_manager_localization",
+    # The stock nav2 lifecycle manager is not available on every Jetson image
+    # because its diagnostic_updater C++ shared library may be missing.  Keep
+    # localization self-contained by activating the two lifecycle nodes with
+    # the ROS 2 CLI after they have started.
+    amcl_activate = ExecuteProcess(
+        cmd=["ros2", "lifecycle", "set", "/amcl", "activate"],
         output="screen",
-        parameters=[
-            {
-                "use_sim_time": use_sim_time,
-                "autostart": True,
-                "node_names": ["map_server", "amcl"],
-                "bond_timeout": 4.0,
-            }
-        ],
     )
+    amcl_configure = ExecuteProcess(
+        cmd=["ros2", "lifecycle", "set", "/amcl", "configure"],
+        output="screen",
+        on_exit=[amcl_activate],
+    )
+    map_activate = ExecuteProcess(
+        cmd=["ros2", "lifecycle", "set", "/map_server", "activate"],
+        output="screen",
+        on_exit=[amcl_configure],
+    )
+    map_configure = ExecuteProcess(
+        cmd=["ros2", "lifecycle", "set", "/map_server", "configure"],
+        output="screen",
+        on_exit=[map_activate],
+    )
+    activate_nodes = TimerAction(period=2.0, actions=[map_configure])
 
     return LaunchDescription(
         [
@@ -98,6 +108,6 @@ def generate_launch_description():
             DeclareLaunchArgument("map_yaml"),
             map_server,
             amcl,
-            lifecycle_manager,
+            activate_nodes,
         ]
     )
