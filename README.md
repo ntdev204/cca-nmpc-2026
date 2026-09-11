@@ -12,7 +12,8 @@ unregistered and cannot support manuscript claims.
 - The physical control contract is the six-state position/velocity vector
   `[x,y,theta,vx,vy,omega]` with body-velocity commands; torque/current control
   is not required.
-- LSTM supplies context features (position, speed, and coarse direction).
+- LSTM supplies context features and adapts local trajectory lookahead from
+  tracking error and LiDAR clearance; the safety layer remains deterministic.
 - YOLO26s-pose is a perception interface, not the novelty claim.
 - The global path is fixed; only a conflict-triggered local path is regenerated.
 - New evidence must compare the declared controller baselines and preserve failed

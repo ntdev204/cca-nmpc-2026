@@ -33,6 +33,7 @@ public:
     command_topic_ = declare_parameter<std::string>("command_topic", "/cmd_vel");
     manual_command_topic_ = declare_parameter<std::string>("manual_command_topic", "/manual_cmd_vel");
     manual_command_timeout_s_ = declare_parameter<double>("manual_command_timeout_s", 0.35);
+    autonomous_max_speed_mps_ = declare_parameter<double>("autonomous_max_speed_mps", 0.30);
     odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     odom_topic_ = declare_parameter<std::string>("odom_topic", "/odometry/raw");
@@ -42,7 +43,8 @@ public:
     odom_reset_service_ = declare_parameter<std::string>("odom_reset_service", "/odometry/reset");
     if (port_.empty() || baudrate_ <= 0 || timeout_ms_ <= 0 || !(publish_rate_hz > 0.0) ||
         !(command_timeout_s_ > 0.0) || command_topic_.empty() || manual_command_topic_.empty() ||
-        !(manual_command_timeout_s_ > 0.0) || odom_reset_service_.empty()) {
+        !(manual_command_timeout_s_ > 0.0) || !(autonomous_max_speed_mps_ > 0.0) ||
+        odom_reset_service_.empty()) {
       throw std::invalid_argument("STM bridge parameters are invalid");
     }
 
@@ -119,23 +121,31 @@ private:
     if (manualOverrideActive()) {
       return;
     }
-    applyCommand(message);
+    applyCommand(message, true);
   }
 
   void onManualCommand(const geometry_msgs::msg::Twist& message) {
     manual_override_active_ = true;
     last_manual_command_time_ = now();
-    applyCommand(message);
+    applyCommand(message, false);
   }
 
-  void applyCommand(const geometry_msgs::msg::Twist& message) {
-    const std::array<double, 3U> command{
+  void applyCommand(const geometry_msgs::msg::Twist& message, const bool autonomous) {
+    std::array<double, 3U> command{
         message.linear.x, message.linear.y, message.angular.z};
     if (!std::all_of(command.begin(), command.end(), [](double value) {
           return std::isfinite(value);
         })) {
       serial_.SendZero();
       return;
+    }
+    if (autonomous) {
+      const double linear_norm = std::hypot(command[0], command[1]);
+      if (linear_norm > autonomous_max_speed_mps_) {
+        const double scale = autonomous_max_speed_mps_ / linear_norm;
+        command[0] *= scale;
+        command[1] *= scale;
+      }
     }
     last_command_time_ = now();
     last_command_ = command;
@@ -231,6 +241,7 @@ private:
   int timeout_ms_{20};
   double command_timeout_s_{0.20};
   double manual_command_timeout_s_{0.35};
+  double autonomous_max_speed_mps_{0.30};
   std::string command_topic_;
   std::string manual_command_topic_;
   std::string odom_frame_;

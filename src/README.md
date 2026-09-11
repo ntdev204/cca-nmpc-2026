@@ -22,15 +22,19 @@ the manufacturer's hardware image and is not rebuilt by this workspace.
 ## Authority boundary
 
 ```text
-/cca/global_path
-  -> cca_reference_node: CCA local reference
+/api/robot/nav/goal -> rai_runtime_bridge: occupancy-grid A* waypoints
+  -> /cca/global_path
+  -> cca_reference_node: LiDAR-aware LSTM local-reference follower
   -> cca_nmpc_node: CA-NMPC body velocity
   -> cca_stm_bridge: STM wheel interface
 ```
 
-Perception, LSTM, GA and learned scoring publish context only. They never issue
-robot commands. The production state is `[x,y,theta,vx,vy,omega]`; the command
-is `[vx_cmd,vy_cmd,omega_cmd]`.
+The bridge plans against the selected saved map or live SLAM occupancy grid.
+The reference node runs a compact recurrent LSTM inference block to adapt
+lookahead from tracking error and LiDAR clearance; it emits references only.
+CA-NMPC consumes both the reference and LiDAR obstacle points, while the STM
+bridge enforces the autonomous linear-speed cap. The production state is
+`[x,y,theta,vx,vy,omega]`; the command is `[vx_cmd,vy_cmd,omega_cmd]`.
 
 ## ROS 2 build
 

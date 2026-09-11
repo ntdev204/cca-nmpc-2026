@@ -15,6 +15,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "tf2/utils.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -29,6 +30,12 @@ public:
     const double robot_radius = declare_parameter<double>("robot_radius_m", 0.283);
     const double human_radius = declare_parameter<double>("human_radius_m", 0.34);
     const double human_clearance = declare_parameter<double>("human_clearance_m", 0.623);
+    max_speed_mps_ = declare_parameter<double>("max_speed_mps", 0.30);
+    scan_topic_ = declare_parameter<std::string>("scan_topic", "/scan");
+    lidar_timeout_s_ = declare_parameter<double>("lidar_timeout_s", 0.25);
+    obstacle_stop_distance_m_ = declare_parameter<double>("obstacle_stop_distance_m", 0.38);
+    obstacle_inflation_m_ = declare_parameter<double>("obstacle_inflation_m", 0.10);
+    lidar_max_range_m_ = declare_parameter<double>("lidar_max_range_m", 3.0);
     state_timeout_s_ = declare_parameter<double>("state_timeout_s", 0.25);
     state_topic_ = declare_parameter<std::string>("state_topic", "/odometry/raw");
     reference_topic_ = declare_parameter<std::string>("reference_topic", "/cca/local_reference");
@@ -37,7 +44,9 @@ public:
     predicted_topic_ = declare_parameter<std::string>("predicted_topic", "/cca/predicted_path");
     diagnostics_topic_ = declare_parameter<std::string>("diagnostics_topic", "/cca/controller_diagnostics");
     if (kind != "cca_nmpc" || !(period_s_ > 0.0) || horizon_ == 0U ||
-        !(deadline_ms > 0.0) || !(state_timeout_s_ > 0.0)) {
+        !(deadline_ms > 0.0) || !(state_timeout_s_ > 0.0) || !(max_speed_mps_ > 0.0) ||
+        !(lidar_timeout_s_ > 0.0) || !(obstacle_stop_distance_m_ > 0.0) ||
+        !(obstacle_inflation_m_ >= 0.0) || !(lidar_max_range_m_ > 0.0)) {
       throw std::invalid_argument("CA-NMPC parameters are invalid");
     }
 
@@ -48,6 +57,7 @@ public:
     config.robot_radius_m = robot_radius;
     config.human_radius_m = human_radius;
     config.human_clearance_m = human_clearance;
+    config.max_speed_mps = max_speed_mps_;
     controller_ = std::make_unique<cca::control::Controller>(
         cca::control::ControllerKind::cca_nmpc, config);
     reference_.assign((horizon_ + 1U) * 6U, 0.0);
@@ -61,6 +71,9 @@ public:
     context_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
         context_topic_, rclcpp::QoS(1).best_effort(),
         [this](const std_msgs::msg::Float64MultiArray::SharedPtr message) { onContext(*message); });
+    scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
+        scan_topic_, rclcpp::SensorDataQoS(),
+        [this](const sensor_msgs::msg::LaserScan::SharedPtr message) { onScan(*message); });
     command_pub_ = create_publisher<geometry_msgs::msg::Twist>(
         command_topic_, rclcpp::QoS(1).reliable().durability_volatile());
     predicted_pub_ = create_publisher<nav_msgs::msg::Path>(predicted_topic_, rclcpp::QoS(1).best_effort());
@@ -130,8 +143,47 @@ private:
     });
   }
 
+  void onScan(const sensor_msgs::msg::LaserScan& message) {
+    if (!have_state_) {
+      return;
+    }
+    const std::size_t stride = std::max<std::size_t>(1U, message.ranges.size() / 180U);
+    std::vector<double> next_obstacles;
+    next_obstacles.reserve((message.ranges.size() / stride + 1U) * 4U);
+    double closest = std::numeric_limits<double>::infinity();
+    bool have_measurement = false;
+    const double yaw = state_[2];
+    const double c = std::cos(yaw);
+    const double s = std::sin(yaw);
+    const double usable_max = std::min(lidar_max_range_m_, static_cast<double>(message.range_max));
+    for (std::size_t index = 0U; index < message.ranges.size(); index += stride) {
+      const double range = message.ranges[index];
+      if (!std::isfinite(range) || range < message.range_min || range > usable_max) {
+        continue;
+      }
+      have_measurement = true;
+      closest = std::min(closest, range);
+      const double angle = message.angle_min + static_cast<double>(index) * message.angle_increment;
+      const double local_x = range * std::cos(angle);
+      const double local_y = range * std::sin(angle);
+      next_obstacles.push_back(state_[0] + c * local_x - s * local_y);
+      next_obstacles.push_back(state_[1] + s * local_x + c * local_y);
+      next_obstacles.push_back(obstacle_inflation_m_);
+      next_obstacles.push_back(obstacle_inflation_m_);
+    }
+    obstacles_ = std::move(next_obstacles);
+    closest_lidar_range_m_ = closest;
+    have_scan_measurement_ = have_measurement;
+    last_scan_time_ = now();
+  }
+
   bool stateFresh() const {
     return have_state_ && (now() - last_state_time_).seconds() <= state_timeout_s_;
+  }
+
+  bool scanFresh() const {
+    return last_scan_time_.nanoseconds() > 0 &&
+        have_scan_measurement_ && (now() - last_scan_time_).seconds() <= lidar_timeout_s_;
   }
 
   void publishZero() {
@@ -140,13 +192,14 @@ private:
   }
 
   void controlStep() {
-    if (!stateFresh() || !have_reference_) {
+    if (!stateFresh() || !have_reference_ || !scanFresh()) {
       controller_->Reset();
       publishZero();
       return;
     }
     try {
       const std::span<const double> empty;
+      const std::span<const double> obstacles(obstacles_.data(), obstacles_.size());
       const cca::control::ControllerInput input{
           std::span<const double>(state_.data(), state_.size()),
           std::span<const double>(reference_.data(), reference_.size()),
@@ -155,7 +208,7 @@ private:
           context_aware_ ? std::span<const double>(context_.data(), context_.size()) : empty,
           context_aware_ ? std::span<const double>(covariance_.data(), covariance_.size()) : empty,
           context_aware_ ? std::span<const double>(nominal_robot_.data(), nominal_robot_.size()) : empty,
-          empty,
+          obstacles,
           context_aware_,
       };
       const auto output = controller_->Command(input);
@@ -163,8 +216,12 @@ private:
       command.linear.x = output.first_command_mps[0];
       command.linear.y = output.first_command_mps[1];
       command.angular.z = output.first_command_mps[2];
+      if (closest_lidar_range_m_ <= obstacle_stop_distance_m_) {
+        command.linear.x = 0.0;
+        command.linear.y = 0.0;
+      }
       command_pub_->publish(command);
-      previous_command_ = output.first_command_mps;
+      previous_command_ = {command.linear.x, command.linear.y, command.angular.z};
       publishPrediction(output.predicted_states);
       std_msgs::msg::Float64MultiArray diagnostics;
       diagnostics.data = {
@@ -175,6 +232,9 @@ private:
           output.deadline_missed ? 1.0 : 0.0,
           output.risk_bound,
           output.maximum_risk_slack_m,
+          std::isfinite(closest_lidar_range_m_) ? closest_lidar_range_m_ : -1.0,
+          static_cast<double>(obstacles_.size() / 4U),
+          max_speed_mps_,
       };
       diagnostics_pub_->publish(diagnostics);
       if (output.deadline_missed) {
@@ -211,10 +271,17 @@ private:
 
   double period_s_{0.05};
   double state_timeout_s_{0.25};
+  double max_speed_mps_{0.30};
+  double lidar_timeout_s_{0.25};
+  double obstacle_stop_distance_m_{0.38};
+  double obstacle_inflation_m_{0.10};
+  double lidar_max_range_m_{3.0};
+  double closest_lidar_range_m_{std::numeric_limits<double>::infinity()};
   std::size_t horizon_{6U};
   std::string state_topic_;
   std::string reference_topic_;
   std::string context_topic_;
+  std::string scan_topic_;
   std::string command_topic_;
   std::string predicted_topic_;
   std::string diagnostics_topic_;
@@ -226,13 +293,17 @@ private:
   std::vector<double> context_;
   std::vector<double> covariance_;
   std::vector<double> nominal_robot_;
+  std::vector<double> obstacles_;
   rclcpp::Time last_state_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_scan_time_{0, 0, RCL_ROS_TIME};
   bool have_state_{false};
   bool have_reference_{false};
+  bool have_scan_measurement_{false};
   bool context_aware_{false};
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr state_sub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr reference_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr context_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr predicted_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr diagnostics_pub_;

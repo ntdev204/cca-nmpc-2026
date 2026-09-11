@@ -128,6 +128,16 @@ def _map_operation_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=status_code, detail=str(error))
 
 
+def _navigation_operation_error(error: Exception) -> HTTPException:
+    if isinstance(error, ValueError):
+        status_code = 400
+    elif isinstance(error, RuntimeError):
+        status_code = 409
+    else:
+        status_code = 503
+    return HTTPException(status_code=status_code, detail=str(error))
+
+
 @app.get("/api/map/status")
 async def mapping_status() -> dict[str, Any]:
     node = _require_node()
@@ -192,8 +202,11 @@ async def command_velocity(command: VelocityCommand) -> dict[str, Any]:
 
 @app.post("/api/robot/nav/goal")
 async def navigation_goal(goal: NavGoal) -> dict[str, Any]:
-    node = _require_node()
-    return node.send_nav_goal(goal.x, goal.y, goal.yaw)
+    try:
+        node = _require_node()
+        return node.send_nav_goal(goal.x, goal.y, goal.yaw)
+    except Exception as error:
+        raise _navigation_operation_error(error) from error
 
 
 @app.post("/api/robot/nav/cancel")

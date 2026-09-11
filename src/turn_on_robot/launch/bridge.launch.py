@@ -44,6 +44,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("map_cleanup_enabled", default_value="true"),
             DeclareLaunchArgument("map_cleanup_min_component_cells", default_value="3"),
+            DeclareLaunchArgument("navigation_inflation_m", default_value="0.38"),
+            DeclareLaunchArgument("navigation_snap_radius_m", default_value="0.45"),
             SetEnvironmentVariable("RAI_DEVICE_ROLE", LaunchConfiguration("role")),
             SetEnvironmentVariable("RAI_DEVICE_LABEL", LaunchConfiguration("label")),
             SetEnvironmentVariable("RAI_BRIDGE_HOST", LaunchConfiguration("host")),
@@ -73,6 +75,8 @@ def generate_launch_description():
                         "map_cleanup_min_component_cells": LaunchConfiguration(
                             "map_cleanup_min_component_cells"
                         ),
+                        "navigation_inflation_m": LaunchConfiguration("navigation_inflation_m"),
+                        "navigation_snap_radius_m": LaunchConfiguration("navigation_snap_radius_m"),
                     }
                 ],
                 condition=IfCondition(LaunchConfiguration("enabled")),

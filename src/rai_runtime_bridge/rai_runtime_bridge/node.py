@@ -28,6 +28,8 @@ from rclpy.time import Time
 from sensor_msgs.msg import Image, Imu, LaserScan
 from std_msgs.msg import Bool, Empty, Float32, Float64, Float64MultiArray
 
+from .grid_planner import plan_occupancy_path
+
 
 def _as_bool(value: Any) -> bool:
     if isinstance(value, str):
@@ -217,6 +219,14 @@ class WebBridgeNode(Node):
         )
         self.odom_frame = str(self.declare_parameter("odom_frame", "odom").value)
         self.map_frame = str(self.declare_parameter("map_frame", "map").value)
+        self.navigation_inflation_m = float(
+            self.declare_parameter("navigation_inflation_m", 0.38).value
+        )
+        self.navigation_snap_radius_m = float(
+            self.declare_parameter("navigation_snap_radius_m", 0.45).value
+        )
+        if self.navigation_inflation_m < 0.0 or self.navigation_snap_radius_m < 0.0:
+            raise ValueError("navigation planner distances must be non-negative")
         self.control_frame = str(
             self.declare_parameter("control_frame", "base_link").value
         )
@@ -263,7 +273,7 @@ class WebBridgeNode(Node):
             "solver": {},
             "lidar_rate_hz": 0.0,
             "camera_rate_hz": 0.0,
-            "lidar_clearance": {"left": 5.0, "right": 5.0},
+            "lidar_clearance": {"front": 5.0, "left": 5.0, "right": 5.0},
             "map_pose": None,
             "map_pose_timestamp_ns": 0,
             "pose_source": "odometry_feedback",
@@ -520,6 +530,23 @@ class WebBridgeNode(Node):
             )
         return maps
 
+    def navigation_ready(self) -> bool:
+        """Return whether map-frame goals can be transformed safely.
+
+        A PGM/YAML pair is only a map image. Navigation still needs the live
+        localization transform from map to odom. Keep this check in
+        the bridge so the UI cannot accidentally bypass it.
+        """
+        if self.map_frame == self.odom_frame:
+            return True
+        try:
+            self._tf_buffer.lookup_transform(
+                self.odom_frame, self.map_frame, Time()
+            )
+        except Exception:
+            return False
+        return True
+
     def mapping_status(self) -> dict[str, Any]:
         with self._lock:
             paused = self._slam_paused
@@ -540,6 +567,7 @@ class WebBridgeNode(Node):
             "last_saved": last_save,
             "map_source": "saved" if selected_name else "live_slam",
             "selected_map": selected_name,
+            "navigation_ready": self.navigation_ready(),
             "maps": saved_maps,
         }
 
@@ -993,7 +1021,7 @@ class WebBridgeNode(Node):
                 "label": "CCA path control",
                 "host_device": "robot",
                 "running": self._has_subscriber(self.global_path_topic),
-                "description": "Global paths are consumed by cca_reference_node.",
+                "description": "Bridge A* paths are consumed by the LiDAR-aware LSTM reference follower.",
             },
         ]
 
@@ -1015,34 +1043,110 @@ class WebBridgeNode(Node):
         values = (float(x), float(y), float(yaw))
         if not all(math.isfinite(value) for value in values):
             raise ValueError("navigation goal values must be finite")
-        path_x, path_y, path_yaw = self._map_to_path_pose(*values)
+
+        self.ensure_map_subscription()
+        snapshot = self.map_snapshot()
+        deadline = time.monotonic() + 1.0
+        while snapshot is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+            snapshot = self.map_snapshot()
+        if snapshot is None:
+            raise RuntimeError("navigation requires a live or selected occupancy map")
+        self.update_map_pose()
+        with self._lock:
+            map_pose = copy.deepcopy(self._telemetry.get("map_pose"))
+            odom = copy.deepcopy(self._telemetry.get("odom", {}))
+        if self.map_frame == self.odom_frame:
+            start = (float(odom.get("x", 0.0)), float(odom.get("y", 0.0)))
+        elif isinstance(map_pose, dict):
+            start = (float(map_pose["x"]), float(map_pose["y"]))
+        else:
+            raise RuntimeError(
+                f"navigation requires an active {self.map_frame}->{self.odom_frame} "
+                "localization transform for the current robot pose"
+            )
+        planned = plan_occupancy_path(
+            snapshot,
+            start,
+            (values[0], values[1]),
+            inflation_m=self.navigation_inflation_m,
+            max_snap_m=self.navigation_snap_radius_m,
+        )
+
+        transform = None
+        if self.map_frame != self.odom_frame:
+            try:
+                transform = self._tf_buffer.lookup_transform(
+                    self.odom_frame, self.map_frame, Time()
+                )
+            except Exception as error:
+                raise RuntimeError(
+                    f"navigation requires an active {self.map_frame}->{self.odom_frame} "
+                    "localization transform"
+                ) from error
+
+        def to_odom(point_x: float, point_y: float, point_yaw: float) -> tuple[float, float, float]:
+            if transform is None:
+                return point_x, point_y, point_yaw
+            tx = transform.transform.translation.x
+            ty = transform.transform.translation.y
+            transform_yaw = self._yaw(transform.transform.rotation)
+            cos_yaw = math.cos(transform_yaw)
+            sin_yaw = math.sin(transform_yaw)
+            return (
+                tx + cos_yaw * point_x - sin_yaw * point_y,
+                ty + sin_yaw * point_x + cos_yaw * point_y,
+                self._normalize_angle(transform_yaw + point_yaw),
+            )
+
+        path_poses: list[PoseStamped] = []
+        for index, (point_x, point_y) in enumerate(planned.points):
+            if index + 1 < len(planned.points):
+                next_x, next_y = planned.points[index + 1]
+                point_yaw = math.atan2(next_y - point_y, next_x - point_x)
+            else:
+                point_yaw = values[2]
+            path_x, path_y, path_yaw = to_odom(point_x, point_y, point_yaw)
+            pose = PoseStamped()
+            pose.header.frame_id = self.odom_frame
+            pose.pose.position.x = path_x
+            pose.pose.position.y = path_y
+            pose.pose.orientation.z = math.sin(path_yaw / 2.0)
+            pose.pose.orientation.w = math.cos(path_yaw / 2.0)
+            path_poses.append(pose)
+
+        if not path_poses:
+            raise RuntimeError("A* returned an empty path")
         stamp = self.get_clock().now().to_msg()
 
-        goal = PoseStamped()
-        goal.header.stamp = stamp
-        goal.header.frame_id = self.odom_frame
-        goal.pose.position.x = path_x
-        goal.pose.position.y = path_y
-        goal.pose.orientation.z = math.sin(path_yaw / 2.0)
-        goal.pose.orientation.w = math.cos(path_yaw / 2.0)
+        for pose in path_poses:
+            pose.header.stamp = stamp
+        goal = copy.deepcopy(path_poses[-1])
         self._goal_pub.publish(goal)
 
         path = Path()
         path.header = goal.header
-        # The CCA reference node accepts a Path and repeats its last pose over
-        # the controller horizon. Keeping the goal repeated makes the command
-        # contract deterministic without inventing a second planner.
-        path.poses = [copy.deepcopy(goal) for _ in range(8)]
+        path.poses = path_poses
         self._path_pub.publish(path)
         with self._lock:
             self._navigation_active = True
             self._telemetry["context"]["navigation_mode"] = "goal"
         return {
             "accepted": True,
+            "planner": "astar",
+            "map_source": str(snapshot.get("map_source", "live_slam")),
             "frame_id": self.odom_frame,
-            "x": path_x,
-            "y": path_y,
-            "yaw": path_yaw,
+            "x": goal.pose.position.x,
+            "y": goal.pose.position.y,
+            "yaw": self._yaw(goal.pose.orientation),
+            "waypoints": len(path_poses),
+            "path_length_m": round(planned.length_m, 3),
+            "inflation_m": self.navigation_inflation_m,
+            "start_map": {"x": round(start[0], 3), "y": round(start[1], 3)},
+            "goal_map": {
+                "x": round(planned.points[-1][0], 3),
+                "y": round(planned.points[-1][1], 3),
+            },
         }
 
     def cancel_navigation(self) -> dict[str, Any]:
@@ -1115,9 +1219,11 @@ class WebBridgeNode(Node):
                     )
             self._last_scan_monotonic = now
 
+            front = self._range_near_angle(message, 0.0)
             left = self._range_near_angle(message, math.pi / 2.0)
             right = self._range_near_angle(message, -math.pi / 2.0)
             self._telemetry["lidar_clearance"] = {
+                "front": round(front, 3),
                 "left": round(left, 3),
                 "right": round(right, 3),
             }
@@ -1167,6 +1273,14 @@ class WebBridgeNode(Node):
                 "risk_bound": round(values[5], 4),
                 "risk_slack_m": round(values[6], 4),
             }
+            if len(values) >= 10:
+                self._telemetry["solver"].update(
+                    {
+                        "lidar_closest_range_m": round(values[7], 4),
+                        "lidar_obstacle_points": int(max(0.0, values[8])),
+                        "max_speed_mps": round(values[9], 4),
+                    }
+                )
 
     def _map_callback(self, message: OccupancyGrid) -> None:
         width = int(message.info.width)
@@ -1191,7 +1305,8 @@ class WebBridgeNode(Node):
         resolution = float(message.info.resolution)
         origin_x = float(message.info.origin.position.x)
         origin_y = float(message.info.origin.position.y)
-        signature = (width, height, resolution, origin_x, origin_y, hash(data))
+        origin_yaw = self._yaw(message.info.origin.orientation)
+        signature = (width, height, resolution, origin_x, origin_y, origin_yaw, hash(data))
         stamp_ns = (
             int(message.header.stamp.sec) * 1_000_000_000
             + int(message.header.stamp.nanosec)
@@ -1213,6 +1328,7 @@ class WebBridgeNode(Node):
                 "resolution": resolution,
                 "origin_x": origin_x,
                 "origin_y": origin_y,
+                "origin_yaw": origin_yaw,
                 "grid_data": base64.b64encode(data).decode("ascii"),
                 **cleanup,
                 "map_cleanup": {
@@ -1284,10 +1400,11 @@ class WebBridgeNode(Node):
             transform = self._tf_buffer.lookup_transform(
                 self.odom_frame, self.map_frame, Time()
             )
-        except Exception:
-            # A goal remains usable during the short period before SLAM
-            # publishes map->odom; callers can retry after the map appears.
-            return x, y, yaw
+        except Exception as error:
+            raise RuntimeError(
+                f"navigation requires an active {self.map_frame}->{self.odom_frame} "
+                "localization transform"
+            ) from error
         tx = transform.transform.translation.x
         ty = transform.transform.translation.y
         transform_yaw = self._yaw(transform.transform.rotation)

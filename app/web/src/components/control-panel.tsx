@@ -9,11 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type Velocity = { vx: number; vy: number; wz: number };
 type Command = (payload: Record<string, unknown>) => Promise<void>;
+export type NavigationGoalDraft = { x: string; y: string; yaw: string };
 
 type ControlPanelProps = {
   online: boolean;
   armed: boolean;
   command: Command;
+  goalDraft: NavigationGoalDraft;
+  goalSelected: boolean;
+  navigationReady: boolean;
+  savedMap: boolean;
+  onGoalDraftChange: (goal: NavigationGoalDraft) => void;
+  onGoalClear: () => void;
 };
 
 const ZERO: Velocity = { vx: 0, vy: 0, wz: 0 };
@@ -77,22 +84,26 @@ function HoldButton({ label, velocity, disabled, command }: { label: string; vel
   );
 }
 
-export function ControlPanel({ online, armed, command }: ControlPanelProps) {
+export function ControlPanel({ online, armed, command, goalDraft, goalSelected, navigationReady, savedMap, onGoalDraftChange, onGoalClear }: ControlPanelProps) {
   const [speed, setSpeed] = useState("0.20");
   const [yawSpeed, setYawSpeed] = useState("0.60");
-  const [goalX, setGoalX] = useState("1.00");
-  const [goalY, setGoalY] = useState("0.00");
-  const [goalYaw, setGoalYaw] = useState("0.00");
   const [direction, setDirection] = useState("forward");
   const speedValue = Math.min(0.3, Math.max(0, numberValue(speed, 0.2)));
   const yawValue = Math.min(0.9, Math.max(0, numberValue(yawSpeed, 0.6)));
   const disabled = !online || !armed;
+  const navigationHint = !navigationReady
+    ? (savedMap ? "Saved-map navigation" : "Navigation") + " is locked until the active map → odom localization TF is available."
+    : savedMap
+      ? "Saved map is selected. The goal uses the active map → odom TF; verify the measured pose before sending."
+      : goalSelected
+        ? "Target uses the fixed map frame and the measured sensor pose."
+        : "Choose a point on the map or enter coordinates manually.";
   const sendVelocity = (vx: number, vy: number, wz: number) => command({ command: "velocity", vx, vy, wz });
   const sendGoal = () => command({
     command: "nav_goal",
-    x: numberValue(goalX, 1),
-    y: numberValue(goalY, 0),
-    yaw: numberValue(goalYaw, 0),
+    x: numberValue(goalDraft.x, 1),
+    y: numberValue(goalDraft.y, 0),
+    yaw: numberValue(goalDraft.yaw, 0),
   });
   const sendPreset = () => command({ command: "direction", direction, speed_mps: speedValue, yaw_radps: yawValue });
 
@@ -153,16 +164,17 @@ export function ControlPanel({ online, armed, command }: ControlPanelProps) {
         </div>
 
         <div className="space-y-3 rounded-lg border bg-background p-3">
-          <div className="flex items-center justify-between"><div><h3 className="flex items-center gap-2 text-sm font-medium"><Crosshair className="size-4 text-primary" />HTTP navigation goal</h3><p className="text-xs text-muted-foreground">Send a map-frame goal to the bridge&apos;s RAI navigation endpoint.</p></div><span className="rounded-md bg-muted px-2 py-1 text-[11px]">REST</span></div>
+          <div className="flex items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-medium"><Crosshair className="size-4 text-primary" />HTTP navigation goal</h3><p className="text-xs text-muted-foreground">Click the map to place a target, then confirm it here.</p></div><span className={`rounded-md px-2 py-1 text-[11px] ${goalSelected ? "bg-amber-100 text-amber-800" : "bg-muted"}`}>{goalSelected ? "MAP PICKED" : "MAP CLICK"}</span></div>
           <div className="grid grid-cols-3 gap-2 text-xs">
-            <label className="space-y-1"><span className="text-muted-foreground">Goal x (m)</span><input value={goalX} onChange={(event) => setGoalX(event.target.value)} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
-            <label className="space-y-1"><span className="text-muted-foreground">Goal y (m)</span><input value={goalY} onChange={(event) => setGoalY(event.target.value)} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
-            <label className="space-y-1"><span className="text-muted-foreground">Yaw (rad)</span><input value={goalYaw} onChange={(event) => setGoalYaw(event.target.value)} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
+            <label className="space-y-1"><span className="text-muted-foreground">Goal x (m)</span><input value={goalDraft.x} onChange={(event) => onGoalDraftChange({ ...goalDraft, x: event.target.value })} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
+            <label className="space-y-1"><span className="text-muted-foreground">Goal y (m)</span><input value={goalDraft.y} onChange={(event) => onGoalDraftChange({ ...goalDraft, y: event.target.value })} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
+            <label className="space-y-1"><span className="text-muted-foreground">Yaw (rad)</span><input value={goalDraft.yaw} onChange={(event) => onGoalDraftChange({ ...goalDraft, yaw: event.target.value })} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Button type="button" onClick={sendGoal} disabled={!online}><Crosshair className="size-4" />Send goal</Button>
+            <Button type="button" onClick={sendGoal} disabled={!online || !navigationReady}><Crosshair className="size-4" />Send goal</Button>
             <Button type="button" variant="outline" onClick={() => command({ command: "nav_cancel" })} disabled={!online}><RotateCcw className="size-4" />Cancel navigation</Button>
           </div>
+          <div className="flex items-center justify-between gap-2 text-[11px] leading-4 text-muted-foreground"><p>{navigationHint}</p>{goalSelected && <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-[11px]" onClick={onGoalClear}>Clear target</Button>}</div>
           <p className="text-[11px] leading-4 text-muted-foreground">The bridge enforces its device-role permissions for navigation. Commands stay on the REST API path.</p>
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1 rounded-md border px-2 py-1"><ArrowUp className="size-3" />W / ↑ forward</span>

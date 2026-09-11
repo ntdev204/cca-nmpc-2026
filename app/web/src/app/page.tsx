@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BatteryMedium,
@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MapCapturePanel } from "@/components/map-capture-panel";
-import { ControlPanel } from "@/components/control-panel";
+import { ControlPanel, type NavigationGoalDraft } from "@/components/control-panel";
 import { HistoryPanel } from "@/components/history-panel";
 
 type Snapshot = {
@@ -34,6 +34,7 @@ type Pose = { x: number; y: number; yaw: number };
 type Point = [number, number];
 type MapViewport = { x: number; y: number; width: number; height: number };
 type DashboardView = "overview" | "monitor" | "control" | "mapping" | "telemetry";
+const DEFAULT_GOAL_DRAFT: NavigationGoalDraft = { x: "1.00", y: "0.00", yaw: "0.00" };
 
 const DASHBOARD_VIEWS: Array<{ id: DashboardView; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -177,12 +178,16 @@ function MapView({
   trace,
   history,
   showTrace,
+  goal,
+  onGoalSelect,
 }: {
   data?: Record<string, unknown>;
   pose: Pose;
   trace: Point[];
   history: Point[];
   showTrace: boolean;
+  goal?: Pose | null;
+  onGoalSelect?: (goal: Pose) => void;
 }) {
   const width = Math.max(1, Math.floor(asNumber(data?.width, 1)));
   const height = Math.max(1, Math.floor(asNumber(data?.height, 1)));
@@ -277,24 +282,48 @@ function MapView({
   const mapMetadata = data?.metadata as Record<string, unknown> | undefined;
   const radius = Math.max(0.05, asNumber(mapMetadata?.robot_radius_m, 0.2828427));
   const robotSvg = worldToSvg(pose.x, pose.y);
+  const goalSvg = goal ? worldToSvg(goal.x, goal.y) : null;
   const tracePoints = (history.length > 1 ? history : trace).map(([x, y]) => worldToSvg(x, y).join(",")).join(" ");
+  const handleMapClick = (event: MouseEvent<SVGSVGElement>) => {
+    if (!onGoalSelect) return;
+    const svg = event.currentTarget;
+    const screenMatrix = svg.getScreenCTM();
+    if (!screenMatrix) return;
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const localPoint = point.matrixTransform(screenMatrix.inverse());
+    const x = localPoint.x;
+    const y = -localPoint.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    onGoalSelect({ x, y, yaw: Math.atan2(y - pose.y, x - pose.x) });
+  };
+  const goalRadius = Math.max(0.09, Math.min(0.18, radius * 0.6));
   return (
-    <div className="relative h-[520px] w-full overflow-hidden bg-slate-50">
+    <div className={`relative h-[520px] w-full overflow-hidden bg-slate-50 ${onGoalSelect ? "cursor-crosshair" : ""}`}>
       <OccupancyCanvas data={data} viewport={viewport} />
-      <svg className="absolute inset-0 h-full w-full" viewBox={viewBox} role="img" aria-label="Fixed 2D occupancy map with robot footprint" shapeRendering="geometricPrecision">
+      <svg className="absolute inset-0 h-full w-full" viewBox={viewBox} role="img" aria-label={onGoalSelect ? "Occupancy map. Click to choose a navigation goal." : "Fixed 2D occupancy map with robot footprint"} shapeRendering="geometricPrecision" onClick={handleMapClick}>
         <defs>
           <pattern id="map-grid" width="0.5" height="0.5" patternUnits="userSpaceOnUse">
             <path d="M 0.5 0 L 0 0 0 0.5" fill="none" stroke="#cbd5e1" strokeWidth="0.012" />
           </pattern>
         </defs>
         <rect x={viewport.x} y={viewport.y} width={viewport.width} height={viewport.height} fill="url(#map-grid)" />
+        {goal && goalSvg && <>
+          <line x1={robotSvg[0]} y1={robotSvg[1]} x2={goalSvg[0]} y2={goalSvg[1]} stroke="#f59e0b" strokeWidth="0.035" strokeDasharray="0.12 0.08" opacity="0.9" />
+          <circle cx={goalSvg[0]} cy={goalSvg[1]} r={goalRadius} fill="#fef3c7" fillOpacity="0.9" stroke="#d97706" strokeWidth="0.035" />
+          <line x1={goalSvg[0] - goalRadius * 0.9} y1={goalSvg[1]} x2={goalSvg[0] + goalRadius * 0.9} y2={goalSvg[1]} stroke="#92400e" strokeWidth="0.025" />
+          <line x1={goalSvg[0]} y1={goalSvg[1] - goalRadius * 0.9} x2={goalSvg[0]} y2={goalSvg[1] + goalRadius * 0.9} stroke="#92400e" strokeWidth="0.025" />
+          <line x1={goalSvg[0]} y1={goalSvg[1]} x2={goalSvg[0] + 0.3 * Math.cos(goal.yaw)} y2={goalSvg[1] - 0.3 * Math.sin(goal.yaw)} stroke="#92400e" strokeWidth="0.04" />
+        </>}
         {showTrace && tracePoints && <polyline points={tracePoints} fill="none" stroke="#7c3aed" strokeWidth="0.028" opacity="0.75" />}
         <circle cx={robotSvg[0]} cy={robotSvg[1]} r={radius} fill="none" stroke="#0f172a" strokeWidth="0.025" strokeDasharray="0.08 0.05" />
         <rect x={pose.x - 0.2} y={-pose.y - 0.2} width="0.4" height="0.4" rx="0.035" fill="#2563eb" stroke="#0f172a" strokeWidth="0.025" transform={`rotate(${-pose.yaw * 180 / Math.PI} ${pose.x} ${-pose.y})`} />
         <line x1={robotSvg[0]} y1={robotSvg[1]} x2={robotSvg[0] + 0.32 * Math.cos(pose.yaw)} y2={robotSvg[1] - 0.32 * Math.sin(pose.yaw)} stroke="#ffffff" strokeWidth="0.035" />
       </svg>
       <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-1.5 text-[11px]">
-        <span className="rounded bg-white/90 px-2 py-1 text-slate-700 shadow">fixed map frame · robot pose</span>
+        <span className="rounded bg-white/90 px-2 py-1 text-slate-700 shadow">{onGoalSelect ? "click map · choose goal" : "fixed map frame · robot pose"}</span>
+        {goal && <span className="rounded bg-amber-100/95 px-2 py-1 text-amber-900 shadow">goal {goal.x.toFixed(2)}, {goal.y.toFixed(2)} m</span>}
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-2 rounded-md bg-white/90 px-2 py-1.5 text-[11px] shadow">
         <span className="flex items-center gap-1"><i className="size-2 rounded-full bg-cyan-700" />occupied</span>
@@ -309,10 +338,13 @@ export default function Home() {
   const [view, setView] = useState<DashboardView>("overview");
   const [showTrace, setShowTrace] = useState(true);
   const [trace, setTrace] = useState<Point[]>([]);
+  const [goalDraft, setGoalDraft] = useState<NavigationGoalDraft>(DEFAULT_GOAL_DRAFT);
+  const [goalSelected, setGoalSelected] = useState(false);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraPeerRef = useRef<RTCPeerConnection | null>(null);
   const [cameraConnection, setCameraConnection] = useState("idle");
   const firstRefresh = useRef(true);
+  const mapHydrationPending = useRef(false);
   const commandEpoch = useRef(0);
   const lastPoseMeasurement = useRef("");
 
@@ -321,6 +353,13 @@ export default function Home() {
     const query = next === "overview" ? "" : `?view=${next}`;
     window.history.pushState({}, "", `/${query}`);
   }, []);
+
+  const handleGoalSelect = useCallback((next: Pose) => {
+    setGoalDraft({ x: next.x.toFixed(3), y: next.y.toFixed(3), yaw: next.yaw.toFixed(3) });
+    setGoalSelected(true);
+  }, []);
+
+  const clearGoal = useCallback(() => setGoalSelected(false), []);
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as DashboardView | null;
@@ -346,11 +385,16 @@ export default function Home() {
   const refresh = useCallback(async () => {
     const refreshEpoch = commandEpoch.current;
     try {
-      const endpoint = firstRefresh.current ? "/api/status?full=1" : "/api/status";
+      const requestFull = firstRefresh.current || mapHydrationPending.current;
+      const endpoint = requestFull ? "/api/status?full=1" : "/api/status";
       firstRefresh.current = false;
+      if (requestFull) mapHydrationPending.current = false;
       const response = await fetch(endpoint, { cache: "no-store" });
       const body = (await response.json()) as Snapshot;
       if (refreshEpoch !== commandEpoch.current) return;
+      const responseStatus = body.state?.status as Record<string, unknown> | undefined;
+      if (body.map) mapHydrationPending.current = false;
+      else if (responseStatus?.map_available === true) mapHydrationPending.current = true;
       setSnapshot((previous) => mergeSnapshot(previous, body));
       const nextPose = body.state ? poseFrom(body) : null;
       const poseTimestamp = poseTimestampFrom(body);
@@ -389,7 +433,12 @@ export default function Home() {
       if (["map_clear", "map_new_scan", "map_select"].includes(String(payload.command))) {
         setTrace([]);
         lastPoseMeasurement.current = "";
+        setGoalSelected(false);
+        mapHydrationPending.current = true;
         setSnapshot((previous) => ({ ...mergeSnapshot(previous, body), map: undefined }));
+      } else if (payload.command === "nav_cancel") {
+        setGoalSelected(false);
+        setSnapshot((previous) => mergeSnapshot(previous, body));
       } else {
         setSnapshot((previous) => mergeSnapshot(previous, body));
       }
@@ -410,6 +459,19 @@ export default function Home() {
   const mapData = snapshot.map?.map as Record<string, unknown> | undefined;
   const mapMetadata = mapData?.metadata as Record<string, unknown> | undefined;
   const occupiedCells = asNumber(mapMetadata?.occupied_cells, -1);
+  const mapSource = String(status.map_source ?? "live_slam");
+  const poseSourceName = poseSourceFrom(snapshot);
+  // A saved PGM/YAML is a displayable map, not a localization source by
+  // itself. Let the live map->odom TF decide whether a goal can be sent; the
+  // backend repeats the same check before publishing it.
+  const navigationReady = status.navigation_ready === true || poseSourceName === "slam_tf";
+  const selectedGoal = useMemo<Pose | null>(() => {
+    if (!goalSelected) return null;
+    const x = Number(goalDraft.x);
+    const y = Number(goalDraft.y);
+    const yaw = Number(goalDraft.yaw);
+    return [x, y, yaw].every(Number.isFinite) ? { x, y, yaw } : null;
+  }, [goalDraft, goalSelected]);
   const mapHistory = useMemo(() => {
     const historyPayload = mapMetadata?.history as Record<string, unknown> | undefined;
     const trajectory = Array.isArray(historyPayload?.trajectory) ? historyPayload.trajectory : [];
@@ -560,14 +622,14 @@ export default function Home() {
 
         {(view === "overview" || view === "monitor" || view === "control" || view === "mapping") && <Card className="overflow-hidden shadow-sm">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
-            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · sensor pose marker (commands are not used for display)</CardDescription></div>
+            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · sensor pose marker · click map to set a navigation goal</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
               <MapToggle checked={showTrace} label="Trace" onChange={setShowTrace} />
               <Badge variant="outline" className="bg-white">{mapData && occupiedCells >= 0 ? `${occupiedCells} occupied` : `${asNumber((mapData?.metadata as Record<string, unknown> | undefined)?.scans)} scans`}</Badge>
             </div>
           </CardHeader>
           <CardContent className="grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.38fr)]">
-            <MapView data={mapData} pose={pose} trace={trace} history={mapHistory} showTrace={showTrace} />
+            <MapView data={mapData} pose={pose} trace={trace} history={mapHistory} showTrace={showTrace} goal={selectedGoal} onGoalSelect={mapData ? handleGoalSelect : undefined} />
             <section className="flex min-h-[520px] flex-col rounded-lg border bg-slate-950/5 p-2" aria-label="Astra-S camera monitor">
               <div className="flex items-center justify-between px-1 pb-2"><div className="flex items-center gap-2 text-sm font-medium"><Camera className="size-4 text-primary" />Astra-S camera</div><span className="text-xs text-muted-foreground">{cameraAge}</span></div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-slate-100">{cameraOnline ? <><span className="sr-only">Astra-S WebRTC H.264 stream</span><video ref={cameraVideoRef} muted autoPlay playsInline className={`max-h-full w-full object-contain ${cameraConnection === "connected" ? "" : "hidden"}`} aria-label="Astra-S WebRTC H.264 camera stream" />{cameraConnection !== "connected" && <p className="px-3 text-center text-sm text-muted-foreground">{cameraConnection.startsWith("failed") ? cameraConnection : `Camera ${cameraConnection}…`}</p>}</> : <p className="px-3 text-center text-sm text-muted-foreground">Camera stream unavailable</p>}</div>
@@ -576,7 +638,7 @@ export default function Home() {
           </CardContent>
         </Card>}
 
-        {(view === "overview" || view === "control") && <ControlPanel online={online} armed={armed} command={command} />}
+        {(view === "overview" || view === "control") && <ControlPanel online={online} armed={armed} command={command} goalDraft={goalDraft} goalSelected={goalSelected} navigationReady={navigationReady} savedMap={mapSource === "saved"} onGoalDraftChange={setGoalDraft} onGoalClear={clearGoal} />}
         {(view === "overview" || view === "mapping") && <MapCapturePanel
           online={online}
           status={status}

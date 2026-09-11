@@ -80,6 +80,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "map_save_root", default_value="/home/rai/cca-nmpc-ros2/maps"
         ),
+        DeclareLaunchArgument("navigation_inflation_m", default_value="0.38"),
+        DeclareLaunchArgument("navigation_snap_radius_m", default_value="0.45"),
         DeclareLaunchArgument("ros_domain_id", default_value="0"),
         DeclareLaunchArgument("rmw_implementation", default_value="rmw_fastrtps_cpp"),
         DeclareLaunchArgument("ros_localhost_only", default_value="0"),
@@ -174,6 +176,8 @@ def generate_launch_description():
             "slam_enabled": use_slam,
             "slam_save_service": LaunchConfiguration("slam_save_service"),
             "map_save_root": LaunchConfiguration("map_save_root"),
+            "navigation_inflation_m": LaunchConfiguration("navigation_inflation_m"),
+            "navigation_snap_radius_m": LaunchConfiguration("navigation_snap_radius_m"),
         }.items(),
         condition=IfCondition(use_bridge),
     )

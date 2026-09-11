@@ -6,6 +6,8 @@ cca_reference_node:
     local_reference_topic: /cca/local_reference
     state_topic: /odometry/raw
     context_topic: /cca/context_score
+    scan_topic: /scan
+    lstm_diagnostics_topic: /cca/lstm_tracker_diagnostics
 
 cca_nmpc_node:
   ros__parameters:
@@ -16,6 +18,12 @@ cca_nmpc_node:
     robot_radius_m: 0.283
     human_radius_m: 0.34
     human_clearance_m: 0.623
+    max_speed_mps: 0.30
+    scan_topic: /scan
+    lidar_timeout_s: 0.25
+    obstacle_stop_distance_m: 0.38
+    obstacle_inflation_m: 0.10
+    lidar_max_range_m: 3.0
     state_timeout_s: 0.25
     state_topic: /odometry/raw
     reference_topic: /cca/local_reference
@@ -34,6 +42,7 @@ cca_stm_bridge:
     command_topic: /cmd_vel
     manual_command_topic: /manual_cmd_vel
     manual_command_timeout_s: 0.35
+    autonomous_max_speed_mps: 0.30
     odom_frame: odom
     base_frame: base_link
     odom_topic: /odometry/raw

@@ -187,6 +187,11 @@ double ObstaclePenalty(
     std::span<const double> obstacles
 ) {
     const auto next = Step(state, command, config.dt_s);
+    const double world_vx = std::cos(state[2]) * command[0] -
+        std::sin(state[2]) * command[1];
+    const double world_vy = std::sin(state[2]) * command[0] +
+        std::cos(state[2]) * command[1];
+    const double speed_squared = world_vx * world_vx + world_vy * world_vy;
     double penalty = 0.0;
     for (std::size_t index = 0U; index < obstacles.size(); index += 4U) {
         const double dx = std::abs(next[0] - obstacles[index]);
@@ -195,6 +200,34 @@ double ObstaclePenalty(
         const double clearance_y = obstacles[index + 3U] + config.robot_radius_m;
         if (dx < clearance_x && dy < clearance_y) {
             penalty += 100.0 + 100.0 * (clearance_x - dx + clearance_y - dy);
+        }
+        if (speed_squared > 1.0e-8) {
+            const double relative_x = obstacles[index] - state[0];
+            const double relative_y = obstacles[index + 1U] - state[1];
+            const double projected_time = std::clamp(
+                (relative_x * world_vx + relative_y * world_vy) / speed_squared,
+                0.0, 2.0);
+            const double projected_x = state[0] + projected_time * world_vx;
+            const double projected_y = state[1] + projected_time * world_vy;
+            const double projected_dx = std::abs(projected_x - obstacles[index]);
+            const double projected_dy = std::abs(projected_y - obstacles[index + 1U]);
+            if (projected_dx < clearance_x && projected_dy < clearance_y) {
+                penalty += 80.0 + 80.0 * (clearance_x - projected_dx + clearance_y - projected_dy);
+            }
+        }
+        const double relative_x = obstacles[index] - state[0];
+        const double relative_y = obstacles[index + 1U] - state[1];
+        const double distance = std::hypot(relative_x, relative_y);
+        if (distance > 1.0e-6 && distance < 1.25) {
+            const double world_vx = std::cos(state[2]) * command[0] -
+                std::sin(state[2]) * command[1];
+            const double world_vy = std::sin(state[2]) * command[0] +
+                std::cos(state[2]) * command[1];
+            const double closing_speed =
+                (world_vx * relative_x + world_vy * relative_y) / distance;
+            if (closing_speed > 0.0) {
+                penalty += 12.0 * closing_speed * (1.25 - distance);
+            }
         }
     }
     return penalty;
@@ -224,6 +257,12 @@ std::array<double, 3U> SampledCommand(
             candidate[2] += yaw[yi];
             candidate[0] = std::clamp(candidate[0], -config.max_speed_mps, config.max_speed_mps);
             candidate[1] = std::clamp(candidate[1], -config.max_speed_mps, config.max_speed_mps);
+            const double linear_norm = Norm2(candidate[0], candidate[1]);
+            if (linear_norm > config.max_speed_mps) {
+                const double scale = config.max_speed_mps / linear_norm;
+                candidate[0] *= scale;
+                candidate[1] *= scale;
+            }
             candidate[2] = std::clamp(candidate[2], -config.max_yaw_rate_radps, config.max_yaw_rate_radps);
             const auto next = Step(state, candidate, config.dt_s);
             const double cost = std::hypot(next[0] - target_x, next[1] - target_y) +
@@ -296,9 +335,17 @@ ControllerOutput Controller::Command(const ControllerInput& input) {
         risk_bound = kRiskBudget;
         command[0] = std::clamp(command[0], -config_.max_speed_mps, config_.max_speed_mps);
         command[1] = std::clamp(command[1], -config_.max_speed_mps, config_.max_speed_mps);
-    } else if (kind_ == ControllerKind::dwa || kind_ == ControllerKind::mppi) {
+    }
+    if (!input.obstacles.empty() || kind_ == ControllerKind::dwa || kind_ == ControllerKind::mppi) {
         command = SampledCommand(kind_, config_, input, command);
     }
+    const double linear_norm = Norm2(command[0], command[1]);
+    if (linear_norm > config_.max_speed_mps) {
+        const double scale = config_.max_speed_mps / linear_norm;
+        command[0] *= scale;
+        command[1] *= scale;
+    }
+    command[2] = std::clamp(command[2], -config_.max_yaw_rate_radps, config_.max_yaw_rate_radps);
     const std::array<double, 6U> initial{
         input.state[0], input.state[1], input.state[2], input.state[3], input.state[4], input.state[5]
     };

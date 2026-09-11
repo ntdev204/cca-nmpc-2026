@@ -344,6 +344,7 @@ class RobotBridge {
     const mapping = asRecord(system.mapping);
     const mappingScanning = "scanning" in mapping ? asBoolean(mapping.scanning) : true;
     const mappingPaused = "paused" in mapping ? asBoolean(mapping.paused) : false;
+    const navigationReady = "navigation_ready" in mapping ? asBoolean(mapping.navigation_ready) : false;
     const mapData = asRecord(this.mapCache?.map);
     const mapResolution = this.mapCache ? asNumber(mapData.resolution_m, 0.05) : 0.05;
     const mapLibrary = Array.isArray(mapping.maps) ? mapping.maps : [];
@@ -360,6 +361,7 @@ class RobotBridge {
       maps: mapLibrary,
       selected_map: selectedMap,
       map_source: String(mapping.map_source ?? "live_slam"),
+      navigation_ready: navigationReady,
       map_resolution_m: mapResolution,
       map_available: Boolean(this.mapCache) || asBoolean(mapping.map_available),
       map_width: asNumber(mapData.width),
