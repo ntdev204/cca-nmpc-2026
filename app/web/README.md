@@ -22,7 +22,8 @@ The dashboard reads:
 - `GET /api/system/components` for runtime/component status;
 - `GET /api/map/snapshot` for the ROS occupancy map;
 - `GET /api/map/status` plus `POST /api/map/scan/start`, `/api/map/scan/stop`,
-  `/api/map/select`, `/api/map/clear` and `/api/map/save` for SLAM map control;
+  `/api/map/select`, `/api/map/localization/pose`, `/api/map/clear` and
+  `/api/map/save` for SLAM/localization map control;
 - `POST /api/robot/cmd_vel` for velocity commands;
 - `POST /api/robot/nav/goal` and `/api/robot/nav/cancel` for navigation;
 - `POST /api/webrtc/offer` for the camera's HTTP SDP exchange.
@@ -32,8 +33,9 @@ to fixed map-frame coordinates, draws the measured-pose-to-goal line, and fills
 the goal form. The operator must still press `Send goal`; that confirmation
 publishes the goal through the existing HTTP navigation endpoint. Saved maps
 can also accept a goal while the bridge reports an active `map -> odom`
-localization transform. The selected PGM/YAML is not itself a localizer, so
-the button remains locked when that transform is unavailable.
+localization transform. Selecting a saved PGM/YAML starts the Nav2 map server
+and AMCL localization on the robot, so the saved map can be used directly; the
+button remains locked when that transform is unavailable.
 
 The browser-side motion gate starts disabled. Enabling motion is a website
 session safety gate; velocity commands then go to the bridge's manual override
@@ -54,11 +56,13 @@ Clear asks the supervisor to restart one fresh SLAM launch session, then Save ca
 the map name and creates the file names automatically without creating a per-map
 folder. Leaving the name empty generates `map-YYYYMMDD-HHMMSS`. Clear never
 removes saved map files. The Mapping panel lists valid YAML/PGM pairs from that
-root; selecting one loads it into the dashboard and pauses live SLAM. A
-selected saved map can be used for goal dispatch only while the current
-localization transform is available; click New scan to return to a fresh live
-SLAM map. Full relocalization of a saved map after restart still requires a
-serialized SLAM pose graph.
+root; selecting one loads it into the dashboard and starts AMCL localization.
+A
+selected saved map can be used for goal dispatch after AMCL publishes the
+localization transform. The panel also lets the operator publish an initial
+pose in the selected map. Click New scan to stop localization and return to a
+fresh live SLAM map. The default initial pose is `(0, 0, 0)` and should be
+updated when the robot starts elsewhere.
 
 The `/api/history?kind=state|lidar|map|event&page=1&pageSize=12` route keeps a
 bounded in-memory history of the HTTP snapshots for the telemetry view.

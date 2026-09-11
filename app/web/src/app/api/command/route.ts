@@ -14,6 +14,7 @@ const ALLOWED = new Set([
   "map_scan_start",
   "map_scan_stop",
   "map_select",
+  "map_set_initial_pose",
   "map_clear",
   "map_new_scan",
   "map_save",

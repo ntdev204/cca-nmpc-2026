@@ -15,7 +15,7 @@ import rclpy
 from slam_toolbox.srv import Pause, SaveMap
 from std_srvs.srv import Trigger
 import tf2_ros
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import (
@@ -26,7 +26,7 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 from sensor_msgs.msg import Image, Imu, LaserScan
-from std_msgs.msg import Bool, Empty, Float32, Float64, Float64MultiArray
+from std_msgs.msg import Bool, Empty, Float32, Float64, Float64MultiArray, String
 
 from .grid_planner import plan_occupancy_path
 
@@ -191,6 +191,14 @@ class WebBridgeNode(Node):
         self.slam_save_service = str(
             self.declare_parameter("slam_save_service", "/slam_toolbox/save_map").value
         )
+        self.localization_map_topic = str(
+            self.declare_parameter(
+                "localization_map_topic", "/slam_manager/localize_map"
+            ).value
+        )
+        self.initial_pose_topic = str(
+            self.declare_parameter("initial_pose_topic", "/initialpose").value
+        )
         self.map_save_root = FilePath(
             str(
                 self.declare_parameter(
@@ -324,6 +332,19 @@ class WebBridgeNode(Node):
         )
         self._path_pub = self.create_publisher(
             Path, self.global_path_topic, self._reliable_qos
+        )
+        self._localization_map_pub = self.create_publisher(
+            String,
+            self.localization_map_topic,
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
+        )
+        self._initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, self.initial_pose_topic, self._reliable_qos
         )
         self._goal_pub = self.create_publisher(
             PoseStamped, self.goal_topic, self._reliable_qos
@@ -572,9 +593,12 @@ class WebBridgeNode(Node):
         }
 
     def select_map(self, requested_name: str | None) -> dict[str, Any]:
-        """Load a saved map into the dashboard map view without changing files."""
+        """Load a saved PGM/YAML map and switch the robot to AMCL localization."""
         name = self._normalise_map_name(requested_name)
         loaded = self._load_saved_map(name)
+        map_yaml = (self.map_save_root.resolve() / f"{name}.yaml").resolve()
+        if map_yaml.parent != self.map_save_root.resolve() or not map_yaml.is_file():
+            raise ValueError(f"saved map metadata is missing: {name}.yaml")
 
         # Selecting a saved map switches the operator surface out of live
         # capture mode. Keep the running SLAM session paused so a later map
@@ -588,9 +612,41 @@ class WebBridgeNode(Node):
         with self._lock:
             self._selected_map_name = name
             self._selected_map_snapshot = loaded
+        localization_request = String()
+        localization_request.data = str(map_yaml)
+        self._localization_map_pub.publish(localization_request)
         status = self.mapping_status()
         status["changed"] = True
+        status["localization_requested"] = True
         return {"accepted": True, "name": name, "mapping": status}
+
+    def set_initial_pose(self, x: float, y: float, yaw: float) -> dict[str, Any]:
+        """Seed AMCL with a pose in the selected saved map frame."""
+        values = (float(x), float(y), float(yaw))
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("initial localization pose values must be finite")
+        with self._lock:
+            selected_name = self._selected_map_name
+        if not selected_name:
+            raise RuntimeError("select a saved map before setting its initial pose")
+        message = PoseWithCovarianceStamped()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self.map_frame
+        message.pose.pose.position.x = values[0]
+        message.pose.pose.position.y = values[1]
+        message.pose.pose.orientation.z = math.sin(values[2] / 2.0)
+        message.pose.pose.orientation.w = math.cos(values[2] / 2.0)
+        message.pose.covariance[0] = 0.25
+        message.pose.covariance[7] = 0.25
+        message.pose.covariance[35] = 0.12
+        self._initial_pose_pub.publish(message)
+        return {
+            "accepted": True,
+            "map": selected_name,
+            "x": values[0],
+            "y": values[1],
+            "yaw": self._normalize_angle(values[2]),
+        }
 
     def set_mapping_enabled(self, enabled: bool) -> dict[str, Any]:
         """Pause or resume measurements while preserving the active map."""

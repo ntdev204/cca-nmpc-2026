@@ -78,6 +78,9 @@ def generate_launch_description():
             "slam_save_service", default_value="/slam_toolbox/save_map"
         ),
         DeclareLaunchArgument(
+            "localization_map_topic", default_value="/slam_manager/localize_map"
+        ),
+        DeclareLaunchArgument(
             "map_save_root", default_value="/home/rai/cca-nmpc-ros2/maps"
         ),
         DeclareLaunchArgument("navigation_inflation_m", default_value="0.38"),
@@ -133,6 +136,10 @@ def generate_launch_description():
                 "slam_package": "cca_slam",
                 "slam_launch_file": "online_async_launch.py",
                 "slam_params_file": slam_params_file,
+                "localization_launch_file": "localization_launch.py",
+                "localization_map_topic": LaunchConfiguration(
+                    "localization_map_topic"
+                ),
                 "use_sim_time": use_sim_time,
                 "start_on_launch": True,
                 "stop_service": LaunchConfiguration("slam_stop_service"),
@@ -175,6 +182,7 @@ def generate_launch_description():
             "odom_reset_service": LaunchConfiguration("odom_reset_service"),
             "slam_enabled": use_slam,
             "slam_save_service": LaunchConfiguration("slam_save_service"),
+            "localization_map_topic": LaunchConfiguration("localization_map_topic"),
             "map_save_root": LaunchConfiguration("map_save_root"),
             "navigation_inflation_m": LaunchConfiguration("navigation_inflation_m"),
             "navigation_snap_radius_m": LaunchConfiguration("navigation_snap_radius_m"),

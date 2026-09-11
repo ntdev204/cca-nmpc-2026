@@ -57,6 +57,7 @@ function formatBytes(value: unknown): string {
 
 export function MapCapturePanel({ online, status, onCommand }: MapCapturePanelProps) {
   const [mapName, setMapName] = useState("");
+  const [initialPose, setInitialPose] = useState({ x: "0.0", y: "0.0", yaw: "0.0" });
   const components = Array.isArray(status.components) ? status.components.filter((item): item is Component => Boolean(item && typeof item === "object")) : [];
   const dataset = status.dataset && typeof status.dataset === "object" ? status.dataset as Record<string, unknown> : {};
   const datasetRunning = Boolean(dataset.active || dataset.running);
@@ -108,14 +109,14 @@ export function MapCapturePanel({ online, status, onCommand }: MapCapturePanelPr
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div id="map-source-title" className="flex items-center gap-2 text-sm font-semibold"><MapIcon className="size-4 text-primary" />Map source</div>
-                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">Chọn map đã lưu để xem lại, hoặc tạo một phiên quét mới.</p>
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">Chọn map đã lưu để nạp map và bật định vị AMCL, hoặc tạo một phiên quét mới.</p>
               </div>
               <Badge variant={savedMapSelected ? "default" : "outline"}>{savedMapSelected ? `saved · ${selectedMap}` : "live SLAM"}</Badge>
             </div>
             <Button className="w-full" onClick={startNewScan} disabled={!online || !slamEnabled}><ScanLine className="size-4" />Quét map mới</Button>
             <p className="text-[11px] leading-4 text-muted-foreground">
               {savedMapSelected
-                ? "Đang hiển thị map đã lưu; SLAM tạm dừng. Vị trí robot trên màn hình vẫn lấy từ cảm biến."
+                ? "Map đã nạp vào map_server; SLAM mapping tạm dừng và AMCL đang tạo TF map → odom."
                 : "Live map lấy trực tiếp từ SLAM Toolbox. Nút quét mới sẽ xóa map chưa lưu và reset phiên đo."}
             </p>
           </section>
@@ -143,6 +144,18 @@ export function MapCapturePanel({ online, status, onCommand }: MapCapturePanelPr
               })}
               {!maps.length && <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">Chưa có map đã lưu trong <code>{mapSaveRoot}</code>.</p>}
             </div>
+            {savedMapSelected && <div className="space-y-2 rounded-md border border-primary/25 bg-primary/5 p-2.5">
+              <div className="text-xs font-medium">Pose ban đầu trên map (AMCL)</div>
+              <p className="text-[11px] leading-4 text-muted-foreground">Nhập tọa độ robot hiện tại trong hệ map rồi cập nhật để định vị lại.</p>
+              <div className="grid grid-cols-3 gap-2">
+                <input aria-label="Initial pose x" value={initialPose.x} onChange={(event) => setInitialPose({ ...initialPose, x: event.target.value })} inputMode="decimal" className="h-8 rounded-md border border-input bg-background px-2 text-xs" placeholder="x (m)" />
+                <input aria-label="Initial pose y" value={initialPose.y} onChange={(event) => setInitialPose({ ...initialPose, y: event.target.value })} inputMode="decimal" className="h-8 rounded-md border border-input bg-background px-2 text-xs" placeholder="y (m)" />
+                <input aria-label="Initial pose yaw" value={initialPose.yaw} onChange={(event) => setInitialPose({ ...initialPose, yaw: event.target.value })} inputMode="decimal" className="h-8 rounded-md border border-input bg-background px-2 text-xs" placeholder="yaw (rad)" />
+              </div>
+              <Button size="sm" className="w-full" onClick={() => onCommand({ command: "map_set_initial_pose", x: number(initialPose.x, Number.NaN), y: number(initialPose.y, Number.NaN), yaw: number(initialPose.yaw, Number.NaN) })} disabled={!online || ![initialPose.x, initialPose.y, initialPose.yaw].every((value) => Number.isFinite(Number(value)))}>
+                Cập nhật pose định vị
+              </Button>
+            </div>}
           </section>
         </div>
 
@@ -183,7 +196,7 @@ export function MapCapturePanel({ online, status, onCommand }: MapCapturePanelPr
               <span><span className="font-medium text-foreground">Displayed map:</span> {mapAvailable ? `${mapWidth} × ${mapHeight} cells` : "not available"}</span>
               <span>{(mapResolution * 1000).toFixed(0)} mm resolution</span>
             </div>
-            <p className="text-[11px] leading-4 text-muted-foreground">Map snapshots use <code>/api/map/snapshot</code>. Map selection is read-only for the dashboard; use New scan to return to live SLAM.</p>
+            <p className="text-[11px] leading-4 text-muted-foreground">Chọn map sẽ nạp PGM/YAML vào map_server và chạy AMCL; dùng Quét map mới để quay lại live SLAM.</p>
           </div>
 
           <div className="space-y-2 rounded-lg border bg-background p-3">

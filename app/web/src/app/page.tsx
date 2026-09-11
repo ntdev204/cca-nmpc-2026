@@ -461,9 +461,9 @@ export default function Home() {
   const occupiedCells = asNumber(mapMetadata?.occupied_cells, -1);
   const mapSource = String(status.map_source ?? "live_slam");
   const poseSourceName = poseSourceFrom(snapshot);
-  // A saved PGM/YAML is a displayable map, not a localization source by
-  // itself. Let the live map->odom TF decide whether a goal can be sent; the
-  // backend repeats the same check before publishing it.
+  // A saved PGM/YAML selection starts AMCL localization. Let the live
+  // map->odom TF decide whether a goal can be sent; the backend repeats the
+  // same check before publishing it.
   const navigationReady = status.navigation_ready === true || poseSourceName === "slam_tf";
   const selectedGoal = useMemo<Pose | null>(() => {
     if (!goalSelected) return null;

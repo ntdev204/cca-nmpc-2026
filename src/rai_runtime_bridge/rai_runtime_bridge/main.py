@@ -51,6 +51,12 @@ class MapSaveRequest(BaseModel):
     name: str | None = Field(default=None, max_length=128)
 
 
+class InitialPose(BaseModel):
+    x: float
+    y: float
+    yaw: float = 0.0
+
+
 def _require_node() -> WebBridgeNode:
     if control_node is None or not rclpy.ok():
         raise HTTPException(status_code=503, detail="ROS runtime bridge is not ready")
@@ -167,6 +173,14 @@ async def mapping_select(request: MapSaveRequest) -> dict[str, Any]:
         return _require_node().select_map(request.name)
     except Exception as error:
         raise _map_operation_error(error) from error
+
+
+@app.post("/api/map/localization/pose")
+async def localization_pose(request: InitialPose) -> dict[str, Any]:
+    try:
+        return _require_node().set_initial_pose(request.x, request.y, request.yaw)
+    except Exception as error:
+        raise _navigation_operation_error(error) from error
 
 
 @app.post("/api/map/clear")

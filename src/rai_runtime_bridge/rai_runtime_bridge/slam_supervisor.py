@@ -5,10 +5,13 @@ import shutil
 import signal
 import subprocess
 import threading
+from pathlib import Path
 from typing import Any
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 
@@ -29,6 +32,11 @@ class SlamSupervisor(Node):
         self.slam_launch_file = str(
             self.declare_parameter(
                 "slam_launch_file", "online_async_launch.py"
+            ).value
+        )
+        self.localization_launch_file = str(
+            self.declare_parameter(
+                "localization_launch_file", "localization_launch.py"
             ).value
         )
         self.slam_params_file = str(
@@ -52,6 +60,11 @@ class SlamSupervisor(Node):
         self.reset_service = str(
             self.declare_parameter("reset_service", "/slam_manager/reset").value
         )
+        self.localization_map_topic = str(
+            self.declare_parameter(
+                "localization_map_topic", "/slam_manager/localize_map"
+            ).value
+        )
 
         self._lock = threading.RLock()
         self._launch_process: subprocess.Popen[Any] | None = None
@@ -59,6 +72,17 @@ class SlamSupervisor(Node):
         self.create_service(Trigger, self.start_service, self._start_callback)
         self.create_service(Trigger, self.stop_service, self._stop_callback)
         self.create_service(Trigger, self.reset_service, self._reset_callback)
+        self._localization_sub = self.create_subscription(
+            String,
+            self.localization_map_topic,
+            self._localization_callback,
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
+        )
 
         if self.start_on_launch:
             # Let the sensor launch publish the static laser TF and establish
@@ -81,15 +105,18 @@ class SlamSupervisor(Node):
         else:
             self.get_logger().error(message)
 
-    def _launch_command(self) -> list[str]:
+    def _launch_command(self, map_yaml: str | None = None) -> list[str]:
+        launch_file = self.localization_launch_file if map_yaml else self.slam_launch_file
         command = [
             self.ros2_executable,
             "launch",
             self.slam_package,
-            self.slam_launch_file,
+            launch_file,
             f"use_sim_time:={'true' if self.use_sim_time else 'false'}",
         ]
-        if self.slam_params_file:
+        if map_yaml:
+            command.append(f"map_yaml:={map_yaml}")
+        elif self.slam_params_file:
             command.append(f"slam_params_file:={self.slam_params_file}")
         return command
 
@@ -106,19 +133,42 @@ class SlamSupervisor(Node):
             timer.cancel()
             self.destroy_timer(timer)
 
-    def _start_process(self) -> tuple[bool, str]:
+    def _start_process(self, map_yaml: str | None = None) -> tuple[bool, str]:
         with self._lock:
             if self._is_running():
-                return True, "SLAM launch is already running."
+                return True, "SLAM/localization launch is already running."
+            if map_yaml:
+                path = Path(map_yaml).expanduser()
+                if not path.is_file():
+                    return False, f"Saved map YAML does not exist: {path}"
+                map_yaml = str(path.resolve())
             try:
                 self._launch_process = subprocess.Popen(
-                    self._launch_command(),
+                    self._launch_command(map_yaml),
                     start_new_session=True,
                 )
             except OSError as error:
                 self._launch_process = None
-                return False, f"Could not start SLAM launch: {error}"
-            return True, f"SLAM launch started (pid={self._launch_process.pid})."
+                return False, f"Could not start SLAM/localization launch: {error}"
+            mode = "localization" if map_yaml else "SLAM"
+            return True, f"{mode} launch started (pid={self._launch_process.pid})."
+
+    def _localization_callback(self, message: String) -> None:
+        map_yaml = str(message.data).strip()
+        if not map_yaml:
+            self.get_logger().error("Saved-map localization requested without a YAML path.")
+            return
+        with self._lock:
+            if self._is_running():
+                stopped, stop_message = self._stop_process()
+                if not stopped:
+                    self.get_logger().error(stop_message)
+                    return
+            started, start_message = self._start_process(map_yaml)
+        if started:
+            self.get_logger().info(start_message)
+        else:
+            self.get_logger().error(start_message)
 
     def _stop_process(self) -> tuple[bool, str]:
         with self._lock:

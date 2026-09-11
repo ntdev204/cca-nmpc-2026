@@ -554,6 +554,20 @@ class RobotBridge {
       this.addEvent("map", `Saved map selected: ${String(response.name ?? name)}.`);
       return;
     }
+    if (command === "map_set_initial_pose") {
+      await postJson(
+        "/api/map/localization/pose",
+        {
+          x: asNumber(payload.x),
+          y: asNumber(payload.y),
+          yaw: asNumber(payload.yaw),
+        },
+        MAP_OPERATION_TIMEOUT_MS,
+      );
+      this.invalidateSystemCache();
+      this.addEvent("map", "Saved-map localization pose updated.");
+      return;
+    }
     if (command === "map_clear" || command === "map_new_scan") {
       await postJson("/api/map/clear", {}, MAP_OPERATION_TIMEOUT_MS);
       this.invalidateSystemCache();

@@ -94,7 +94,7 @@ export function ControlPanel({ online, armed, command, goalDraft, goalSelected, 
   const navigationHint = !navigationReady
     ? (savedMap ? "Saved-map navigation" : "Navigation") + " is locked until the active map → odom localization TF is available."
     : savedMap
-      ? "Saved map is selected. The goal uses the active map → odom TF; verify the measured pose before sending."
+      ? "Saved map is localized by AMCL. Set the initial pose if needed, then verify map → odom before sending."
       : goalSelected
         ? "Target uses the fixed map frame and the measured sensor pose."
         : "Choose a point on the map or enter coordinates manually.";

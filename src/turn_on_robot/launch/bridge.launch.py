@@ -40,6 +40,9 @@ def generate_launch_description():
                 "slam_save_service", default_value="/slam_toolbox/save_map"
             ),
             DeclareLaunchArgument(
+                "localization_map_topic", default_value="/slam_manager/localize_map"
+            ),
+            DeclareLaunchArgument(
                 "map_save_root", default_value="/home/rai/cca-nmpc-ros2/maps"
             ),
             DeclareLaunchArgument("map_cleanup_enabled", default_value="true"),
@@ -70,6 +73,9 @@ def generate_launch_description():
                         "odom_reset_service": LaunchConfiguration("odom_reset_service"),
                         "slam_enabled": LaunchConfiguration("slam_enabled"),
                         "slam_save_service": LaunchConfiguration("slam_save_service"),
+                        "localization_map_topic": LaunchConfiguration(
+                            "localization_map_topic"
+                        ),
                         "map_save_root": LaunchConfiguration("map_save_root"),
                         "map_cleanup_enabled": LaunchConfiguration("map_cleanup_enabled"),
                         "map_cleanup_min_component_cells": LaunchConfiguration(
