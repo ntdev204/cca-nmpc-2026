@@ -19,7 +19,7 @@ struct ControllerConfig {
     double dt_s{0.1};
     std::size_t horizon{6U};
     double deadline_ms{100.0};
-    double robot_radius_m{0.1772541986};
+    double robot_radius_m{0.29};
     double human_radius_m{0.34};
     double max_speed_mps{0.85};
     double max_yaw_rate_radps{1.4};
