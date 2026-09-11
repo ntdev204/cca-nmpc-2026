@@ -244,7 +244,12 @@ std::array<double, 3U> SampledCommand(
     std::array<double, 3U> best = nominal;
     double best_cost = std::numeric_limits<double>::infinity();
     const std::array<double, 5U> lateral{-0.30, -0.15, 0.0, 0.15, 0.30};
-    const std::array<double, 5U> yaw{-0.40, -0.20, 0.0, 0.20, 0.40};
+    // Keep the angular samples centered around the nominal command.  The
+    // previous CCA-NMPC subset used {-0.40, -0.20, 0.0}; because the one-step
+    // position model is independent of angular velocity, all three samples
+    // often had the same cost and the first one made the robot spin forever.
+    const std::array<double, 5U> yaw{-0.20, -0.10, 0.0, 0.10, 0.20};
+    const std::size_t yaw_start = kind == ControllerKind::mppi ? 0U : 1U;
     const std::array<double, 6U> state{
         input.state[0], input.state[1], input.state[2], input.state[3], input.state[4], input.state[5]
     };
@@ -254,7 +259,7 @@ std::array<double, 3U> SampledCommand(
         for (std::size_t yi = 0U; yi < yaw_count; ++yi) {
             auto candidate = nominal;
             candidate[1] += lateral[li];
-            candidate[2] += yaw[yi];
+            candidate[2] += yaw[yaw_start + yi];
             candidate[0] = std::clamp(candidate[0], -config.max_speed_mps, config.max_speed_mps);
             candidate[1] = std::clamp(candidate[1], -config.max_speed_mps, config.max_speed_mps);
             const double linear_norm = Norm2(candidate[0], candidate[1]);
@@ -267,6 +272,11 @@ std::array<double, 3U> SampledCommand(
             const auto next = Step(state, candidate, config.dt_s);
             const double cost = std::hypot(next[0] - target_x, next[1] - target_y) +
                 0.05 * Norm2(candidate[0] - nominal[0], candidate[1] - nominal[1]) +
+                // Angular samples are secondary to path tracking.  This
+                // tie-breaker prevents obstacle sampling from injecting a
+                // persistent turn when the lateral candidates have equal
+                // positional cost.
+                0.20 * std::abs(candidate[2] - nominal[2]) +
                 ObstaclePenalty(state, candidate, config, input.obstacles);
             if (cost < best_cost) {
                 best_cost = cost;
