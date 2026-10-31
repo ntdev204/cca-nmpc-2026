@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   MapPinned,
   Radar,
+  RotateCw,
   ScanLine,
   ShieldCheck,
   ShieldOff,
@@ -25,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { MapCapturePanel, type SavedMap } from "@/components/map-capture-panel";
 import { ControlPanel } from "@/components/control-panel";
 import { HistoryPanel } from "@/components/history-panel";
+import { KinematicsLab } from "@/components/kinematics-lab";
 
 type Snapshot = {
   backend?: string;
@@ -55,6 +57,7 @@ const DASHBOARD_VIEWS: Array<{ id: DashboardView; label: string; icon: typeof La
   { id: "control", label: "Control", icon: Crosshair },
   { id: "mapping", label: "Mapping & data", icon: Database },
   { id: "telemetry", label: "Telemetry", icon: Activity },
+  { id: "kinematics", label: "Kinematics lab", icon: RotateCw },
 ];
 
 const CAMERA_WEBRTC_URL = process.env.NEXT_PUBLIC_ROBOT_WEBRTC_URL ?? "http://100.69.39.18:8766/webrtc/offer";
@@ -618,6 +621,7 @@ export default function Home() {
           onCommand={(payload) => void command(payload)}
         />}
         {(view === "overview" || view === "telemetry") && <HistoryPanel />}
+        {view === "kinematics" && <KinematicsLab online={online} armed={armed} command={(payload) => void command(payload)} />}
         {snapshot.error && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{snapshot.error}</p>}
       </div>
         </div>
