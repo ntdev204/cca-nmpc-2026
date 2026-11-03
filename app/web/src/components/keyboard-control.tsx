@@ -7,6 +7,12 @@ type Velocity = { vx: number; vy: number; wz: number };
 const ZERO: Velocity = { vx: 0, vy: 0, wz: 0 };
 const PERIOD_MS = 100;
 const CONTROL_KEYS = new Set(["w", "s", "a", "d", "q", "e", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+const DEFAULT_LINEAR_SPEED = 0.2;
+
+function configuredLinearSpeed(): number {
+  const value = Number(window.localStorage.getItem("robot-linear-speed-mps"));
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_LINEAR_SPEED;
+}
 
 function normalizeKey(key: string): string {
   return key.length === 1 ? key.toLowerCase() : key;
@@ -16,14 +22,14 @@ function hasAny(keys: Set<string>, choices: string[]): boolean {
   return choices.some((choice) => keys.has(choice));
 }
 
-function velocityFrom(keys: Set<string>): Velocity {
+function velocityFrom(keys: Set<string>, linearSpeed: number): Velocity {
   const forward = hasAny(keys, ["w", "ArrowUp"]);
   const backward = hasAny(keys, ["s", "ArrowDown"]);
   const left = hasAny(keys, ["a", "ArrowLeft"]);
   const right = hasAny(keys, ["d", "ArrowRight"]);
   return {
-    vx: (forward ? 0.20 : 0) + (backward ? -0.20 : 0),
-    vy: (left ? 0.20 : 0) + (right ? -0.20 : 0),
+    vx: (forward ? linearSpeed : 0) + (backward ? -linearSpeed : 0),
+    vy: (left ? linearSpeed : 0) + (right ? -linearSpeed : 0),
     wz: (keys.has("q") ? 0.60 : 0) + (keys.has("e") ? -0.60 : 0),
   };
 }
@@ -98,7 +104,7 @@ export function KeyboardControl() {
       event.preventDefault();
       if (event.repeat && pressed.current.has(key)) return;
       pressed.current.add(key);
-      hold(velocityFrom(pressed.current));
+      hold(velocityFrom(pressed.current, configuredLinearSpeed()));
     };
     const up = (event: KeyboardEvent) => {
       if (editableTarget(event.target)) return;
@@ -112,7 +118,7 @@ export function KeyboardControl() {
       event.preventDefault();
       pressed.current.delete(key);
       if (pressed.current.size === 0) release();
-      else hold(velocityFrom(pressed.current));
+      else hold(velocityFrom(pressed.current, configuredLinearSpeed()));
     };
     const stopOnHidden = () => { if (document.hidden) release(); };
     window.addEventListener("keydown", down);

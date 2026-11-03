@@ -64,8 +64,8 @@ export function ControlPanel({ online, armed, command, plan }: ControlPanelProps
   const [goalY, setGoalY] = useState("0.00");
   const [inflation, setInflation] = useState("0.30");
   const [direction, setDirection] = useState("forward");
-  const speedValue = Math.min(0.3, Math.max(0, numberValue(speed, 0.2)));
-  const yawValue = Math.min(0.9, Math.max(0, numberValue(yawSpeed, 0.6)));
+  const speedValue = Math.max(0, numberValue(speed, 0.2));
+  const yawValue = Math.max(0, numberValue(yawSpeed, 0.6));
   const disabled = !online || !armed;
   const sendVelocity = (vx: number, vy: number, wz: number) => command({ command: "velocity", vx, vy, wz });
   const sendPlan = () => command({
@@ -87,7 +87,7 @@ export function ControlPanel({ online, armed, command, plan }: ControlPanelProps
       <CardContent className="grid gap-4 p-3 lg:grid-cols-[minmax(230px,0.75fr)_minmax(260px,1fr)]">
         <div className="space-y-3 rounded-lg border bg-background p-3">
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <label className="space-y-1"><span className="text-muted-foreground">Linear speed (m/s)</span><input value={speed} onChange={(event) => setSpeed(event.target.value)} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
+            <label className="space-y-1"><span className="text-muted-foreground">Linear speed (m/s)</span><input value={speed} onChange={(event) => { setSpeed(event.target.value); window.localStorage.setItem("robot-linear-speed-mps", event.target.value); }} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
             <label className="space-y-1"><span className="text-muted-foreground">Yaw speed (rad/s)</span><input value={yawSpeed} onChange={(event) => setYawSpeed(event.target.value)} inputMode="decimal" className="h-8 w-full rounded-md border border-input bg-background px-2" /></label>
           </div>
           <div className="mx-auto grid max-w-[245px] grid-cols-3 gap-2">

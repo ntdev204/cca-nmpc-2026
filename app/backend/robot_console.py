@@ -1279,19 +1279,17 @@ class RobotService:
     def _apply_velocity(self, values: tuple[float, float, float]) -> None:
         if not all(math.isfinite(value) for value in values):
             raise ValueError("velocity must be finite")
-        limits = (0.30, 0.30, 0.90)
-        bounded = tuple(max(-limit, min(limit, value)) for value, limit in zip(values, limits))
         with self.state_lock:
             active = self.armed and self.stm is not None
             self.last_command_mono = time.monotonic()
             self.watchdog_zero_sent = False
         if active:
-            self.stm.send_velocity(*bounded)
+            self.stm.send_velocity(*values)
             with self.state_lock:
-                self.last_command = bounded
+                self.last_command = values
                 self.command_sequence += 1
                 if self.files is not None:
-                    self.files.control(now_ns(), bounded, self.stm.latest, self.command_sequence, getattr(self.stm, "backend", "serial"))
+                    self.files.control(now_ns(), values, self.stm.latest, self.command_sequence, getattr(self.stm, "backend", "serial"))
         else:
             self.send_zero()
 
@@ -1799,7 +1797,7 @@ class ConsoleApp:
         motion = ttk.LabelFrame(control, text="Teleoperation", padding=8)
         motion.pack(fill="x", pady=(0, 8))
         ttk.Label(motion, text="Speed (m/s)").pack(anchor="w")
-        ttk.Scale(motion, variable=self.speed, from_=0.05, to=0.30, orient="horizontal").pack(fill="x")
+        ttk.Scale(motion, variable=self.speed, from_=0.05, to=1.60, orient="horizontal").pack(fill="x")
         ttk.Label(motion, text="Yaw (rad/s)").pack(anchor="w", pady=(6, 0))
         ttk.Scale(motion, variable=self.yaw_speed, from_=0.10, to=0.90, orient="horizontal").pack(fill="x")
         ttk.Label(motion, text="Mecanum directions (hold)", foreground="#4f5b66").pack(anchor="w", pady=(8, 0))
