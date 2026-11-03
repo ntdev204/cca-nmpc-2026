@@ -49,7 +49,7 @@ type TfFrame = {
 type TfPayload = { fixed_frame?: string; frames?: TfFrame[]; footprint?: Record<string, unknown> };
 type MapPlan = { path_xy?: number[][] };
 type MapViewport = { x: number; y: number; width: number; height: number };
-type DashboardView = "overview" | "monitor" | "control" | "mapping" | "telemetry";
+type DashboardView = "overview" | "monitor" | "control" | "mapping" | "telemetry" | "kinematics";
 
 const DASHBOARD_VIEWS: Array<{ id: DashboardView; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -621,7 +621,7 @@ export default function Home() {
           onCommand={(payload) => void command(payload)}
         />}
         {(view === "overview" || view === "telemetry") && <HistoryPanel />}
-        {view === "kinematics" && <KinematicsLab online={online} armed={armed} command={(payload) => void command(payload)} />}
+        {view === "kinematics" && <KinematicsLab online={online} armed={armed} command={(payload) => void command(payload)} telemetry={telemetry} />}
         {snapshot.error && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{snapshot.error}</p>}
       </div>
         </div>

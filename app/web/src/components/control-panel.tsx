@@ -82,7 +82,7 @@ export function ControlPanel({ online, armed, command, plan }: ControlPanelProps
     <Card className="shadow-sm">
       <CardHeader className="border-b bg-slate-50/70 py-3">
         <CardTitle className="flex items-center gap-2 text-base"><Move className="size-4 text-primary" />Control &amp; navigation</CardTitle>
-        <CardDescription>Hold a direction button or use W/S/A/D, arrows and Q/E. Combined keys are supported.</CardDescription>
+        <CardDescription>Hold a direction button or use W/S/A/D, arrows and Q/E. Combined keys are supported. Linear commands use temporary ÷1.89 compensation.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 p-3 lg:grid-cols-[minmax(230px,0.75fr)_minmax(260px,1fr)]">
         <div className="space-y-3 rounded-lg border bg-background p-3">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { sendRobotCommand, snapshot } from "@/lib/robot";
+import { compensateLinearCommand } from "@/lib/motion";
 
 const ALLOWED = new Set([
   "arm",
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     if (!ALLOWED.has(command)) {
       return NextResponse.json({ error: "command is not allowed" }, { status: 400 });
     }
-    const messages = await sendRobotCommand(payload);
+    const messages = await sendRobotCommand(compensateLinearCommand(payload));
     if (command === "velocity") return NextResponse.json({ backend: "online" }, { headers: { "Cache-Control": "no-store" } });
     return NextResponse.json({ backend: "online", ...snapshot(messages) });
   } catch (error) {
