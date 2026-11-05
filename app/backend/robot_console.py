@@ -50,7 +50,8 @@ SENSOR_PERIOD_S = 0.05
 MAP_PERIOD_S = 0.5
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
-SAVED_MAP_CACHE_PERIOD_S = 2.0
+SAVED_MAP_CACHE_PERIOD_S = 10.0
+STM_TELEMETRY_MAX_AGE_S = 1.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
 CAMERA_CAPTURE_PERIOD_S = 0.50
@@ -581,6 +582,7 @@ class RobotService:
         self.watchdog_zero_sent = False
         self.command_sequence = 0
         self.last_telemetry_ns = 0
+        self.last_telemetry_mono = 0.0
         self.last_scan_ns = 0
         self.last_state_mono = 0.0
         self.last_sensor_mono = 0.0
@@ -670,6 +672,10 @@ class RobotService:
         return [{**entry, "selected": entry.get("run_id") == selected} for entry in self.saved_maps_cache]
 
     def status_payload(self) -> dict[str, Any]:
+        # Directory scans and manifest reads can take seconds on the Jetson.
+        # Keep that work outside state_lock so telemetry and command state stay
+        # responsive while saved-map history is refreshed.
+        maps_payload = self.saved_maps_payload()
         with self.state_lock:
             with self.camera_count_lock:
                 camera_frames_saved = self.camera_frames_saved
@@ -682,6 +688,14 @@ class RobotService:
             return {
                 **self.status,
                 "armed": self.armed,
+                "stm_telemetry_age_s": (
+                    round(max(0.0, time.monotonic() - self.last_telemetry_mono), 3)
+                    if self.last_telemetry_mono > 0.0 else None
+                ),
+                "stm_telemetry_fresh": (
+                    self.last_telemetry_mono > 0.0
+                    and time.monotonic() - self.last_telemetry_mono <= STM_TELEMETRY_MAX_AGE_S
+                ),
                 "scan_active": self.scan_active,
                 "run": self.run_root.name if self.run_root else None,
                 "lidar_target_hz": LIDAR_TARGET_HZ,
@@ -691,7 +705,7 @@ class RobotService:
                 "webrtc_clients": len(self.webrtc_peers),
                 "map_resolution_m": MAP_RESOLUTION_M,
                 "selected_map": self.last_saved_root.name if self.last_saved_root is not None else None,
-                "maps": self.saved_maps_payload(),
+                "maps": maps_payload,
                 "dataset": {
                     "active": self.scan_active,
                     "starting": self.scan_starting,
@@ -1148,6 +1162,11 @@ class RobotService:
             self.plan_payload = None
             self.last_scan_ns = 0
             self.last_broadcast_map_signature = ""
+            # A new scan starts with an empty live map. Older runs remain in
+            # experiments/runs and in the saved-map history.
+            self.last_saved_root = None
+            self.saved_maps_cache_mono = 0.0
+            self.latest_lidar = []
             with self.camera_count_lock:
                 self.camera_frames_saved = 0
             self.last_camera_save_mono = 0.0
@@ -1156,6 +1175,9 @@ class RobotService:
             self.camera_device_t_ns = None
             self.files.event("console_scan_started", f"lidar=N10P; target_hz={LIDAR_TARGET_HZ:g}; map_resolution_m={MAP_RESOLUTION_M:.3f}")
             self.status["scan"] = "recording"
+        with self.map_lock:
+            initial_map = self.mapper.wire_payload()
+        self.broadcast({"type": "map", "t_ns": now_ns(), "map": initial_map, "plan": None})
         self.broadcast({"type": "event", "event": "scan_started", "status": self.status_payload()})
 
     def save_scan(self, reason: str = "operator") -> None:
@@ -1448,14 +1470,31 @@ class RobotService:
         try:
             if command == "arm":
                 enabled = bool(message.get("enabled", False))
+                rejection = None
                 with self.motion_lock:
-                    self.armed = enabled and self.stm is not None
+                    exposes_telemetry = self.stm is not None and hasattr(self.stm, "latest")
+                    telemetry = getattr(self.stm, "latest", None) if self.stm is not None else None
+                    telemetry_age_s = (
+                        max(0.0, (time.time_ns() - int(telemetry.t_ns)) / 1e9)
+                        if telemetry is not None else float("inf")
+                    )
+                    if enabled and self.stm is None:
+                        rejection = "Motion not enabled: STM32 is offline"
+                    elif enabled and exposes_telemetry and telemetry_age_s > STM_TELEMETRY_MAX_AGE_S:
+                        rejection = f"Motion not enabled: STM32 telemetry is stale ({telemetry_age_s:.1f}s)"
+                    self.armed = enabled and rejection is None
                     self.status["armed"] = self.armed
                     self.last_command_mono = time.monotonic()
                     self.watchdog_zero_sent = False
                     if not self.armed:
                         self.send_zero()
-                self.broadcast({"type": "event", "event": "armed", "enabled": self.armed, "status": self.status_payload()})
+                self.broadcast({
+                    "type": "event",
+                    "event": "arm_rejected" if rejection else "armed",
+                    "enabled": self.armed,
+                    "message": rejection,
+                    "status": self.status_payload(),
+                })
             elif command == "velocity":
                 values = tuple(float(message.get(name, 0.0)) for name in ("vx", "vy", "wz"))
                 self._apply_velocity(values)
@@ -1618,6 +1657,10 @@ class RobotService:
             if telemetry is not None and self.pose is not None and telemetry.t_ns != self.last_telemetry_ns:
                 self.pose.update(telemetry)
                 self.last_telemetry_ns = telemetry.t_ns
+                self.last_telemetry_mono = time.monotonic()
+                if self.status.get("stm") == "stale":
+                    self.status["stm"] = "online"
+                    self.status["message"] = "STM32 telemetry recovered; re-arm motion"
                 self.pose_history.append(copy_pose_for_mapping(self.pose))
                 if self.files is not None:
                     self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"))
@@ -1804,6 +1847,17 @@ class RobotService:
                 # not require re-arming, while the last velocity cannot persist.
                 self.send_zero()
                 self.broadcast({"type": "event", "event": "watchdog_zero", "status": self.status_payload()})
+            with self.motion_lock:
+                telemetry_expired = (
+                    self.armed
+                    and (self.last_telemetry_mono <= 0.0
+                         or now - self.last_telemetry_mono > STM_TELEMETRY_MAX_AGE_S)
+                )
+            if telemetry_expired:
+                with self.state_lock:
+                    self.status["stm"] = "stale"
+                    self.status["message"] = "STM32 telemetry lost; motion disarmed for safety"
+                self.disarm("stm_telemetry_lost")
             if now - self.last_state_mono >= STATE_PERIOD_S:
                 self.last_state_mono = now
                 self.broadcast(self._state_payload())
@@ -1863,7 +1917,9 @@ class RobotService:
                 except OSError:
                     pass
 
+        previous_sigint = signal.getsignal(signal.SIGINT)
         previous_sigterm = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGINT, request_shutdown)
         signal.signal(signal.SIGTERM, request_shutdown)
         try:
             while not self.stop_event.is_set():
@@ -1904,6 +1960,7 @@ class RobotService:
         except KeyboardInterrupt:
             pass
         finally:
+            signal.signal(signal.SIGINT, previous_sigint)
             signal.signal(signal.SIGTERM, previous_sigterm)
             self.close()
 

@@ -403,6 +403,11 @@ export default function Home() {
   const pose = poseFrom(snapshot);
 
   const command = useCallback(async (payload: Record<string, unknown>) => {
+    if (payload.command === "scan_start") {
+      setSelectedMapId("");
+      setTrace([]);
+      setSnapshot((previous) => ({ ...previous, map: undefined, lidar: undefined }));
+    }
     try {
       const response = await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const body = (await response.json()) as Snapshot;
@@ -435,10 +440,14 @@ export default function Home() {
     return status.maps.filter((item): item is SavedMap => Boolean(item && typeof item === "object"));
   }, [status.maps]);
   useEffect(() => {
+    if (dataset.active || dataset.starting) {
+      setSelectedMapId("");
+      return;
+    }
     const statusMapId = String(status.selected_map ?? "");
     const preferred = statusMapId || String(savedMaps.find((map) => map.selected)?.run_id ?? "");
     setSelectedMapId((current) => current && savedMaps.some((map) => String(map.run_id ?? "") === current) ? current : preferred);
-  }, [savedMaps, status.selected_map]);
+  }, [dataset.active, dataset.starting, savedMaps, status.selected_map]);
   const cameraTimestamp = state.camera_capture_t_ns;
   const lidarAge = formatAge(snapshot.lidar?.t_ns);
   const cameraAge = formatAge(cameraTimestamp);
