@@ -403,9 +403,9 @@ export default function Home() {
   const pose = poseFrom(snapshot);
 
   const command = useCallback(async (payload: Record<string, unknown>) => {
-    if (payload.command === "scan_start") {
+    if (payload.command === "scan_start" || payload.command === "scan_discard") {
       setSelectedMapId("");
-      setTrace([]);
+      if (payload.command === "scan_start") setTrace([]);
       setSnapshot((previous) => ({ ...previous, map: undefined, lidar: undefined }));
     }
     try {
@@ -424,7 +424,7 @@ export default function Home() {
   const poseDiagnostics = (state.pose_diagnostics as Record<string, unknown> | undefined) ?? {};
   const tf = (state.tf as TfPayload | undefined);
   const dataset = (status.dataset as Record<string, unknown> | undefined) ?? {};
-  const mapVisible = Boolean(
+  const mapVisible = !dataset.discarding && Boolean(
     dataset.active || dataset.starting || dataset.saving ||
     status.map_source === "scan" || status.map_source === "saved",
   );

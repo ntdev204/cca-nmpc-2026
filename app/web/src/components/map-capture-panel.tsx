@@ -59,8 +59,10 @@ export function MapCapturePanel({
   const stopped = Boolean(dataset.stopped);
   const starting = Boolean(dataset.starting) || String(status.scan ?? "") === "starting";
   const saving = Boolean(dataset.saving) || String(status.scan ?? "") === "saving";
+  const discarding = Boolean(dataset.discarding) || String(status.scan ?? "") === "discarding";
   const saved = Boolean(dataset.saved);
   const canSave = active || stopped;
+  const canDiscard = active || stopped;
   const selectedMap = maps.find((map) => String(map.run_id ?? "") === selectedMapId);
   const mapCount = maps.length;
   const pageSize = 5;
@@ -82,7 +84,7 @@ export function MapCapturePanel({
           <CardDescription>Scan and save on Jetson; select a saved map for monitoring or planning.</CardDescription>
         </div>
         <div className="flex items-center gap-1.5 text-xs">
-          <Badge variant={active ? "default" : "outline"}>{active ? "recording" : starting ? "starting" : stopped ? "stopped · ready to save" : String(status.scan ?? "idle")}</Badge>
+          <Badge variant={active ? "default" : "outline"}>{active ? "recording" : starting ? "starting" : saving ? "saving" : discarding ? "discarding" : stopped ? "stopped · ready to save" : String(status.scan ?? "idle")}</Badge>
           <Badge variant="outline">{mapCount} saved map{mapCount === 1 ? "" : "s"}</Badge>
         </div>
       </CardHeader>
@@ -93,13 +95,14 @@ export function MapCapturePanel({
               <span><span className="font-medium text-foreground">Current run:</span> {String(dataset.run ?? "not started")}</span>
               <span>{number(dataset.lidar_scans)} scans · {number(dataset.lidar_points)} points · {number(dataset.slam_keyframes)} keyframes · {number(dataset.slam_loop_closures)} loop closures</span>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <Button variant="default" onClick={() => onCommand({ command: "scan_start" })} disabled={!online || active || stopped || starting || saving}><Database className="size-4" />Start scan</Button>
-              <input aria-label="Map name" value={mapName} onChange={(event) => setMapName(event.target.value)} maxLength={80} placeholder="Enter map name" disabled={!canSave || saving} className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50" />
-              <Button variant="outline" onClick={() => { onCommand({ command: "scan_save", name: mapName.trim() }); setMapName(""); }} disabled={!online || !canSave || saving || !mapName.trim() || saved}><Save className="size-4" />Save map</Button>
-              <Button variant="secondary" onClick={() => onCommand({ command: "scan_stop" })} disabled={!online || !active || saving}><Square className="size-4" />Stop</Button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              <Button variant="default" onClick={() => onCommand({ command: "scan_start" })} disabled={!online || active || stopped || starting || saving || discarding}><Database className="size-4" />Start scan</Button>
+              <input aria-label="Map name" value={mapName} onChange={(event) => setMapName(event.target.value)} maxLength={80} placeholder="Enter map name" disabled={!canSave || saving || discarding} className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50" />
+              <Button variant="outline" onClick={() => { onCommand({ command: "scan_save", name: mapName.trim() }); setMapName(""); }} disabled={!online || !canSave || saving || discarding || !mapName.trim() || saved}><Save className="size-4" />Save map</Button>
+              <Button variant="secondary" onClick={() => onCommand({ command: "scan_stop" })} disabled={!online || !active || saving || discarding}><Square className="size-4" />Stop</Button>
+              <Button variant="destructive" onClick={() => { if (window.confirm("Discard this scan? Its unsaved map and captured files will be deleted. Previously saved maps are not affected.")) onCommand({ command: "scan_discard" }); }} disabled={!online || !canDiscard || saving || discarding}>Discard</Button>
             </div>
-            <p className="text-[11px] leading-4 text-muted-foreground">Stop ends capture without saving. Enter a name and choose Save map to write the occupancy map and slam_pose_graph.json. Scan match {number(dataset.slam_match_score).toFixed(2)} · graph optimizations {number(dataset.slam_optimizations)}.</p>
+            <p className="text-[11px] leading-4 text-muted-foreground">Stop ends capture without saving. Enter a name and choose Save map to keep this run, or Discard to delete this unsaved scan. Scan match {number(dataset.slam_match_score).toFixed(2)} · graph optimizations {number(dataset.slam_optimizations)}.</p>
           </div>
 
           <div className="space-y-2 rounded-lg border bg-background p-3">

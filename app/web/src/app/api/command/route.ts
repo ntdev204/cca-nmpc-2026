@@ -13,6 +13,7 @@ const ALLOWED = new Set([
   "scan_start",
   "scan_save",
   "scan_stop",
+  "scan_discard",
   "map_load",
   "plan",
   "plan_clear",

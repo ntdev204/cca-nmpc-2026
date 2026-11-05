@@ -169,7 +169,7 @@ class RobotBridge {
   send(payload: RobotMessage): Promise<RobotMessage[]> {
     const command = String(payload.command ?? "");
     if (command === "velocity") return this.sendVelocity(payload);
-    if (["emergency_stop", "arm", "scan_start", "scan_save", "scan_stop"].includes(command)) {
+    if (["emergency_stop", "arm", "scan_start", "scan_save", "scan_stop", "scan_discard"].includes(command)) {
       return this.sendPriorityCommand(payload);
     }
     const request = this.commandQueue.then(async () => {
@@ -187,7 +187,7 @@ class RobotBridge {
     // Safety and scan lifecycle commands must bypass queued map/plan requests.
     await this.ensureConnected();
     if (!this.socket || this.socket.destroyed || !this.connected) throw new Error("robot backend is not connected");
-    if (payload.command === "scan_start") {
+    if (payload.command === "scan_start" || payload.command === "scan_discard") {
       this.latest.delete("map");
       this.latest.delete("lidar");
     }

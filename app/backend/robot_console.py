@@ -11,6 +11,7 @@ import math
 import os
 import platform
 import queue
+import shutil
 import signal
 import socket
 import threading
@@ -549,6 +550,7 @@ class RobotService:
         self.map_thread: threading.Thread | None = None
         self.map_fusion_thread: threading.Thread | None = None
         self.scan_save_thread: threading.Thread | None = None
+        self.scan_discard_thread: threading.Thread | None = None
         self.scan_start_thread: threading.Thread | None = None
         self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=128)
         self.map_scans_dropped = 0
@@ -575,6 +577,7 @@ class RobotService:
         self.scan_starting = False
         self.scan_stopped = False
         self.scan_saving = False
+        self.scan_discarding = False
         self.scan_saved = False
         self.stopped_scan_tail: list[tuple[Any, Any, Any, Any]] = []
         self.map_source: str | None = None
@@ -716,6 +719,7 @@ class RobotService:
                     "starting": self.scan_starting,
                     "stopped": self.scan_stopped,
                     "saving": self.scan_saving,
+                    "discarding": self.scan_discarding,
                     "run": self.run_root.name if self.run_root else None,
                     "saved": self.scan_saved,
                     "lidar_scans": int(self.mapper.scans) if self.mapper is not None else 0,
@@ -1097,7 +1101,7 @@ class RobotService:
         with self.state_lock:
             if self.stop_event.is_set():
                 return
-            if self.scan_active or self.scan_starting or self.scan_saving:
+            if self.scan_active or self.scan_starting or self.scan_saving or self.scan_discarding or self.scan_stopped:
                 return
             if self.stm is None or self.lidar is None:
                 self.broadcast({"type": "event", "event": "error", "message": "STM32 and N10P must be online before scanning"})
@@ -1124,7 +1128,7 @@ class RobotService:
         from app.backend.manual_map import OccupancyMap, Pose, RunFiles
 
         with self.state_lock:
-            if self.scan_active or self.scan_saving:
+            if self.scan_active or self.scan_saving or self.scan_discarding:
                 return
             if self.stm is None or self.lidar is None:
                 self.broadcast({"type": "event", "event": "error", "message": "STM32 and N10P must be online before scanning"})
@@ -1166,6 +1170,7 @@ class RobotService:
             self.scan_start_thread = None
             self.scan_stopped = False
             self.scan_saved = False
+            self.scan_discarding = False
             self.stopped_scan_tail = []
             self.plan_payload = None
             self.map_source = "scan"
@@ -1210,7 +1215,7 @@ class RobotService:
         tail_work: list[tuple[Any, Any, Any, Any]] = []
         display_name = " ".join(str(map_name).split())[:80]
         with self.state_lock:
-            if self.scan_saving:
+            if self.scan_saving or self.scan_discarding:
                 return
             if (not self.scan_active and not self.scan_stopped) or self.mapper is None or self.run_root is None:
                 self.broadcast({"type": "event", "event": "error", "message": "no stopped or active scan to save"})
@@ -1283,6 +1288,75 @@ class RobotService:
                 self.scan_saving = False
                 self.scan_save_thread = None
         self.broadcast({"type": "event", "event": "scan_saved", "path": str(root), "status": self.status_payload()})
+
+    def discard_scan(self) -> None:
+        with self.state_lock:
+            if self.scan_saving or self.scan_discarding:
+                return
+            if (not self.scan_active and not self.scan_stopped) or self.run_root is None:
+                self.broadcast({"type": "event", "event": "error", "message": "no unsaved scan to discard"})
+                return
+            root = self.run_root
+            files = self.files
+            self.scan_active = False
+            self.scan_stopped = False
+            self.scan_discarding = True
+            self.stopped_scan_tail = []
+            self.status["scan"] = "discarding"
+            worker = threading.Thread(
+                target=self._discard_scan_worker,
+                args=(root, files),
+                name="robot-console-map-discard",
+                daemon=True,
+            )
+            self.scan_discard_thread = worker
+            self.broadcast({"type": "event", "event": "scan_discarding"})
+            worker.start()
+
+    def _discard_scan_worker(self, root: Path, files: Any) -> None:
+        try:
+            runs_root = (PROJECT_ROOT / "experiments" / "runs").resolve()
+            resolved_root = root.resolve()
+            if (
+                root.is_symlink()
+                or resolved_root.parent != runs_root
+                or not resolved_root.name.startswith("console-map-")
+            ):
+                raise ValueError("refusing to discard a run outside experiments/runs")
+            self._flush_map_fusion(timeout_s=60.0)
+            if self.map_fusion_queue.unfinished_tasks:
+                raise TimeoutError("SLAM queue is still processing; retry discarding after it drains")
+            self._flush_camera_capture(timeout_s=30.0)
+            if self.camera_capture_queue.unfinished_tasks:
+                raise TimeoutError("camera capture queue is still processing; retry discarding after it drains")
+            if files is not None:
+                files.flush()
+                files.close()
+            shutil.rmtree(resolved_root)
+            with self.state_lock:
+                if self.run_root == root:
+                    self.run_root = None
+                    self.files = None
+                    self.mapper = None
+                    self.plan_payload = None
+                    self.map_source = None
+                    self.last_saved_root = None
+                    self.scan_started_ns = 0
+                    self.scan_saved = False
+                    self.last_scan_ns = 0
+                    self.latest_lidar = []
+                    self.status["scan"] = "idle"
+        except Exception as error:
+            with self.state_lock:
+                self.scan_stopped = True
+                self.status["scan"] = "stopped"
+            self.broadcast({"type": "event", "event": "error", "message": str(error)})
+        finally:
+            with self.state_lock:
+                self.scan_discarding = False
+                self.scan_discard_thread = None
+        if not self.scan_stopped:
+            self.broadcast({"type": "event", "event": "scan_discarded", "status": self.status_payload()})
 
     def load_saved_map(self, message: dict[str, Any] | None = None) -> None:
         """Stream a saved map package from Jetson to the laptop canvas.
@@ -1555,6 +1629,8 @@ class RobotService:
                 self.stop_scan()
             elif command == "scan_save":
                 self.save_scan(command, str(message.get("name", "")))
+            elif command == "scan_discard":
+                self.discard_scan()
             elif command == "map_load":
                 self._start_background_command(peer, command, message)
             elif command == "plan":
@@ -2007,6 +2083,10 @@ class RobotService:
             save_thread = self.scan_save_thread
         if save_thread is not None and save_thread is not threading.current_thread():
             save_thread.join()
+        with self.state_lock:
+            discard_thread = self.scan_discard_thread
+        if discard_thread is not None and discard_thread is not threading.current_thread():
+            discard_thread.join(timeout=65.0)
         self.stop_webrtc()
         if self.camera is not None:
             try:
