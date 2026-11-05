@@ -551,6 +551,8 @@ class RobotService:
         self.port = port
         self.stop_event = threading.Event()
         self.state_lock = threading.RLock()
+        self.map_fusion_condition = threading.Condition(self.state_lock)
+        self.map_fusion_active: dict[int, int] = {}
         self.motion_lock = threading.RLock()
         self.map_lock = threading.RLock()
         self.peers: set[Peer] = set()
@@ -1076,6 +1078,39 @@ class RobotService:
                 return
             time.sleep(0.01)
 
+    def _cancel_queued_map_fusion(self, capture_files: Any) -> int:
+        """Remove queued work for a discarded run while preserving task accounting."""
+        if capture_files is None:
+            return 0
+        retained = []
+        cancelled = 0
+        while True:
+            try:
+                item = self.map_fusion_queue.get_nowait()
+            except queue.Empty:
+                break
+            if item[3] is capture_files:
+                cancelled += 1
+                self.map_fusion_queue.task_done()
+            else:
+                retained.append(item)
+        for item in retained:
+            self.map_fusion_queue.put_nowait(item)
+        return cancelled
+
+    def _wait_map_fusion_for_files(self, capture_files: Any, timeout_s: float = 60.0) -> bool:
+        if capture_files is None:
+            return True
+        key = id(capture_files)
+        deadline = time.monotonic() + timeout_s
+        with self.map_fusion_condition:
+            while self.map_fusion_active.get(key, 0):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return False
+                self.map_fusion_condition.wait(timeout=remaining)
+        return True
+
     @staticmethod
     def _encode_camera(
         color_bgr: Any,
@@ -1367,9 +1402,9 @@ class RobotService:
                 or not resolved_root.name.startswith("console-map-")
             ):
                 raise ValueError("refusing to discard a run outside experiments/runs")
-            self._flush_map_fusion(timeout_s=60.0)
-            if self.map_fusion_queue.unfinished_tasks:
-                raise TimeoutError("SLAM queue is still processing; retry discarding after it drains")
+            cancelled_scans = self._cancel_queued_map_fusion(files)
+            if not self._wait_map_fusion_for_files(files, timeout_s=60.0):
+                raise TimeoutError("an active SLAM update did not finish; scan data was kept safe")
             self._flush_camera_capture(timeout_s=30.0)
             if self.camera_capture_queue.unfinished_tasks:
                 raise TimeoutError("camera capture queue is still processing; retry discarding after it drains")
@@ -1400,7 +1435,8 @@ class RobotService:
                 self.scan_discarding = False
                 self.scan_discard_thread = None
         if not self.scan_stopped:
-            self.broadcast({"type": "event", "event": "scan_discarded", "status": self.status_payload()})
+            self.broadcast({"type": "event", "event": "scan_discarded", "cancelled_scans": cancelled_scans,
+                            "status": self.status_payload()})
 
     def load_saved_map(self, message: dict[str, Any] | None = None) -> None:
         """Stream a saved map package from Jetson to the laptop canvas.
@@ -1955,6 +1991,20 @@ class RobotService:
                 scan, mapper, odom_pose, capture_files = self.map_fusion_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
+            active_key = None
+            with self.state_lock:
+                if capture_files is not None and self.scan_discarding and self.files is capture_files:
+                    # Discard owns this run now; queued items must not mutate its map or files.
+                    capture_files = None
+                    skip_discarded_item = True
+                else:
+                    skip_discarded_item = False
+                    if capture_files is not None:
+                        active_key = id(capture_files)
+                        self.map_fusion_active[active_key] = self.map_fusion_active.get(active_key, 0) + 1
+            if skip_discarded_item:
+                self.map_fusion_queue.task_done()
+                continue
             try:
                 with self.state_lock:
                     mapping_pose = self._corrected_map_pose(odom_pose)
@@ -2007,6 +2057,14 @@ class RobotService:
                     self.last_map_error_broadcast_mono = now
                     self.broadcast({"type": "event", "event": "map_error", "message": str(error)})
             finally:
+                if active_key is not None:
+                    with self.map_fusion_condition:
+                        remaining = self.map_fusion_active.get(active_key, 0) - 1
+                        if remaining > 0:
+                            self.map_fusion_active[active_key] = remaining
+                        else:
+                            self.map_fusion_active.pop(active_key, None)
+                        self.map_fusion_condition.notify_all()
                 self.map_fusion_queue.task_done()
 
     def _map_payload(self) -> dict[str, Any] | None:
