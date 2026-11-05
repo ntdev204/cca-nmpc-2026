@@ -36,6 +36,7 @@ from hardware import (
     Stm32Telemetry,
     utc_ns,
 )
+from app.backend.slam import OccupancyMap
 
 
 ZERO = (0.0, 0.0, 0.0)
@@ -213,6 +214,8 @@ class Pose:
     last_dt_s: float = 0.0
     last_yaw_rate_radps: float = 0.0
     last_yaw_rate_source: str = "body_velocity"
+    last_vx_mps: float = 0.0
+    last_vy_mps: float = 0.0
 
     def _integrate(self, vx_mps: float, vy_mps: float, yaw_rate: float, dt: float) -> None:
         half_yaw = self.yaw_rad + 0.5 * yaw_rate * dt
@@ -228,6 +231,8 @@ class Pose:
     def update(self, telemetry: Stm32Telemetry | None) -> None:
         if telemetry is None:
             return
+        self.last_vx_mps = finite(telemetry.vx_mps) or 0.0
+        self.last_vy_mps = finite(telemetry.vy_mps) or 0.0
         yaw_rate, source = pose_yaw_rate(telemetry)
         self.last_yaw_rate_radps = yaw_rate
         self.last_yaw_rate_source = source
@@ -246,6 +251,8 @@ class Pose:
             return
         dt = min((target_t_ns - self.last_t_ns) / 1e9, 0.25)
         yaw_rate, source = pose_yaw_rate(telemetry)
+        self.last_vx_mps = finite(telemetry.vx_mps) or 0.0
+        self.last_vy_mps = finite(telemetry.vy_mps) or 0.0
         self.last_yaw_rate_radps = yaw_rate
         self.last_yaw_rate_source = source
         self._integrate(telemetry.vx_mps, telemetry.vy_mps, yaw_rate, dt)
@@ -254,24 +261,6 @@ class Pose:
 
     def as_tuple(self) -> tuple[float, float, float]:
         return self.x_m, self.y_m, self.yaw_rad
-
-
-@dataclass(frozen=True)
-class ScanMatchResult:
-    """Quality record for the bounded scan-to-map correction.
-
-    This is deliberately a local matcher only.  It does not maintain a pose
-    graph or perform loop closure, so a successful result must not be treated
-    as global-SLAM evidence.
-    """
-
-    accepted: bool
-    score: float
-    inliers: int
-    point_count: int
-    correction_m: float
-    correction_yaw_rad: float
-    reason: str
 
 
 def bresenham(start: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, int], ...]:
@@ -294,373 +283,6 @@ def bresenham(start: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, 
         if double <= dx:
             error += dx
             y0 += sy
-
-
-class OccupancyMap:
-    # The matcher is intentionally small and bounded so the no-ROS console
-    # remains usable on Jetson-class hardware.  The STM odometry remains the
-    # prediction; these limits only correct short-term drift between scans.
-    SCAN_MATCH_MIN_OCCUPIED_CELLS = 16
-    SCAN_MATCH_MIN_POINTS = 20
-    SCAN_MATCH_MAX_POINTS = 120
-    SCAN_MATCH_TRANSLATION_WINDOW_M = 0.10
-    SCAN_MATCH_TRANSLATION_STEP_M = 0.05
-    SCAN_MATCH_YAW_WINDOW_RAD = math.radians(6.0)
-    SCAN_MATCH_YAW_STEP_RAD = math.radians(2.0)
-    SCAN_MATCH_MIN_INLIER_RATIO = 0.20
-    LOG_ODDS_MIN = -4.0
-    LOG_ODDS_MAX = 4.0
-    FREE_THRESHOLD = -0.7
-    OCCUPIED_THRESHOLD = 0.75
-    FREE_EVIDENCE = -0.35
-    OCCUPIED_EVIDENCE = 0.85
-    CLEAN_MIN_COMPONENT_CELLS = 3
-
-    def __init__(
-        self,
-        resolution_m: float,
-        *,
-        lidar_x_m: float,
-        lidar_y_m: float,
-        lidar_yaw_rad: float,
-        min_range_m: float,
-        max_range_m: float,
-        padding_cells: int,
-        robot_radius_m: float = math.sqrt(0.2**2 + 0.2**2),
-        scan_matching: bool = True,
-        scan_match_interval: int = 1,
-        map_id: str = "",
-    ) -> None:
-        if not math.isfinite(resolution_m) or resolution_m <= 0.0:
-            raise ValueError("map resolution must be positive and finite")
-        if not math.isfinite(max_range_m) or max_range_m <= min_range_m:
-            raise ValueError("map range limits are invalid")
-        if padding_cells < 0:
-            raise ValueError("map padding must be nonnegative")
-        if not math.isfinite(robot_radius_m) or robot_radius_m <= 0.0:
-            raise ValueError("robot radius must be positive and finite")
-        if not isinstance(scan_match_interval, int) or scan_match_interval <= 0:
-            raise ValueError("scan match interval must be a positive integer")
-        self.resolution_m = float(resolution_m)
-        self.lidar_x_m = float(lidar_x_m)
-        self.lidar_y_m = float(lidar_y_m)
-        self.lidar_yaw_rad = float(lidar_yaw_rad)
-        self.min_range_m = float(min_range_m)
-        self.max_range_m = float(max_range_m)
-        self.padding_cells = int(padding_cells)
-        self.robot_radius_m = float(robot_radius_m)
-        self.scan_matching_enabled = bool(scan_matching)
-        self.scan_match_interval = int(scan_match_interval)
-        self.map_id = str(map_id)
-        self.free: set[tuple[int, int]] = set()
-        self.occupied: set[tuple[int, int]] = set()
-        self.log_odds: dict[tuple[int, int], float] = {}
-        self.poses: list[tuple[float, float, float]] = []
-        self.history: list[dict[str, Any]] = []
-        self.scans = 0
-        self.points = 0
-        self.scan_match_attempts = 0
-        self.scan_match_accepted = 0
-        self.last_scan_match = ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "not_run")
-
-    def _apply_evidence(self, cell: tuple[int, int], evidence: float) -> None:
-        score = max(self.LOG_ODDS_MIN, min(self.LOG_ODDS_MAX, self.log_odds.get(cell, 0.0) + evidence))
-        self.log_odds[cell] = score
-        if score >= self.OCCUPIED_THRESHOLD:
-            self.occupied.add(cell)
-            self.free.discard(cell)
-        elif score <= self.FREE_THRESHOLD:
-            self.free.add(cell)
-            self.occupied.discard(cell)
-        else:
-            self.free.discard(cell)
-            self.occupied.discard(cell)
-
-    def cell(self, x_m: float, y_m: float) -> tuple[int, int]:
-        return math.floor(x_m / self.resolution_m), math.floor(y_m / self.resolution_m)
-
-    def _valid_points(self, scan: LidarScan, limit: int | None = MAX_MAP_POINTS) -> tuple[LidarPoint, ...]:
-        nearest: dict[float, LidarPoint] = {}
-        for point in scan.points:
-            distance = finite(point.range_m)
-            if distance is None or distance < self.min_range_m:
-                continue
-            angle_key = round(float(point.angle_rad), 6)
-            previous = nearest.get(angle_key)
-            if previous is None or distance < previous.range_m:
-                nearest[angle_key] = point
-        points = tuple(sorted(nearest.values(), key=lambda point: point.angle_rad))
-        if limit is None or len(points) <= limit:
-            return points
-        stride = len(points) / limit
-        return tuple(points[min(len(points) - 1, int(index * stride))] for index in range(limit))
-
-    def _scan_match_points(self, scan: LidarScan) -> tuple[tuple[float, float], ...]:
-        points: list[tuple[float, float]] = []
-        for point in self._valid_points(scan, self.SCAN_MATCH_MAX_POINTS):
-            distance = finite(point.range_m)
-            if distance is None or distance >= self.max_range_m:
-                continue
-            angle = self.lidar_yaw_rad + point.angle_rad
-            points.append(
-                (
-                    self.lidar_x_m + distance * math.cos(angle),
-                    self.lidar_y_m + distance * math.sin(angle),
-                )
-            )
-        if len(points) <= self.SCAN_MATCH_MAX_POINTS:
-            return tuple(points)
-        stride = math.ceil(len(points) / self.SCAN_MATCH_MAX_POINTS)
-        return tuple(points[::stride][: self.SCAN_MATCH_MAX_POINTS])
-
-    def _scan_match_inliers(
-        self,
-        points: tuple[tuple[float, float], ...],
-        candidate: tuple[float, float, float],
-    ) -> int:
-        x_m, y_m, yaw_rad = candidate
-        cosine = math.cos(yaw_rad)
-        sine = math.sin(yaw_rad)
-        return sum(
-            self.cell(x_m + cosine * point_x - sine * point_y, y_m + sine * point_x + cosine * point_y)
-            in self.occupied
-            for point_x, point_y in points
-        )
-
-    def _scan_match(
-        self,
-        scan: LidarScan,
-        pose: Pose,
-    ) -> tuple[ScanMatchResult, tuple[float, float, float]]:
-        base = pose.as_tuple()
-        if not self.scan_matching_enabled:
-            return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "disabled"), base
-        if len(self.occupied) < self.SCAN_MATCH_MIN_OCCUPIED_CELLS:
-            return ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "insufficient_map"), base
-        points = self._scan_match_points(scan)
-        if len(points) < self.SCAN_MATCH_MIN_POINTS:
-            return ScanMatchResult(False, 0.0, 0, len(points), 0.0, 0.0, "insufficient_points"), base
-
-        self.scan_match_attempts += 1
-        best = base
-        best_inliers = self._scan_match_inliers(points, base)
-        best_distance = 0.0
-        translation_steps = round(self.SCAN_MATCH_TRANSLATION_WINDOW_M / self.SCAN_MATCH_TRANSLATION_STEP_M)
-        yaw_steps = round(self.SCAN_MATCH_YAW_WINDOW_RAD / self.SCAN_MATCH_YAW_STEP_RAD)
-        for yaw_index in range(-yaw_steps, yaw_steps + 1):
-            candidate_yaw = base[2] + yaw_index * self.SCAN_MATCH_YAW_STEP_RAD
-            for x_index in range(-translation_steps, translation_steps + 1):
-                candidate_x = base[0] + x_index * self.SCAN_MATCH_TRANSLATION_STEP_M
-                for y_index in range(-translation_steps, translation_steps + 1):
-                    candidate_y = base[1] + y_index * self.SCAN_MATCH_TRANSLATION_STEP_M
-                    candidate = (candidate_x, candidate_y, candidate_yaw)
-                    inliers = self._scan_match_inliers(points, candidate)
-                    distance = math.hypot(candidate_x - base[0], candidate_y - base[1]) + abs(yaw_index) * self.resolution_m
-                    if inliers > best_inliers or (inliers == best_inliers and distance < best_distance):
-                        best = candidate
-                        best_inliers = inliers
-                        best_distance = distance
-
-        score = best_inliers / len(points)
-        minimum_inliers = max(8, math.ceil(self.SCAN_MATCH_MIN_INLIER_RATIO * len(points)))
-        if best_inliers < minimum_inliers:
-            return (
-                ScanMatchResult(False, score, best_inliers, len(points), 0.0, 0.0, "low_inlier_ratio"),
-                base,
-            )
-        correction_m = math.hypot(best[0] - base[0], best[1] - base[1])
-        correction_yaw = math.atan2(
-            math.sin(best[2] - base[2]),
-            math.cos(best[2] - base[2]),
-        )
-        return (
-            ScanMatchResult(True, score, best_inliers, len(points), correction_m, correction_yaw, "accepted"),
-            best,
-        )
-
-    def update(self, scan: LidarScan, pose: Pose) -> None:
-        scheduled = self.scan_matching_enabled and self.scans % self.scan_match_interval == 0
-        if scheduled:
-            match, corrected = self._scan_match(scan, pose)
-        else:
-            match = ScanMatchResult(False, 0.0, 0, 0, 0.0, 0.0, "scheduled")
-            corrected = pose.as_tuple()
-        self.last_scan_match = match
-        if match.accepted:
-            self.scan_match_accepted += 1
-            pose.x_m, pose.y_m, pose.yaw_rad = corrected
-        sensor_x = pose.x_m + math.cos(pose.yaw_rad) * self.lidar_x_m - math.sin(pose.yaw_rad) * self.lidar_y_m
-        sensor_y = pose.y_m + math.sin(pose.yaw_rad) * self.lidar_x_m + math.cos(pose.yaw_rad) * self.lidar_y_m
-        start_cell = self.cell(sensor_x, sensor_y)
-        self.poses.append(pose.as_tuple())
-        if len(self.poses) > 5000:
-            del self.poses[:-5000]
-        self.scans += 1
-        for point in self._valid_points(scan, MAX_MAP_POINTS):
-            distance = finite(point.range_m)
-            if distance is None or distance >= self.max_range_m:
-                continue
-            angle = pose.yaw_rad + self.lidar_yaw_rad + point.angle_rad
-            local_angle = self.lidar_yaw_rad + point.angle_rad
-            local_x = self.lidar_x_m + distance * math.cos(local_angle)
-            local_y = self.lidar_y_m + distance * math.sin(local_angle)
-            if math.hypot(local_x, local_y) <= self.robot_radius_m + self.resolution_m:
-                continue
-            end_x = sensor_x + distance * math.cos(angle)
-            end_y = sensor_y + distance * math.sin(angle)
-            ray = bresenham(start_cell, self.cell(end_x, end_y))
-            for cell in ray[:-1]:
-                cell_x = (cell[0] + 0.5) * self.resolution_m
-                cell_y = (cell[1] + 0.5) * self.resolution_m
-                if math.hypot(cell_x - pose.x_m, cell_y - pose.y_m) <= self.robot_radius_m:
-                    continue
-                self._apply_evidence(cell, self.FREE_EVIDENCE)
-            if distance < self.max_range_m:
-                self._apply_evidence(ray[-1], self.OCCUPIED_EVIDENCE)
-            self.points += 1
-        self.history.append(
-            {
-                "scan_index": self.scans,
-                "t_ns": scan.t_ns,
-                "pose": [round(pose.x_m, 6), round(pose.y_m, 6), round(pose.yaw_rad, 6)],
-                "occupied_cells": len(self.occupied),
-                "free_cells": len(self.free),
-                "evidence_cells": len(self.log_odds),
-                "scan_match": {
-                    "accepted": self.last_scan_match.accepted,
-                    "score": round(self.last_scan_match.score, 6),
-                    "correction_m": round(self.last_scan_match.correction_m, 6),
-                    "correction_yaw_rad": round(self.last_scan_match.correction_yaw_rad, 6),
-                },
-            }
-        )
-        if len(self.history) > 5000:
-            del self.history[:-5000]
-
-    def _bounds(self) -> tuple[int, int, int, int]:
-        cells = set(self.log_odds)
-        if not cells:
-            min_x = min_y = 0
-            max_x = max_y = 0
-        else:
-            min_x = min(cell[0] for cell in cells) - self.padding_cells
-            max_x = max(cell[0] for cell in cells) + self.padding_cells
-            min_y = min(cell[1] for cell in cells) - self.padding_cells
-            max_y = max(cell[1] for cell in cells) + self.padding_cells
-        return min_x, max_x, min_y, max_y
-
-    def _clean_occupied(self) -> set[tuple[int, int]]:
-        return filter_occupied_components(self.occupied, self.CLEAN_MIN_COMPONENT_CELLS)
-
-    def _payload_for(self, occupied: set[tuple[int, int]], cleaning: dict[str, Any]) -> dict[str, Any]:
-        min_x, max_x, min_y, max_y = self._bounds()
-        width = max_x - min_x + 1
-        height = max_y - min_y + 1
-        occupancy: list[int] = []
-        for y in range(min_y, max_y + 1):
-            for x in range(min_x, max_x + 1):
-                cell = (x, y)
-                occupancy.append(100 if cell in occupied else 0 if cell in self.free else -1)
-        return {
-            "frame_id": "map",
-            "resolution_m": self.resolution_m,
-            "width": width,
-            "height": height,
-            "origin": [min_x * self.resolution_m, min_y * self.resolution_m, 0.0],
-            "occupancy": occupancy,
-            "metadata": {
-                "map_source": "manual_teleop_n10p_scan_to_map",
-                "map_id": self.map_id or None,
-                "scans": self.scans,
-                "points": self.points,
-                "row_order": "y_increasing_from_origin",
-                "lidar_mount_m": [self.lidar_x_m, self.lidar_y_m],
-                "robot_radius_m": self.robot_radius_m,
-                "no_return_policy": "skip_ranges_at_or_above_max_range",
-                "lidar_yaw_rad": self.lidar_yaw_rad,
-                "scan_matching": {
-                    "enabled": self.scan_matching_enabled,
-                    "method": "bounded_correlative_scan_to_map",
-                    "interval": self.scan_match_interval,
-                    "attempts": self.scan_match_attempts,
-                    "accepted": self.scan_match_accepted,
-                    "last_score": self.last_scan_match.score,
-                    "last_inliers": self.last_scan_match.inliers,
-                    "last_point_count": self.last_scan_match.point_count,
-                    "last_correction_m": self.last_scan_match.correction_m,
-                    "last_correction_yaw_rad": self.last_scan_match.correction_yaw_rad,
-                },
-                "fusion": {
-                    "method": "bounded_log_odds",
-                    "free_threshold": self.FREE_THRESHOLD,
-                    "occupied_threshold": self.OCCUPIED_THRESHOLD,
-                    "free_evidence": self.FREE_EVIDENCE,
-                    "occupied_evidence": self.OCCUPIED_EVIDENCE,
-                },
-                "cleaning": cleaning,
-                "history": {
-                    "scan_count": self.scans,
-                    "records": self.history[-200:],
-                    "trajectory": [[round(x, 6), round(y, 6), round(yaw, 6)] for x, y, yaw in self.poses[-2000:]],
-                },
-            },
-        }
-
-    def payload(self) -> dict[str, Any]:
-        cleaned = self._clean_occupied()
-        return self._payload_for(
-            cleaned,
-            {
-                "enabled": True,
-                "method": "occupied_connected_components",
-                "min_component_cells": self.CLEAN_MIN_COMPONENT_CELLS,
-                "raw_occupied_cells": len(self.occupied),
-                "clean_occupied_cells": len(cleaned),
-                "removed_occupied_cells": len(self.occupied) - len(cleaned),
-            },
-        )
-
-    def raw_payload(self) -> dict[str, Any]:
-        return self._payload_for(
-            set(self.occupied),
-            {
-                "enabled": False,
-                "method": "raw_log_odds_threshold",
-                "raw_occupied_cells": len(self.occupied),
-                "clean_occupied_cells": len(self.occupied),
-                "removed_occupied_cells": 0,
-            },
-        )
-
-    def wire_payload(self) -> dict[str, Any]:
-        return compact_map_payload(self.payload())
-
-    def save(self, root: Path) -> dict[str, Any]:
-        payload = self.payload()
-        raw_payload = self.raw_payload()
-        (root / "map.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        (root / "map_raw.json").write_text(json.dumps(raw_payload, indent=2) + "\n", encoding="utf-8")
-        origin_x, origin_y, _ = payload["origin"]
-        min_x = round(origin_x / self.resolution_m)
-        min_y = round(origin_y / self.resolution_m)
-        width = int(payload["width"])
-        height = int(payload["height"])
-        occupancy = payload["occupancy"]
-        image = bytearray()
-        for y in range(height - 1, -1, -1):
-            row = occupancy[y * width : (y + 1) * width]
-            image.extend(0 if value == 100 else 254 if value == 0 else 205 for value in row)
-        (root / "map.pgm").write_bytes(f"P5\n{width} {height}\n255\n".encode("ascii") + bytes(image))
-        yaml_text = (
-            "image: map.pgm\n"
-            f"resolution: {self.resolution_m:.6f}\n"
-            f"origin: [{origin_x:.6f}, {origin_y:.6f}, 0.0]\n"
-            "negate: 0\n"
-            "occupied_thresh: 0.65\n"
-            "free_thresh: 0.196\n"
-        )
-        (root / "map.yaml").write_text(yaml_text, encoding="utf-8")
-        return {"width": width, "height": height, "min_cell": [min_x, min_y], "scans": self.scans, "points": self.points}
 
 
 def compact_map_payload(payload: dict[str, Any]) -> dict[str, Any]:

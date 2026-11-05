@@ -37,7 +37,6 @@ SENSOR_PERIOD_S = 0.05
 MAP_PERIOD_S = 1.0
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
-LIVE_SCAN_MATCHING = True
 SAVED_MAP_CACHE_PERIOD_S = 2.0
 # Keep the newest frame only; the browser receives a low-bandwidth 30 FPS view.
 CAMERA_PERIOD_S = 1.0 / 30.0
@@ -48,7 +47,6 @@ CAMERA_STREAM_JPEG_QUALITY = 10
 CAMERA_CAPTURE_JPEG_QUALITY = 75
 WEBRTC_IDLE_FPS = 15.0
 WEBRTC_SCAN_FPS = 5.0
-SCAN_MATCH_INTERVAL = 5
 WEBRTC_OFFER_PATH = "/webrtc/offer"
 STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
 COMPRESS_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
@@ -141,6 +139,11 @@ def copy_pose_for_mapping(pose: Any) -> Any:
         y_m=float(pose.y_m),
         yaw_rad=float(pose.yaw_rad),
         last_t_ns=pose.last_t_ns,
+        last_dt_s=float(getattr(pose, "last_dt_s", 0.0)),
+        last_yaw_rate_radps=float(getattr(pose, "last_yaw_rate_radps", 0.0)),
+        last_yaw_rate_source=str(getattr(pose, "last_yaw_rate_source", "body_velocity")),
+        last_vx_mps=float(getattr(pose, "last_vx_mps", 0.0)),
+        last_vy_mps=float(getattr(pose, "last_vy_mps", 0.0)),
     )
 
 
@@ -515,7 +518,9 @@ class RobotService:
         self.camera_capture_thread: threading.Thread | None = None
         self.map_thread: threading.Thread | None = None
         self.map_fusion_thread: threading.Thread | None = None
-        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=1)
+        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=8)
+        self.map_scans_dropped = 0
+        self.last_map_error_broadcast_mono = 0.0
         self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
         self.camera_count_lock = threading.Lock()
         try:
@@ -655,6 +660,11 @@ class RobotService:
                     "saved": self.scan_saved,
                     "lidar_scans": int(self.mapper.scans) if self.mapper is not None else 0,
                     "lidar_points": int(self.mapper.points) if self.mapper is not None else 0,
+                    "slam_keyframes": len(self.mapper.keyframes) if self.mapper is not None else 0,
+                    "slam_loop_closures": int(self.mapper.loop_closures) if self.mapper is not None else 0,
+                    "slam_optimizations": int(self.mapper.graph_optimizations) if self.mapper is not None else 0,
+                    "slam_match_score": round(float(self.mapper.last_scan_match.score), 3) if self.mapper is not None else 0.0,
+                    "slam_scans_dropped": self.map_scans_dropped,
                     "camera_frames": int(camera_frames_saved),
                 },
             }
@@ -1033,8 +1043,7 @@ class RobotService:
                 max_range_m=8.0,
                 padding_cells=5,
                 robot_radius_m=self.geometry["footprint_radius_m"],
-                scan_matching=LIVE_SCAN_MATCHING,
-                scan_match_interval=SCAN_MATCH_INTERVAL,
+                scan_matching=True,
                 map_id=root.name,
             )
             self.pose = initial_pose
@@ -1199,6 +1208,13 @@ class RobotService:
                 "lidar_mount_m": [mapper.lidar_x_m, mapper.lidar_y_m],
                 "scans": mapper.scans,
                 "points": mapper.points,
+                "keyframes": len(mapper.keyframes),
+                "pose_graph_edges": len(mapper.graph_edges),
+                "loop_closures": mapper.loop_closures,
+                "graph_optimizations": mapper.graph_optimizations,
+                "scan_match_attempts": mapper.scan_match_attempts,
+                "scan_match_accepted": mapper.scan_match_accepted,
+                "slam_algorithm": "no_ros_correlative_scan_matching_pose_graph",
             },
             "save_reason": reason,
             "files": files,
@@ -1509,7 +1525,13 @@ class RobotService:
             try:
                 self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
             except queue.Full:
-                pass
+                try:
+                    self.map_fusion_queue.get_nowait()
+                    self.map_fusion_queue.task_done()
+                    self.map_scans_dropped += 1
+                    self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
+                except queue.Empty:
+                    pass
         return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
 
     def _map_fusion_loop(self) -> None:
@@ -1528,8 +1550,11 @@ class RobotService:
                     capture_files.scan(scan)
                     capture_files.write_map_history(history_record)
                     capture_files.context(scan.t_ns, mapping_pose, scan)
-            except Exception:
-                pass
+            except Exception as error:
+                now = time.monotonic()
+                if now - self.last_map_error_broadcast_mono >= 3.0:
+                    self.last_map_error_broadcast_mono = now
+                    self.broadcast({"type": "event", "event": "map_error", "message": str(error)})
             finally:
                 self.map_fusion_queue.task_done()
 

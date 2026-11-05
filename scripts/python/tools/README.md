@@ -286,16 +286,17 @@ No ROS/ROS 2 runtime or editable local paper build is required.
 13. `manual_map.py` is the no-ROS commissioning entrypoint for hand driving
 the robot while the N10P LiDAR scans. It uses the C++ STM transport when the
 shared library is available, integrates STM body-velocity telemetry into a
-local pose, updates a 2-D occupancy grid from N10P scans, and saves
+local pose, runs the no-ROS 2-D LiDAR SLAM engine, and saves
 `map.json`, `map.pgm`, `map.yaml`, `lidar.csv`, `robot_state.csv`,
 `control.csv`, `context.csv`, `events.csv` and a provenance manifest. The map
-uses STM body-velocity telemetry as its prediction and applies a bounded
-correlative scan-to-map correction when enough occupied cells and valid LiDAR
-returns are available. This is local scan matching only: it has no pose graph,
-global relocalisation, loop closure, or ROS map-server publication. The map
-manifest and `map.json` metadata record matcher attempts, inliers and the last
-accepted correction so a run can be audited before it is used for controller
-experiments.
+uses STM body-velocity telemetry as its motion prediction, performs
+coarse-to-fine correlative scan matching for every scan, adds keyframe
+constraints to a sparse SE(2) pose graph, detects nearby revisits for loop
+closure, and replays all retained scans into the occupancy grid after graph
+optimization. The capture also saves `slam_pose_graph.json` for audit and later
+offline tooling. N10P provides packet-time rather than per-beam timestamps, so
+the mapper can compensate packet-level motion but cannot fully deskew a scan
+while the robot is moving quickly.
 
 On the Jetson, after confirming the emergency-stop area is clear:
 

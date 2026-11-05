@@ -84,14 +84,14 @@ export function MapCapturePanel({
           <div className="space-y-2 rounded-lg border bg-background p-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <span><span className="font-medium text-foreground">Current run:</span> {String(dataset.run ?? "not started")}</span>
-              <span>{number(dataset.lidar_scans)} scans · {number(dataset.lidar_points)} points · {number(dataset.camera_frames)} images</span>
+              <span>{number(dataset.lidar_scans)} scans · {number(dataset.lidar_points)} points · {number(dataset.slam_keyframes)} keyframes · {number(dataset.slam_loop_closures)} loop closures</span>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Button variant="default" onClick={() => onCommand({ command: "scan_start" })} disabled={!online || active}><Database className="size-4" />Start scan</Button>
               <Button variant="outline" onClick={() => onCommand({ command: "scan_save" })} disabled={!online || !active}><Save className="size-4" />Save map</Button>
               <Button variant="secondary" onClick={() => onCommand({ command: "scan_stop" })} disabled={!online || !active}><Square className="size-4" />Stop</Button>
             </div>
-            <p className="text-[11px] leading-4 text-muted-foreground">The scan writes map.json, map.pgm, robot_state.csv, lidar.csv, camera.csv and manifest.json.</p>
+            <p className="text-[11px] leading-4 text-muted-foreground">Scan match {number(dataset.slam_match_score).toFixed(2)} · graph optimizations {number(dataset.slam_optimizations)}. Save writes the occupancy map and slam_pose_graph.json.</p>
           </div>
 
           <div className="space-y-2 rounded-lg border bg-background p-3">
