@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -9,6 +11,15 @@ import numpy as np
 STATE_SIZE = 6
 VELOCITY_MEASUREMENT_SIZE = 3
 STATE_FIELDS = ("x_m", "y_m", "theta_rad", "vx_mps", "vy_mps", "omega_radps")
+
+
+def configured_yaw_axis_sign(path: Path | None = None) -> float:
+    config_path = path or Path(__file__).resolve().parents[2] / "configs" / "physical_robot.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        return -1.0 if float(payload.get("yaw_axis_sign", 1.0)) < 0.0 else 1.0
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return 1.0
 
 
 def wrap_angle(value: float) -> float:
@@ -23,6 +34,10 @@ class KalmanConfig:
     omega_process_std_radps: float = 0.20
     velocity_measurement_std_mps: float = 0.03
     omega_measurement_std_radps: float = 0.04
+    turning_rate_threshold_radps: float = 0.12
+    turning_gyro_measurement_std_radps: float = 0.025
+    straight_gyro_measurement_std_radps: float = 0.08
+    turning_encoder_omega_std_radps: float = 0.12
     initial_position_std_m: float = 0.05
     initial_heading_std_rad: float = 0.10
     initial_velocity_std_mps: float = 0.20
@@ -37,6 +52,10 @@ class KalmanConfig:
             self.omega_process_std_radps,
             self.velocity_measurement_std_mps,
             self.omega_measurement_std_radps,
+            self.turning_rate_threshold_radps,
+            self.turning_gyro_measurement_std_radps,
+            self.straight_gyro_measurement_std_radps,
+            self.turning_encoder_omega_std_radps,
             self.initial_position_std_m,
             self.initial_heading_std_rad,
             self.initial_velocity_std_mps,
@@ -63,6 +82,14 @@ class SixStateKalman:
         self._covariance = np.zeros((STATE_SIZE, STATE_SIZE), dtype=np.float64)
         self._last_t_ns: int | None = None
         self._samples = 0
+        self.motion_mode = "straight_encoder_priority"
+        self._pose_updates = 0
+        self._pose_update_rejections = 0
+        self.last_pose_update: dict[str, float | bool | str] = {
+            "accepted": False,
+            "reason": "not_run",
+            "mahalanobis_squared": 0.0,
+        }
         self.reset(state=state, covariance=covariance)
 
     @property
@@ -99,13 +126,16 @@ class SixStateKalman:
             math.sqrt(max(0.0, self._covariance[3, 3] + self._covariance[4, 4]))
         )
 
-    def diagnostics(self) -> dict[str, float | int]:
+    def diagnostics(self) -> dict[str, float | int | str]:
         return {
             "state_estimator": "six_state_ekf",
             "kalman_cov_trace": self.covariance_trace,
             "kalman_position_std_m": self.position_std_m,
             "kalman_heading_std_rad": self.heading_std_rad,
             "kalman_velocity_std_mps": self.velocity_std_mps,
+            "kalman_pose_updates": self._pose_updates,
+            "kalman_pose_update_rejections": self._pose_update_rejections,
+            "kalman_motion_mode": self.motion_mode,
         }
 
     def reset(
@@ -144,6 +174,10 @@ class SixStateKalman:
         self._covariance = matrix
         self._last_t_ns = None if t_ns is None else self._timestamp(t_ns)
         self._samples = 0
+        self.motion_mode = "straight_encoder_priority"
+        self._pose_updates = 0
+        self._pose_update_rejections = 0
+        self.last_pose_update = {"accepted": False, "reason": "not_run", "mahalanobis_squared": 0.0}
 
     @staticmethod
     def _timestamp(t_ns: int) -> int:
@@ -175,6 +209,7 @@ class SixStateKalman:
         *,
         acceleration_body_mps2: np.ndarray | list[float] | tuple[float, float] | None = None,
         gyro_z_radps: float | None = None,
+        gyro_measurement_std_radps: float | None = None,
     ) -> np.ndarray:
         dt = self._dt(t_ns)
         acceleration = None
@@ -185,53 +220,85 @@ class SixStateKalman:
             gyro = float(gyro_z_radps)
             if not math.isfinite(gyro):
                 raise ValueError("Kalman gyro_z must be finite")
-        if dt <= 0.0:
-            return self.state
-        x, y, theta, vx, vy, omega = self._state
-        c, s = math.cos(theta), math.sin(theta)
-        self._state[0] = x + dt * (c * vx - s * vy)
-        self._state[1] = y + dt * (s * vx + c * vy)
-        self._state[2] = wrap_angle(theta + dt * omega)
-        if acceleration is not None:
-            self._state[3] = vx + dt * float(acceleration[0])
-            self._state[4] = vy + dt * float(acceleration[1])
-        if gyro is not None:
-            self._state[5] = gyro
-        jacobian = np.eye(STATE_SIZE, dtype=np.float64)
-        jacobian[0, 2] = dt * (-s * vx - c * vy)
-        jacobian[0, 3] = dt * c
-        jacobian[0, 4] = -dt * s
-        jacobian[1, 2] = dt * (c * vx - s * vy)
-        jacobian[1, 3] = dt * s
-        jacobian[1, 4] = dt * c
-        jacobian[2, 5] = dt
-        q = np.diag(
-            (
-                (self.config.position_process_std_m * dt) ** 2,
-                (self.config.position_process_std_m * dt) ** 2,
-                (self.config.heading_process_std_rad * dt) ** 2,
-                (self.config.velocity_process_std_mps * dt) ** 2,
-                (self.config.velocity_process_std_mps * dt) ** 2,
-                (self.config.omega_process_std_radps * dt) ** 2,
+        if dt > 0.0:
+            x, y, theta, vx, vy, omega = self._state
+            c, s = math.cos(theta), math.sin(theta)
+            self._state[0] = x + dt * (c * vx - s * vy)
+            self._state[1] = y + dt * (s * vx + c * vy)
+            self._state[2] = wrap_angle(theta + dt * omega)
+            if acceleration is not None:
+                self._state[3] = vx + dt * float(acceleration[0])
+                self._state[4] = vy + dt * float(acceleration[1])
+            jacobian = np.eye(STATE_SIZE, dtype=np.float64)
+            jacobian[0, 2] = dt * (-s * vx - c * vy)
+            jacobian[0, 3] = dt * c
+            jacobian[0, 4] = -dt * s
+            jacobian[1, 2] = dt * (c * vx - s * vy)
+            jacobian[1, 3] = dt * s
+            jacobian[1, 4] = dt * c
+            jacobian[2, 5] = dt
+            q = np.diag(
+                (
+                    (self.config.position_process_std_m * dt) ** 2,
+                    (self.config.position_process_std_m * dt) ** 2,
+                    (self.config.heading_process_std_rad * dt) ** 2,
+                    (self.config.velocity_process_std_mps * dt) ** 2,
+                    (self.config.velocity_process_std_mps * dt) ** 2,
+                    (self.config.omega_process_std_radps * dt) ** 2,
+                )
             )
-        )
-        self._covariance = jacobian @ self._covariance @ jacobian.T + q
+            self._covariance = jacobian @ self._covariance @ jacobian.T + q
+            self._covariance = (self._covariance + self._covariance.T) * 0.5
+        if gyro is not None:
+            gyro_std = gyro_measurement_std_radps
+            if gyro_std is None:
+                turning = abs(gyro) >= self.config.turning_rate_threshold_radps
+                gyro_std = (
+                    self.config.turning_gyro_measurement_std_radps
+                    if turning else self.config.straight_gyro_measurement_std_radps
+                )
+            self.update_angular_velocity(gyro, measurement_std_radps=gyro_std)
+        return self.state
+
+    def update_angular_velocity(self, gyro_z_radps: float,
+                                *, measurement_std_radps: float | None = None) -> np.ndarray:
+        measurement = float(gyro_z_radps)
+        if not math.isfinite(measurement):
+            raise ValueError("Kalman gyro_z must be finite")
+        std = self.config.omega_measurement_std_radps if measurement_std_radps is None else float(measurement_std_radps)
+        if not math.isfinite(std) or std <= 0.0:
+            raise ValueError("Kalman gyro measurement standard deviation must be positive and finite")
+        h = np.zeros((1, STATE_SIZE), dtype=np.float64)
+        h[0, 5] = 1.0
+        innovation = np.array((measurement - self._state[5],), dtype=np.float64)
+        r = np.array(((std**2,),), dtype=np.float64)
+        innovation_covariance = h @ self._covariance @ h.T + r
+        gain = np.linalg.solve(innovation_covariance, h @ self._covariance).T
+        identity = np.eye(STATE_SIZE, dtype=np.float64)
+        residual = identity - gain @ h
+        self._state = self._state + gain @ innovation
+        self._covariance = residual @ self._covariance @ residual.T + gain @ r @ gain.T
         self._covariance = (self._covariance + self._covariance.T) * 0.5
         return self.state
 
     def update_velocity(
         self,
         velocity_body_mps: np.ndarray | list[float] | tuple[float, float, float],
+        *,
+        omega_measurement_std_radps: float | None = None,
     ) -> np.ndarray:
         measurement = self._vector(velocity_body_mps, VELOCITY_MEASUREMENT_SIZE, "velocity measurement")
         h = np.zeros((VELOCITY_MEASUREMENT_SIZE, STATE_SIZE), dtype=np.float64)
         h[:, self.measurement_indices] = np.eye(VELOCITY_MEASUREMENT_SIZE)
         innovation = measurement - h @ self._state
+        omega_std = self.config.omega_measurement_std_radps if omega_measurement_std_radps is None else float(omega_measurement_std_radps)
+        if not math.isfinite(omega_std) or omega_std <= 0.0:
+            raise ValueError("encoder omega measurement standard deviation must be positive and finite")
         r = np.diag(
             (
                 self.config.velocity_measurement_std_mps**2,
                 self.config.velocity_measurement_std_mps**2,
-                self.config.omega_measurement_std_radps**2,
+                omega_std**2,
             )
         )
         innovation_covariance = h @ self._covariance @ h.T + r
@@ -247,6 +314,49 @@ class SixStateKalman:
         self._samples += 1
         return self.state
 
+    def update_pose(
+        self,
+        pose: np.ndarray | list[float] | tuple[float, float, float],
+        *,
+        position_std_m: float = 0.05,
+        heading_std_rad: float = 0.04,
+        gate_mahalanobis_squared: float = 16.27,
+    ) -> np.ndarray:
+        """Fuse an external planar pose measurement, such as a LiDAR scan match."""
+        measurement = self._vector(pose, 3, "pose measurement")
+        noise = (position_std_m, heading_std_rad, gate_mahalanobis_squared)
+        if not all(math.isfinite(float(value)) and float(value) > 0.0 for value in noise):
+            raise ValueError("pose measurement noise and gate must be positive and finite")
+        h = np.zeros((3, STATE_SIZE), dtype=np.float64)
+        h[:, :3] = np.eye(3, dtype=np.float64)
+        innovation = measurement - h @ self._state
+        innovation[2] = wrap_angle(innovation[2])
+        r = np.diag((position_std_m**2, position_std_m**2, heading_std_rad**2))
+        innovation_covariance = h @ self._covariance @ h.T + r
+        mahalanobis_squared = float(innovation @ np.linalg.solve(innovation_covariance, innovation))
+        if mahalanobis_squared > gate_mahalanobis_squared:
+            self._pose_update_rejections += 1
+            self.last_pose_update = {
+                "accepted": False,
+                "reason": "innovation_gate",
+                "mahalanobis_squared": mahalanobis_squared,
+            }
+            return self.state
+        gain = np.linalg.solve(innovation_covariance, h @ self._covariance).T
+        identity = np.eye(STATE_SIZE, dtype=np.float64)
+        residual = identity - gain @ h
+        self._state = self._state + gain @ innovation
+        self._state[2] = wrap_angle(self._state[2])
+        self._covariance = residual @ self._covariance @ residual.T + gain @ r @ gain.T
+        self._covariance = (self._covariance + self._covariance.T) * 0.5
+        self._pose_updates += 1
+        self.last_pose_update = {
+            "accepted": True,
+            "reason": "fused",
+            "mahalanobis_squared": mahalanobis_squared,
+        }
+        return self.state
+
     def step(
         self,
         t_ns: int,
@@ -255,12 +365,26 @@ class SixStateKalman:
         acceleration_body_mps2: np.ndarray | list[float] | tuple[float, float] | None = None,
         gyro_z_radps: float | None = None,
     ) -> np.ndarray:
+        velocity = self._vector(velocity_body_mps, VELOCITY_MEASUREMENT_SIZE, "velocity measurement")
+        gyro_value = None if gyro_z_radps is None else float(gyro_z_radps)
+        turning = gyro_value is not None and abs(gyro_value) >= self.config.turning_rate_threshold_radps
+        self.motion_mode = "turning_imu_priority" if turning else "straight_encoder_priority"
         self.predict(
             t_ns,
             acceleration_body_mps2=acceleration_body_mps2,
-            gyro_z_radps=gyro_z_radps,
+            gyro_z_radps=gyro_value,
+            gyro_measurement_std_radps=(
+                self.config.turning_gyro_measurement_std_radps if turning
+                else self.config.straight_gyro_measurement_std_radps
+            ) if gyro_value is not None else None,
         )
-        return self.update_velocity(velocity_body_mps)
+        return self.update_velocity(
+            velocity,
+            omega_measurement_std_radps=(
+                self.config.turning_encoder_omega_std_radps if turning
+                else self.config.omega_measurement_std_radps
+            ),
+        )
 
 
-__all__ = ["STATE_FIELDS", "KalmanConfig", "SixStateKalman", "wrap_angle"]
+__all__ = ["STATE_FIELDS", "KalmanConfig", "SixStateKalman", "configured_yaw_axis_sign", "wrap_angle"]

@@ -38,10 +38,15 @@ finite-horizon nonlinear program and passes parity tests against
 `simulations/matlab/`.
 
 The production state is `[x,y,theta,vx,vy,omega]`. The command is
-`[vx_cmd,vy_cmd,omega_cmd]`; no wheel-torque claim is active. STM velocity,
-IMU acceleration and gyro samples are fused by `runtime.kalman.SixStateKalman`.
-The filtered state and covariance diagnostics are written to
-`robot_state.csv` by both direct experiment paths.
+`[vx_cmd,vy_cmd,omega_cmd]`; no wheel-torque claim is active. STM body velocity
+(wheel odometry), IMU acceleration and gyro samples are fused by
+`runtime.kalman.SixStateKalman`. The web console and manual map capture also feed
+accepted, innovation-gated LiDAR scan-match poses into this EKF. The direct
+runtime experiment fuses encoder/IMU data and records LiDAR packets but does not
+build a map. Filter covariance and update diagnostics are written to
+`robot_state.csv` and exposed in live pose diagnostics.
+The filter favors encoder yaw while travelling straight and favors gyro Z when
+turning; encoder translation remains active in both modes.
 
 ## Direct physical capture
 

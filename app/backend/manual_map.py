@@ -10,7 +10,7 @@ import select
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -37,9 +37,16 @@ from hardware import (
     utc_ns,
 )
 from app.backend.slam import OccupancyMap
+from runtime.kalman import SixStateKalman, configured_yaw_axis_sign
 
 
 ZERO = (0.0, 0.0, 0.0)
+
+
+def load_yaw_axis_sign() -> float:
+    return configured_yaw_axis_sign(PROJECT_ROOT / "configs" / "physical_robot.json")
+
+
 CONTROL_FIELDS = (
     "t_ns",
     "vx_cmd_mps",
@@ -79,6 +86,14 @@ STATE_FIELDS = (
     "integration_dt_s",
     "speed_mps",
     "transport",
+    "state_estimator",
+    "kalman_cov_trace",
+    "kalman_position_std_m",
+    "kalman_heading_std_rad",
+    "kalman_velocity_std_mps",
+    "kalman_pose_updates",
+    "kalman_pose_update_rejections",
+    "kalman_motion_mode",
 )
 LIDAR_FIELDS = ("t_ns", "point_count", "points_json")
 CAMERA_FIELDS = (
@@ -263,6 +278,34 @@ class Pose:
         return self.x_m, self.y_m, self.yaw_rad
 
 
+def apply_estimator_state(pose: Pose, state: Any, *, t_ns: int | None = None,
+                          dt_s: float | None = None, source: str = "six_state_ekf") -> None:
+    pose.x_m, pose.y_m, pose.yaw_rad = (float(state[index]) for index in range(3))
+    pose.last_vx_mps = float(state[3])
+    pose.last_vy_mps = float(state[4])
+    pose.last_yaw_rate_radps = float(state[5])
+    pose.last_yaw_rate_source = source
+    if t_ns is not None:
+        pose.last_t_ns = int(t_ns)
+    if dt_s is not None:
+        pose.last_dt_s = max(0.0, float(dt_s))
+
+
+def update_pose_with_ekf(pose: Pose, estimator: Any, telemetry: Stm32Telemetry,
+                         *, yaw_axis_sign: float = 1.0) -> Any:
+    previous_t_ns = estimator.last_t_ns
+    state = estimator.step(
+        telemetry.t_ns,
+        (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps * yaw_axis_sign),
+        acceleration_body_mps2=(telemetry.accel_x_mps2, telemetry.accel_y_mps2),
+        gyro_z_radps=telemetry.gyro_z_radps * yaw_axis_sign,
+    )
+    dt_s = 0.0 if previous_t_ns is None else min(max(0.0, (telemetry.t_ns - previous_t_ns) / 1e9), 0.25)
+    apply_estimator_state(pose, state, t_ns=telemetry.t_ns, dt_s=dt_s,
+                          source=f"six_state_ekf_{estimator.motion_mode}")
+    return state
+
+
 def bresenham(start: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, int], ...]:
     x0, y0 = start
     x1, y1 = end
@@ -390,7 +433,8 @@ class RunFiles:
     def event(self, kind: str, detail: str, sequence: int = 0) -> None:
         self.write("events.csv", {"t_ns": utc_ns(), "event_type": kind, "solve_ms": "", "status_code": 0, "sequence": sequence, "detail": detail})
 
-    def state(self, t_ns: int, pose: Pose, telemetry: Stm32Telemetry | None, transport: str) -> None:
+    def state(self, t_ns: int, pose: Pose, telemetry: Stm32Telemetry | None, transport: str,
+              estimator: Any = None) -> None:
         values = {
             "t_ns": t_ns,
             "x_m": pose.x_m,
@@ -419,7 +463,10 @@ class RunFiles:
             "integration_dt_s": pose.last_dt_s,
             "speed_mps": "",
             "transport": transport,
+            "state_estimator": "six_state_ekf" if estimator is not None else "odometry",
         }
+        if estimator is not None:
+            values.update(estimator.diagnostics())
         if telemetry is not None:
             values.update(
                 {
@@ -643,6 +690,8 @@ def main() -> int:
     mapper = OccupancyMap(args.resolution, lidar_x_m=args.lidar_x, lidar_y_m=args.lidar_y, lidar_yaw_rad=math.radians(args.lidar_yaw_deg), min_range_m=args.min_range, max_range_m=args.max_range, padding_cells=args.padding_cells)
     files = RunFiles(output)
     pose = Pose()
+    estimator = SixStateKalman()
+    yaw_axis_sign = load_yaw_axis_sign()
     stm: Stm32SerialSource | None = None
     lidar: N10PSerialSource | None = None
     stm_started = False
@@ -689,21 +738,37 @@ def main() -> int:
                 if now - last_input > args.command_timeout:
                     command = ZERO
                 telemetry = stm.latest
-                pose.update(telemetry)
+                calibrated_telemetry = None
+                if telemetry is not None:
+                    if pose.last_t_ns is None or telemetry.t_ns > pose.last_t_ns:
+                        update_pose_with_ekf(pose, estimator, telemetry, yaw_axis_sign=yaw_axis_sign)
+                    calibrated_telemetry = replace(
+                        telemetry,
+                        wz_radps=telemetry.wz_radps * yaw_axis_sign,
+                        gyro_z_radps=telemetry.gyro_z_radps * yaw_axis_sign,
+                    )
                 if lidar.latest is not None and lidar.latest.t_ns != last_scan_ns:
                     scan = lidar.latest
+                    scan_pose_before = pose.as_tuple()
                     mapper.update(scan, pose)
+                    scan_pose_after = pose.as_tuple()
+                    if scan_pose_after != scan_pose_before:
+                        estimator.update_pose(scan_pose_after, position_std_m=0.05,
+                                              heading_std_rad=math.radians(3.0))
+                        apply_estimator_state(pose, estimator.state, t_ns=pose.last_t_ns,
+                                              dt_s=pose.last_dt_s,
+                                              source="six_state_ekf_encoder_imu_lidar")
                     files.scan(scan)
                     files.write_map_history(mapper.history[-1])
                     files.context(scan.t_ns, pose, scan)
                     last_scan_ns = scan.t_ns
                 if now >= next_send:
-                    stm.send_velocity(*command)
+                    stm.send_velocity(command[0], command[1], command[2] * yaw_axis_sign)
                     sequence += 1
-                    files.control(utc_ns(), command, telemetry, sequence, stm.backend)
+                    files.control(utc_ns(), command, calibrated_telemetry, sequence, stm.backend)
                     next_send = now + 1.0 / args.send_rate
                 if now >= next_state:
-                    files.state(utc_ns(), pose, telemetry, stm.backend)
+                    files.state(utc_ns(), pose, calibrated_telemetry, stm.backend, estimator)
                     next_state = now + 1.0 / args.send_rate
                 if now >= next_report:
                     scan_count = mapper.scans

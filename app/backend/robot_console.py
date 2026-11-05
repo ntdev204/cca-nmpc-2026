@@ -123,6 +123,7 @@ def load_robot_geometry() -> dict[str, float]:
                 defaults[key] = float(value)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         pass
+    defaults["yaw_axis_sign"] = -1.0 if defaults["yaw_axis_sign"] < 0.0 else 1.0
     return defaults
 
 
@@ -564,11 +565,15 @@ class RobotService:
         self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
         self.camera_count_lock = threading.Lock()
         try:
-            from app.backend.manual_map import Pose
+            from app.backend.manual_map import Pose, apply_estimator_state, update_pose_with_ekf
         except ModuleNotFoundError:
-            from manual_map import Pose
+            from manual_map import Pose, apply_estimator_state, update_pose_with_ekf
+        from runtime.kalman import SixStateKalman
 
         self.pose: Any = Pose()
+        self.estimator: Any = SixStateKalman()
+        self._apply_estimator_state = apply_estimator_state
+        self._update_pose_with_ekf = update_pose_with_ekf
         self.map_pose: Any = None
         self.mapper: Any = None
         self.files: Any = None
@@ -1515,7 +1520,7 @@ class RobotService:
             if self.mapper is None:
                 raise RuntimeError("start and save a scan before planning")
             mapper = self.mapper
-            pose = self.pose.as_tuple() if self.pose is not None else (0.0, 0.0, 0.0)
+            pose = self._corrected_map_pose(self.pose).as_tuple() if self.pose is not None else (0.0, 0.0, 0.0)
         with self.map_lock:
             map_payload = mapper.payload()
         raw_goal = message.get("goal_xy", message.get("goal"))
@@ -1766,17 +1771,21 @@ class RobotService:
 
     def _state_payload(self) -> dict[str, Any]:
         with self.state_lock:
-            telemetry = self._calibrated_telemetry(self.stm.latest) if self.stm is not None else None
-            if telemetry is not None and self.pose is not None and telemetry.t_ns != self.last_telemetry_ns:
-                self.pose.update(telemetry)
-                self.last_telemetry_ns = telemetry.t_ns
+            raw_telemetry = self.stm.latest if self.stm is not None else None
+            telemetry = self._calibrated_telemetry(raw_telemetry)
+            if raw_telemetry is not None and self.pose is not None and raw_telemetry.t_ns != self.last_telemetry_ns:
+                self._update_pose_with_ekf(
+                    self.pose, self.estimator, raw_telemetry,
+                    yaw_axis_sign=self.geometry["yaw_axis_sign"],
+                )
+                self.last_telemetry_ns = raw_telemetry.t_ns
                 self.last_telemetry_mono = time.monotonic()
                 if self.status.get("stm") == "stale":
                     self.status["stm"] = "online"
                     self.status["message"] = "STM32 telemetry recovered; re-arm motion"
                 self.pose_history.append(copy_pose_for_mapping(self.pose))
                 if self.files is not None and self.scan_active:
-                    self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"))
+                    self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"), self.estimator)
             if self.pose is not None:
                 mapper_uses_matching = self.mapper is not None and bool(
                     getattr(self.mapper, "scan_matching_enabled", False)
@@ -1846,6 +1855,8 @@ class RobotService:
                     "yaw_rate_source": "none" if self.pose is None else self.pose.last_yaw_rate_source,
                     "integration_dt_s": 0.0 if self.pose is None else self.pose.last_dt_s,
                     "speed_mps": 0.0 if telemetry is None else math.hypot(telemetry.vx_mps, telemetry.vy_mps),
+                    **self.estimator.diagnostics(),
+                    "lidar_pose_update": dict(self.estimator.last_pose_update),
                 },
                 "status": self.status_payload(),
                 "command": list(self.last_command),
@@ -1896,12 +1907,43 @@ class RobotService:
             try:
                 with self.state_lock:
                     mapping_pose = self._corrected_map_pose(odom_pose)
+                    predicted_map_pose = mapping_pose.as_tuple()
+                    map_to_odom = self.map_to_odom
                 with self.map_lock:
                     mapper.update(scan, mapping_pose)
                     history_record = mapper.history[-1]
                 with self.state_lock:
                     if mapper is self.mapper:
-                        self.map_to_odom = self._compose_pose(mapping_pose.as_tuple(), self._inverse_pose(odom_pose.as_tuple()))
+                        correction_x = mapping_pose.x_m - predicted_map_pose[0]
+                        correction_y = mapping_pose.y_m - predicted_map_pose[1]
+                        correction_yaw = math.atan2(
+                            math.sin(mapping_pose.yaw_rad - predicted_map_pose[2]),
+                            math.cos(mapping_pose.yaw_rad - predicted_map_pose[2]),
+                        )
+                        if math.hypot(correction_x, correction_y) > 1.0e-5 or abs(correction_yaw) > 1.0e-5:
+                            c, s = math.cos(map_to_odom[2]), math.sin(map_to_odom[2])
+                            delta_odom_x = c * correction_x + s * correction_y
+                            delta_odom_y = -s * correction_x + c * correction_y
+                            current = self.pose.as_tuple()
+                            score = float(getattr(mapper.last_scan_match, "score", 0.0))
+                            score = max(0.0, min(1.0, score))
+                            measurement = (
+                                current[0] + delta_odom_x,
+                                current[1] + delta_odom_y,
+                                math.atan2(math.sin(current[2] + correction_yaw), math.cos(current[2] + correction_yaw)),
+                            )
+                            state = self.estimator.update_pose(
+                                measurement,
+                                position_std_m=0.04 + 0.12 * (1.0 - score),
+                                heading_std_rad=math.radians(1.5 + 5.0 * (1.0 - score)),
+                            )
+                            self._apply_estimator_state(
+                                self.pose, state, t_ns=self.pose.last_t_ns,
+                                dt_s=self.pose.last_dt_s,
+                                source="six_state_ekf_encoder_imu_lidar",
+                            )
+                            if self.pose_history:
+                                self.pose_history[-1] = copy_pose_for_mapping(self.pose)
                         self.map_pose = self._corrected_map_pose(self.pose)
                         self.map_scan_lag_s = max(0.0, (now_ns() - scan.t_ns) / 1e9)
                 if capture_files is not None:

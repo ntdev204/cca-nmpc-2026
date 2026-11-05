@@ -17,6 +17,18 @@ monitoring-only `tf` tree (`map -> odom -> base_link -> laser/camera_link`) and
 the declared circumscribed robot footprint. Stream messages for state, LiDAR
 and map are zlib-compressed and Base64-framed when that is smaller than JSON;
 
+Pose estimation uses the shared six-state EKF: STM32 body velocity (wheel
+odometry) and IMU planar acceleration/gyro drive the prediction and velocity
+updates. Accepted LiDAR scan-matching corrections are fused as gated pose
+measurements. The same EKF path is used by the manual map capture tool; the
+direct runtime experiment uses the encoder/IMU portion while recording LiDAR.
+During straight motion the filter gives more weight to encoder yaw; when gyro Z
+reports a turn, it gives more weight to IMU yaw while continuing to use encoder
+translation.
+The configured yaw-axis sign is applied consistently to turn commands and
+angular measurements. EKF covariance and LiDAR update diagnostics are included
+in the live state and scan logs.
+
 Motion is ready automatically when STM32 is online; the web client does not
 need a separate enable command. Mapping uses a no-ROS 2D SLAM pipeline:
 per-scan correlative matching, keyframe pose-graph constraints, nearby

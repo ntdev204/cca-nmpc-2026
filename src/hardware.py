@@ -1416,7 +1416,7 @@ class CsvWriters:
         self.root = root
         self._files: dict[str, Any] = {}
         self._writers: dict[str, csv.DictWriter] = {}
-        self._open("robot_state.csv", ["t_ns", "x_m", "y_m", "yaw_rad", "vx_mps", "vy_mps", "wz_radps", "wheel_fl_radps", "wheel_fr_radps", "wheel_rl_radps", "wheel_rr_radps", "battery_mv", "pwm_mask", "external_faults", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2", "gyro_x_radps", "gyro_y_radps", "gyro_z_radps", "voltage_v", "flag_stop", "state_estimator", "kalman_cov_trace", "kalman_position_std_m", "kalman_heading_std_rad", "kalman_velocity_std_mps", "transport"])
+        self._open("robot_state.csv", ["t_ns", "x_m", "y_m", "yaw_rad", "vx_mps", "vy_mps", "wz_radps", "wheel_fl_radps", "wheel_fr_radps", "wheel_rl_radps", "wheel_rr_radps", "battery_mv", "pwm_mask", "external_faults", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2", "gyro_x_radps", "gyro_y_radps", "gyro_z_radps", "voltage_v", "flag_stop", "state_estimator", "kalman_cov_trace", "kalman_position_std_m", "kalman_heading_std_rad", "kalman_velocity_std_mps", "kalman_pose_updates", "kalman_pose_update_rejections", "kalman_motion_mode", "transport"])
         self._open("control.csv", ["t_ns", "vx_cmd_mps", "vy_cmd_mps", "wz_cmd_radps", "vx_applied_mps", "vy_applied_mps", "wz_applied_radps", "sequence", "transport"])
         self._open("context.csv", ["t_ns", "position_x_m", "position_y_m", "speed_mps", "direction", "confidence", "context_valid", "lstm_active", "lstm_configured", "frame_path", "camera_device_t_ns", "lidar_min_range_m", "lidar_valid"])
         self._open("lidar.csv", ["t_ns", "point_count", "points_json"])
