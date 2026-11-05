@@ -622,7 +622,10 @@ class N10PDecoder:
         valid_slots = max(1, self.point_count - 1)
         points: list[LidarPoint] = []
         for index, return_id, distance, intensity in entries:
-            angle = math.radians((start + interval * index / valid_slots) % 360.0)
+            # N10P reports azimuth clockwise-positive. Convert once to the
+            # robot/map convention (+Y left, counterclockwise-positive).
+            sensor_angle_deg = (start + interval * index / valid_slots) % 360.0
+            angle = math.radians((-sensor_angle_deg) % 360.0)
             points.append(LidarPoint(timestamp_ns, angle, distance / 1000.0, intensity, return_id))
         return tuple(points)
 
@@ -742,7 +745,10 @@ class N10PSerialSource:
             for decoded in self._decoder.feed_all(payload, timestamp):
                 for point in decoded:
                     angle = math.degrees(point.angle_rad)
-                    wrapped = last_angle is not None and last_angle > 355.0 and angle < 5.0
+                    wrapped = last_angle is not None and (
+                        (last_angle > 355.0 and angle < 5.0)
+                        or (last_angle < 5.0 and angle > 355.0)
+                    )
                     if wrapped and points:
                         with self._lock:
                             scan_t_ns = max(utc_ns(), self._last_scan_t_ns + 1)
