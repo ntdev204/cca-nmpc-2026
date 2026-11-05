@@ -230,8 +230,8 @@ class OccupancyMap:
         return hits / len(endpoints)
 
     def _match(self, points: tuple[tuple[float, float, int], ...], base: tuple[float, float, float],
-               scan_t_ns: int, vx: float, vy: float, wz: float, *, radius: float = 0.15,
-               yaw_radius: float = math.radians(7.0),
+               scan_t_ns: int, vx: float, vy: float, wz: float, *, radius: float = 0.06,
+               yaw_radius: float = math.radians(3.5),
                require_improvement: bool = True) -> tuple[_MatchResult, tuple[float, float, float]]:
         if not self.scan_matching_enabled:
             return self._match_result(False, "disabled"), base
@@ -248,8 +248,8 @@ class OccupancyMap:
             (0.02, math.radians(1.0), 0.5),
         ):
             center = best
-            radius_xy = radius if factor == 1.0 else 0.04
-            radius_yaw_now = yaw_radius if factor == 1.0 else math.radians(2.0)
+            radius_xy = radius if factor == 1.0 else 0.02
+            radius_yaw_now = yaw_radius if factor == 1.0 else math.radians(1.0)
             nx = max(1, int(math.ceil(radius_xy / step_xy)))
             nyaw = max(1, int(math.ceil(radius_yaw_now / step_yaw)))
             for ix in range(-nx, nx + 1):
@@ -262,6 +262,8 @@ class OccupancyMap:
                         if score - movement_penalty > best_score:
                             best, best_score = candidate, score
         correction = _relative(base, best)
+        if math.hypot(correction[0], correction[1]) > 0.06 or abs(correction[2]) > math.radians(3.0):
+            return self._match_result(False, "correction_out_of_bounds", best_score, len(points)), base
         accepted = best_score >= 0.22 and (not require_improvement or best_score >= base_score + 0.015)
         if not accepted:
             return self._match_result(False, "weak_match", best_score, len(points)), base

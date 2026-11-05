@@ -108,6 +108,7 @@ def load_robot_geometry() -> dict[str, float]:
         "camera_position_x_m": 0.165,
         "camera_height_m": 0.20,
         "camera_pitch_rad": 0.0,
+        "yaw_axis_sign": 1.0,
     }
     path = PROJECT_ROOT / "configs" / "physical_robot.json"
     try:
@@ -1568,7 +1569,7 @@ class RobotService:
         with self.motion_lock:
             active = self.armed and self.stm is not None
             if active:
-                self.stm.send_velocity(*values)
+                self.stm.send_velocity(values[0], values[1], values[2] * self.geometry["yaw_axis_sign"])
                 self.last_command = values
                 self.command_sequence += 1
                 self.last_command_mono = time.monotonic()
@@ -1579,7 +1580,16 @@ class RobotService:
     def _record_control(self, values: tuple[float, float, float]) -> None:
         with self.state_lock:
             if self.files is not None and self.scan_active and self.stm is not None:
-                self.files.control(now_ns(), values, self.stm.latest, self.command_sequence, getattr(self.stm, "backend", "serial"))
+                telemetry = self._calibrated_telemetry(self.stm.latest)
+                self.files.control(now_ns(), values, telemetry, self.command_sequence, getattr(self.stm, "backend", "serial"))
+
+    def _calibrated_telemetry(self, telemetry: Any) -> Any:
+        if telemetry is None or self.geometry["yaw_axis_sign"] == 1.0:
+            return telemetry
+        from dataclasses import replace
+        sign = self.geometry["yaw_axis_sign"]
+        return replace(telemetry, wz_radps=telemetry.wz_radps * sign,
+                       gyro_z_radps=telemetry.gyro_z_radps * sign)
 
     def handle(self, peer: Peer, message: dict[str, Any]) -> None:
         command = str(message.get("command", "")).strip().lower()
@@ -1756,7 +1766,7 @@ class RobotService:
 
     def _state_payload(self) -> dict[str, Any]:
         with self.state_lock:
-            telemetry = self.stm.latest if self.stm is not None else None
+            telemetry = self._calibrated_telemetry(self.stm.latest) if self.stm is not None else None
             if telemetry is not None and self.pose is not None and telemetry.t_ns != self.last_telemetry_ns:
                 self.pose.update(telemetry)
                 self.last_telemetry_ns = telemetry.t_ns
