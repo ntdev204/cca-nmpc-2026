@@ -13,13 +13,21 @@ VELOCITY_MEASUREMENT_SIZE = 3
 STATE_FIELDS = ("x_m", "y_m", "theta_rad", "vx_mps", "vy_mps", "omega_radps")
 
 
-def configured_yaw_axis_sign(path: Path | None = None) -> float:
+def configured_yaw_signs(path: Path | None = None) -> tuple[float, float]:
     config_path = path or Path(__file__).resolve().parents[2] / "configs" / "physical_robot.json"
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
-        return -1.0 if float(payload.get("yaw_axis_sign", 1.0)) < 0.0 else 1.0
+        legacy = float(payload.get("yaw_axis_sign", 1.0))
+        command = float(payload.get("yaw_command_sign", legacy))
+        measurement = float(payload.get("yaw_measurement_sign", legacy))
+        return (-1.0 if command < 0.0 else 1.0, -1.0 if measurement < 0.0 else 1.0)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        return 1.0
+        return 1.0, 1.0
+
+
+def configured_yaw_axis_sign(path: Path | None = None) -> float:
+    """Compatibility alias for the yaw measurement sign."""
+    return configured_yaw_signs(path)[1]
 
 
 def wrap_angle(value: float) -> float:
@@ -387,4 +395,4 @@ class SixStateKalman:
         )
 
 
-__all__ = ["STATE_FIELDS", "KalmanConfig", "SixStateKalman", "configured_yaw_axis_sign", "wrap_angle"]
+__all__ = ["STATE_FIELDS", "KalmanConfig", "SixStateKalman", "configured_yaw_axis_sign", "configured_yaw_signs", "wrap_angle"]

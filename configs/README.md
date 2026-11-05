@@ -22,7 +22,7 @@ sample size blocks the run rather than being filled after results are visible.
 - `physical_robot.template.json` defines the accepted input shape for measured
   wheel geometry, footprint and sensor mounts. The current user-supplied
   record is `physical_robot.json`; it records the 400 mm by 400 mm envelope,
-  the calibrated `yaw_axis_sign` shared by actuation and state estimation,
+  separate `yaw_command_sign` and `yaw_measurement_sign` calibrations,
   50 mm interpreted wheel radius, 240/200 mm sensor heights, front-edge
   offsets of 100/35 mm (LiDAR/camera), and 20 degree downward camera pitch in
   SI units. Independent dimensional/calibration

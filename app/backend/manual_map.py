@@ -37,14 +37,18 @@ from hardware import (
     utc_ns,
 )
 from app.backend.slam import OccupancyMap
-from runtime.kalman import SixStateKalman, configured_yaw_axis_sign
+from runtime.kalman import SixStateKalman, configured_yaw_signs
 
 
 ZERO = (0.0, 0.0, 0.0)
 
 
-def load_yaw_axis_sign() -> float:
-    return configured_yaw_axis_sign(PROJECT_ROOT / "configs" / "physical_robot.json")
+def load_yaw_measurement_sign() -> float:
+    return configured_yaw_signs(PROJECT_ROOT / "configs" / "physical_robot.json")[1]
+
+
+def load_yaw_command_sign() -> float:
+    return configured_yaw_signs(PROJECT_ROOT / "configs" / "physical_robot.json")[0]
 
 
 CONTROL_FIELDS = (
@@ -292,13 +296,13 @@ def apply_estimator_state(pose: Pose, state: Any, *, t_ns: int | None = None,
 
 
 def update_pose_with_ekf(pose: Pose, estimator: Any, telemetry: Stm32Telemetry,
-                         *, yaw_axis_sign: float = 1.0) -> Any:
+                         *, yaw_measurement_sign: float = 1.0) -> Any:
     previous_t_ns = estimator.last_t_ns
     state = estimator.step(
         telemetry.t_ns,
-        (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps * yaw_axis_sign),
+        (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps * yaw_measurement_sign),
         acceleration_body_mps2=(telemetry.accel_x_mps2, telemetry.accel_y_mps2),
-        gyro_z_radps=telemetry.gyro_z_radps * yaw_axis_sign,
+        gyro_z_radps=telemetry.gyro_z_radps * yaw_measurement_sign,
     )
     dt_s = 0.0 if previous_t_ns is None else min(max(0.0, (telemetry.t_ns - previous_t_ns) / 1e9), 0.25)
     apply_estimator_state(pose, state, t_ns=telemetry.t_ns, dt_s=dt_s,
@@ -691,7 +695,8 @@ def main() -> int:
     files = RunFiles(output)
     pose = Pose()
     estimator = SixStateKalman()
-    yaw_axis_sign = load_yaw_axis_sign()
+    yaw_measurement_sign = load_yaw_measurement_sign()
+    yaw_command_sign = load_yaw_command_sign()
     stm: Stm32SerialSource | None = None
     lidar: N10PSerialSource | None = None
     stm_started = False
@@ -741,11 +746,11 @@ def main() -> int:
                 calibrated_telemetry = None
                 if telemetry is not None:
                     if pose.last_t_ns is None or telemetry.t_ns > pose.last_t_ns:
-                        update_pose_with_ekf(pose, estimator, telemetry, yaw_axis_sign=yaw_axis_sign)
+                        update_pose_with_ekf(pose, estimator, telemetry, yaw_measurement_sign=yaw_measurement_sign)
                     calibrated_telemetry = replace(
                         telemetry,
-                        wz_radps=telemetry.wz_radps * yaw_axis_sign,
-                        gyro_z_radps=telemetry.gyro_z_radps * yaw_axis_sign,
+                        wz_radps=telemetry.wz_radps * yaw_measurement_sign,
+                        gyro_z_radps=telemetry.gyro_z_radps * yaw_measurement_sign,
                     )
                 if lidar.latest is not None and lidar.latest.t_ns != last_scan_ns:
                     scan = lidar.latest
@@ -763,7 +768,7 @@ def main() -> int:
                     files.context(scan.t_ns, pose, scan)
                     last_scan_ns = scan.t_ns
                 if now >= next_send:
-                    stm.send_velocity(command[0], command[1], command[2] * yaw_axis_sign)
+                    stm.send_velocity(command[0], command[1], command[2] * yaw_command_sign)
                     sequence += 1
                     files.control(utc_ns(), command, calibrated_telemetry, sequence, stm.backend)
                     next_send = now + 1.0 / args.send_rate

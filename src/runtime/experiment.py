@@ -15,7 +15,7 @@ from hardware import (
     utc_ns,
     write_runtime_metadata,
 )
-from runtime.kalman import SixStateKalman, configured_yaw_axis_sign
+from runtime.kalman import SixStateKalman, configured_yaw_signs
 
 
 ZERO_COMMAND = (0.0, 0.0, 0.0)
@@ -119,7 +119,7 @@ class StmExperiment:
             _validate_safety(safety_record)
         output = output.resolve()
         writers = CsvWriters(output)
-        yaw_axis_sign = configured_yaw_axis_sign()
+        yaw_command_sign, yaw_measurement_sign = configured_yaw_signs()
         write_runtime_metadata(
             output,
             camera="not_started",
@@ -133,7 +133,8 @@ class StmExperiment:
                 "actuation": "constant_body_velocity" if motion_requested else "zero_velocity_only",
                 "lidar_started": self.lidar is not None,
                 "safety_record": safety_record.resolve().as_posix() if safety_record else None,
-                "yaw_axis_sign": yaw_axis_sign,
+                "yaw_command_sign": yaw_command_sign,
+                "yaw_measurement_sign": yaw_measurement_sign,
             },
         )
         started_stm = False
@@ -178,7 +179,7 @@ class StmExperiment:
                         event("stm32_stop_flag", "STM32 stop flag asserted")
                     stop_latched = True
                 selected = ZERO_COMMAND if stop_latched else command
-                self.stm.send_velocity(selected[0], selected[1], selected[2] * yaw_axis_sign)
+                self.stm.send_velocity(selected[0], selected[1], selected[2] * yaw_command_sign)
                 command_samples += 1
                 command_time = self.stm.last_command[0] if self.stm.last_command else utc_ns()
                 writers.write(
@@ -190,7 +191,7 @@ class StmExperiment:
                         "wz_cmd_radps": selected[2],
                         "vx_applied_mps": telemetry.vx_mps if telemetry else "",
                         "vy_applied_mps": telemetry.vy_mps if telemetry else "",
-                        "wz_applied_radps": telemetry.wz_radps * yaw_axis_sign if telemetry else "",
+                        "wz_applied_radps": telemetry.wz_radps * yaw_measurement_sign if telemetry else "",
                         "sequence": "",
                         "transport": "stm32_serial",
                     },
@@ -198,9 +199,9 @@ class StmExperiment:
                 if telemetry is not None and telemetry.t_ns > last_state_ns:
                     state = self.estimator.step(
                         telemetry.t_ns,
-                        (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps * yaw_axis_sign),
+                        (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps * yaw_measurement_sign),
                         acceleration_body_mps2=(telemetry.accel_x_mps2, telemetry.accel_y_mps2),
-                        gyro_z_radps=telemetry.gyro_z_radps * yaw_axis_sign,
+                        gyro_z_radps=telemetry.gyro_z_radps * yaw_measurement_sign,
                     )
                     writers.write(
                         "robot_state.csv",
@@ -217,7 +218,7 @@ class StmExperiment:
                             "accel_z_mps2": telemetry.accel_z_mps2,
                             "gyro_x_radps": telemetry.gyro_x_radps,
                             "gyro_y_radps": telemetry.gyro_y_radps,
-                            "gyro_z_radps": telemetry.gyro_z_radps * yaw_axis_sign,
+                            "gyro_z_radps": telemetry.gyro_z_radps * yaw_measurement_sign,
                             "voltage_v": telemetry.voltage_v,
                             "flag_stop": telemetry.flag_stop,
                             **self.estimator.diagnostics(),

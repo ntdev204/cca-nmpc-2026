@@ -16,7 +16,8 @@
     "half_width_m",
     "footprint_radius_m",
     "wheel_signs",
-    "yaw_axis_sign",
+    "yaw_command_sign",
+    "yaw_measurement_sign",
     "notes"
   ],
   "properties": {
@@ -67,7 +68,8 @@
         "rr": {"enum": [-1, 1]}
       }
     },
-    "yaw_axis_sign": {"enum": [-1, 1]},
+    "yaw_command_sign": {"enum": [-1, 1]},
+    "yaw_measurement_sign": {"enum": [-1, 1]},
     "notes": {"type": ["string", "null"]}
   },
   "allOf": [

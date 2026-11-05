@@ -59,6 +59,8 @@ CAMERA_CAPTURE_PERIOD_S = 0.50
 CAMERA_DEPTH_PERIOD_S = 1.0
 CAMERA_STREAM_MAX_SIZE = (640, 480)
 CAMERA_STREAM_JPEG_QUALITY = 10
+CAMERA_MJPEG_PERIOD_S = 0.20
+CAMERA_MJPEG_MAX_CLIENTS = 1
 CAMERA_CAPTURE_JPEG_QUALITY = 75
 WEBRTC_IDLE_FPS = 15.0
 WEBRTC_SCAN_FPS = 5.0
@@ -108,9 +110,11 @@ def load_robot_geometry() -> dict[str, float]:
         "camera_position_x_m": 0.165,
         "camera_height_m": 0.20,
         "camera_pitch_rad": 0.0,
-        "yaw_axis_sign": 1.0,
+        "yaw_command_sign": 1.0,
+        "yaw_measurement_sign": 1.0,
     }
     path = PROJECT_ROOT / "configs" / "physical_robot.json"
+    payload: dict[str, Any] = {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         mounts = payload.get("sensor_mounts") or {}
@@ -123,7 +127,15 @@ def load_robot_geometry() -> dict[str, float]:
                 defaults[key] = float(value)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         pass
-    defaults["yaw_axis_sign"] = -1.0 if defaults["yaw_axis_sign"] < 0.0 else 1.0
+    try:
+        legacy_sign = -1.0 if float(payload.get("yaw_axis_sign", 1.0)) < 0.0 else 1.0
+    except (TypeError, ValueError):
+        legacy_sign = 1.0
+    for key in ("yaw_command_sign", "yaw_measurement_sign"):
+        if key not in payload:
+            defaults[key] = legacy_sign
+        else:
+            defaults[key] = -1.0 if defaults[key] < 0.0 else 1.0
     return defaults
 
 
@@ -487,7 +499,12 @@ class CameraMjpegHandler(BaseHTTPRequestHandler):
             self.send_error(503)
             return
         with service.state_lock:
+            if service.camera_http_clients >= CAMERA_MJPEG_MAX_CLIENTS:
+                self.send_error(429, "MJPEG client limit reached")
+                return
             service.camera_http_clients += 1
+        self.connection.settimeout(1.0)
+        self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 64 * 1024)
         boundary = b"mecanum-frame"
         self.send_response(200)
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
@@ -502,12 +519,12 @@ class CameraMjpegHandler(BaseHTTPRequestHandler):
                 with service.camera_condition:
                     service.camera_condition.wait_for(
                         lambda: service.stop_event.is_set()
-                        or service.camera_capture_t_ns != last_capture_t_ns,
+                        or service.camera_mjpeg_t_ns != last_capture_t_ns,
                         timeout=0.5,
                     )
                     if service.stop_event.is_set():
                         return
-                    capture_t_ns = service.camera_capture_t_ns
+                    capture_t_ns = service.camera_mjpeg_t_ns
                     jpeg = service.latest_camera_bytes
                 if not jpeg or capture_t_ns == last_capture_t_ns:
                     continue
@@ -593,6 +610,7 @@ class RobotService:
         self.last_command_mono = time.monotonic()
         self.watchdog_zero_sent = False
         self.command_sequence = 0
+        self.client_control_sequences: dict[str, int] = {}
         self.last_telemetry_ns = 0
         self.last_telemetry_mono = 0.0
         self.last_scan_ns = 0
@@ -605,6 +623,8 @@ class RobotService:
         self.latest_camera_color: Any = None
         self.camera_condition = threading.Condition()
         self.camera_http_clients = 0
+        self.camera_mjpeg_t_ns = 0
+        self.last_mjpeg_encode_mono = 0.0
         self.camera_shape: list[int] | None = None
         self.camera_device_t_ns: int | None = None
         self.camera_capture_t_ns = 0
@@ -714,7 +734,12 @@ class RobotService:
                 "run": self.run_root.name if self.run_root else None,
                 "lidar_target_hz": LIDAR_TARGET_HZ,
                 "lidar_rate_hz": round(lidar_rate_hz, 2),
+                "state_target_hz": 1.0 / STATE_PERIOD_S,
+                "map_target_hz": 1.0 / MAP_PERIOD_S,
+                "sensor_target_hz": 1.0 / SENSOR_PERIOD_S,
                 "camera_rate_hz": round(self.camera_rate_hz, 2),
+                "mjpeg_target_hz": 1.0 / CAMERA_MJPEG_PERIOD_S,
+                "mjpeg_clients": self.camera_http_clients,
                 "camera_transport": self.camera_transport,
                 "webrtc_clients": len(self.webrtc_peers),
                 "map_resolution_m": MAP_RESOLUTION_M,
@@ -947,17 +972,21 @@ class RobotService:
                     if self.stop_event.is_set():
                         return
                 frame = self.camera.read()
-                encoded_bytes = self._encode_camera(frame.color_bgr) if has_mjpeg else None
+                capture_mono = time.monotonic()
+                encode_mjpeg = has_mjpeg and capture_mono - self.last_mjpeg_encode_mono >= CAMERA_MJPEG_PERIOD_S
+                encoded_bytes = self._encode_camera(frame.color_bgr) if encode_mjpeg else None
                 with self.state_lock:
                     capture_files = self.files if self.scan_active else None
-                    capture_mono = time.monotonic()
                     save_frame = capture_files is not None and capture_mono - self.last_camera_save_mono >= CAMERA_CAPTURE_PERIOD_S
                     save_depth = save_frame and capture_mono - self.last_depth_save_mono >= CAMERA_DEPTH_PERIOD_S
                     if save_frame:
                         self.last_camera_save_mono = capture_mono
                     if save_depth:
                         self.last_depth_save_mono = capture_mono
-                    self.latest_camera_bytes = encoded_bytes
+                    if encoded_bytes is not None:
+                        self.latest_camera_bytes = encoded_bytes
+                        self.camera_mjpeg_t_ns = int(frame.t_ns)
+                        self.last_mjpeg_encode_mono = capture_mono
                     if has_webrtc:
                         self.latest_camera_color = frame.color_bgr.copy()
                     self.camera_shape = [int(frame.color_bgr.shape[1]), int(frame.color_bgr.shape[0])]
@@ -1145,7 +1174,16 @@ class RobotService:
             while root.exists():
                 root = PROJECT_ROOT / "experiments" / "runs" / f"{run_id}-{suffix}"
                 suffix += 1
-            initial_pose = copy_pose_for_mapping(self.pose) if self.pose is not None else Pose()
+            filter_state = self.estimator.state
+            filter_state[:3] = 0.0
+            self.estimator.reset(state=filter_state, t_ns=self.estimator.last_t_ns)
+            initial_pose = Pose()
+            self._apply_estimator_state(
+                initial_pose, self.estimator.state, t_ns=self.estimator.last_t_ns,
+                source="six_state_ekf_scan_origin",
+            )
+            self.pose_history.clear()
+            self.pose_history.append(copy_pose_for_mapping(initial_pose))
             self.mapper = OccupancyMap(
                 MAP_RESOLUTION_M,
                 lidar_x_m=self.geometry["lidar_position_x_m"],
@@ -1574,7 +1612,7 @@ class RobotService:
         with self.motion_lock:
             active = self.armed and self.stm is not None
             if active:
-                self.stm.send_velocity(values[0], values[1], values[2] * self.geometry["yaw_axis_sign"])
+                self.stm.send_velocity(values[0], values[1], values[2] * self.geometry["yaw_command_sign"])
                 self.last_command = values
                 self.command_sequence += 1
                 self.last_command_mono = time.monotonic()
@@ -1589,10 +1627,10 @@ class RobotService:
                 self.files.control(now_ns(), values, telemetry, self.command_sequence, getattr(self.stm, "backend", "serial"))
 
     def _calibrated_telemetry(self, telemetry: Any) -> Any:
-        if telemetry is None or self.geometry["yaw_axis_sign"] == 1.0:
+        if telemetry is None or self.geometry["yaw_measurement_sign"] == 1.0:
             return telemetry
         from dataclasses import replace
-        sign = self.geometry["yaw_axis_sign"]
+        sign = self.geometry["yaw_measurement_sign"]
         return replace(telemetry, wz_radps=telemetry.wz_radps * sign,
                        gyro_z_radps=telemetry.gyro_z_radps * sign)
 
@@ -1627,6 +1665,19 @@ class RobotService:
                     "status": self.status_payload(),
                 })
             elif command == "velocity":
+                client_id = str(message.get("control_client_id", ""))
+                if client_id:
+                    try:
+                        client_sequence = int(message.get("control_sequence", -1))
+                    except (TypeError, ValueError):
+                        client_sequence = -1
+                    if client_sequence < 0 or client_sequence <= self.client_control_sequences.get(client_id, -1):
+                        return
+                    self.client_control_sequences[client_id] = client_sequence
+                    if len(self.client_control_sequences) > 64:
+                        oldest_client = next(iter(self.client_control_sequences))
+                        if oldest_client != client_id:
+                            self.client_control_sequences.pop(oldest_client, None)
                 values = tuple(float(message.get(name, 0.0)) for name in ("vx", "vy", "wz"))
                 self._apply_velocity(values)
                 self._record_control(values)
@@ -1776,7 +1827,7 @@ class RobotService:
             if raw_telemetry is not None and self.pose is not None and raw_telemetry.t_ns != self.last_telemetry_ns:
                 self._update_pose_with_ekf(
                     self.pose, self.estimator, raw_telemetry,
-                    yaw_axis_sign=self.geometry["yaw_axis_sign"],
+                    yaw_measurement_sign=self.geometry["yaw_measurement_sign"],
                 )
                 self.last_telemetry_ns = raw_telemetry.t_ns
                 self.last_telemetry_mono = time.monotonic()

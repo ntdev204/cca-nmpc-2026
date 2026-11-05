@@ -26,6 +26,7 @@
     "rl": 1,
     "rr": 1
   },
-  "yaw_axis_sign": -1,
+  "yaw_command_sign": -1,
+  "yaw_measurement_sign": 1,
   "notes": "The supplied 50 mm radius is interpreted as the wheel radius because this is the radius used by the Mecanum kinematic interface. Camera angle is recorded as 0 degrees (level) relative to the ground-plane direction. Wheel signs are retained from the existing transport convention and must be verified during commissioning; independent dimensional/calibration verification remains required before actuation."
 }

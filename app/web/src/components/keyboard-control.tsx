@@ -8,6 +8,8 @@ const ZERO: Velocity = { vx: 0, vy: 0, wz: 0 };
 const PERIOD_MS = 100;
 const CONTROL_KEYS = new Set(["w", "s", "a", "d", "q", "e", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 const DEFAULT_LINEAR_SPEED = 0.2;
+const MAX_CONTROL_REQUESTS = 2;
+const CONTROL_REQUEST_TIMEOUT_MS = 350;
 
 function configuredLinearSpeed(): number {
   const value = Number(window.localStorage.getItem("robot-linear-speed-mps"));
@@ -43,36 +45,48 @@ export function KeyboardControl() {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const active = useRef<Velocity | null>(null);
   const pressed = useRef(new Set<string>());
-  const pending = useRef<Velocity | null>(null);
-  const sending = useRef(false);
+  const pending = useRef<{ velocity: Velocity; sequence: number } | null>(null);
+  const inFlight = useRef(0);
+  const clientId = useRef("");
+  const sequence = useRef(0);
+
+  const launch = useCallback((item: { velocity: Velocity; sequence: number }) => {
+    inFlight.current += 1;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), CONTROL_REQUEST_TIMEOUT_MS);
+    void fetch("/api/command", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: "velocity",
+        ...item.velocity,
+        control_client_id: clientId.current,
+        control_sequence: item.sequence,
+      }),
+      cache: "no-store",
+      keepalive: item.velocity.vx === 0 && item.velocity.vy === 0 && item.velocity.wz === 0,
+      signal: controller.signal,
+    }).catch(() => undefined).finally(() => {
+      window.clearTimeout(timeout);
+      inFlight.current = Math.max(0, inFlight.current - 1);
+      if (pending.current !== null && inFlight.current < MAX_CONTROL_REQUESTS) {
+        const latest = pending.current;
+        pending.current = null;
+        launch(latest);
+      }
+    });
+  }, []);
 
   const send = useCallback((velocity: Velocity) => {
-    pending.current = velocity;
-    if (sending.current) return;
-    const flush = async () => {
-      if (sending.current) return;
-      sending.current = true;
-      try {
-        while (pending.current !== null) {
-          const next = pending.current;
-          pending.current = null;
-          await fetch("/api/command", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ command: "velocity", ...next }),
-            cache: "no-store",
-            keepalive: next.vx === 0 && next.vy === 0 && next.wz === 0,
-          });
-        }
-      } catch {
-        pending.current = null;
-      } finally {
-        sending.current = false;
-        if (pending.current !== null) void flush();
-      }
-    };
-    void flush();
-  }, []);
+    if (!clientId.current) {
+      clientId.current = typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    const item = { velocity, sequence: ++sequence.current };
+    if (inFlight.current < MAX_CONTROL_REQUESTS) launch(item);
+    else pending.current = item;
+  }, [launch]);
 
   const release = useCallback(() => {
     if (timer.current !== null) clearInterval(timer.current);

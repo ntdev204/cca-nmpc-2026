@@ -25,9 +25,10 @@ direct runtime experiment uses the encoder/IMU portion while recording LiDAR.
 During straight motion the filter gives more weight to encoder yaw; when gyro Z
 reports a turn, it gives more weight to IMU yaw while continuing to use encoder
 translation.
-The configured yaw-axis sign is applied consistently to turn commands and
-angular measurements. EKF covariance and LiDAR update diagnostics are included
-in the live state and scan logs.
+Actuator yaw-command sign and sensor yaw-measurement sign are configured
+separately so a motor-direction correction cannot reverse the map heading.
+EKF covariance and LiDAR update diagnostics are included in the live state and
+scan logs.
 
 Motion is ready automatically when STM32 is online; the web client does not
 need a separate enable command. Mapping uses a no-ROS 2D SLAM pipeline:
