@@ -55,6 +55,8 @@ export function MapCapturePanel({
   onCommand,
 }: MapCapturePanelProps) {
   const active = Boolean(dataset.active);
+  const starting = Boolean(dataset.starting) || String(status.scan ?? "") === "starting";
+  const saving = Boolean(dataset.saving) || String(status.scan ?? "") === "saving";
   const selectedMap = maps.find((map) => String(map.run_id ?? "") === selectedMapId);
   const mapCount = maps.length;
   const pageSize = 5;
@@ -75,7 +77,7 @@ export function MapCapturePanel({
           <CardDescription>Scan and save on Jetson; select a saved map for monitoring or planning.</CardDescription>
         </div>
         <div className="flex items-center gap-1.5 text-xs">
-          <Badge variant={active ? "default" : "outline"}>{active ? "recording" : String(status.scan ?? "idle")}</Badge>
+          <Badge variant={active ? "default" : "outline"}>{active ? "recording" : starting ? "starting" : String(status.scan ?? "idle")}</Badge>
           <Badge variant="outline">{mapCount} saved map{mapCount === 1 ? "" : "s"}</Badge>
         </div>
       </CardHeader>
@@ -87,9 +89,9 @@ export function MapCapturePanel({
               <span>{number(dataset.lidar_scans)} scans · {number(dataset.lidar_points)} points · {number(dataset.slam_keyframes)} keyframes · {number(dataset.slam_loop_closures)} loop closures</span>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Button variant="default" onClick={() => onCommand({ command: "scan_start" })} disabled={!online || active}><Database className="size-4" />Start scan</Button>
-              <Button variant="outline" onClick={() => onCommand({ command: "scan_save" })} disabled={!online || !active}><Save className="size-4" />Save map</Button>
-              <Button variant="secondary" onClick={() => onCommand({ command: "scan_stop" })} disabled={!online || !active}><Square className="size-4" />Stop</Button>
+              <Button variant="default" onClick={() => onCommand({ command: "scan_start" })} disabled={!online || active || starting || saving}><Database className="size-4" />Start scan</Button>
+              <Button variant="outline" onClick={() => onCommand({ command: "scan_save" })} disabled={!online || !active || saving}><Save className="size-4" />Save map</Button>
+              <Button variant="secondary" onClick={() => onCommand({ command: "scan_stop" })} disabled={!online || !active || saving}><Square className="size-4" />{saving ? "Saving…" : "Stop"}</Button>
             </div>
             <p className="text-[11px] leading-4 text-muted-foreground">Scan match {number(dataset.slam_match_score).toFixed(2)} · graph optimizations {number(dataset.slam_optimizations)}. Save writes the occupancy map and slam_pose_graph.json.</p>
           </div>

@@ -38,7 +38,8 @@ accumulated log-odds occupancy and scan-history trajectory, and intentionally
 does not expose TF or sensor-frame controls. The Astra-S panel is placed beside
 the fixed map for synchronized monitoring. The dashboard also includes a
 standalone polar LiDAR view, continuous keyboard control (`W/S/A/D`, arrows,
-`Q/E`), watchdog-safe stop handling, map reload, and a dataset capture panel.
+`Q/E`), manual stop, map reload, and a dataset capture panel. Jetson retains the
+last accepted velocity if the web connection drops.
 Simultaneous keys are combined: W+D commands diagonal motion and W+Q commands
 forward motion with a left turn. `Start capture` and `Save dataset` create a
 Jetson-side run containing state, commands, LiDAR scans, RGB/depth frames, map

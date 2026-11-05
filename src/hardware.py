@@ -226,7 +226,7 @@ class _PythonStm32SerialSource:
         self._latest = None
         self._latest_aux = None
         self.errors = 0
-        self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
+        self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s, write_timeout=0.05)
         self._serial.reset_input_buffer()
         self._thread = threading.Thread(target=self._run, name="stm32-reader", daemon=True)
         self._thread.start()
@@ -628,6 +628,8 @@ class N10PDecoder:
 
 
 class N10PSerialSource:
+    SCAN_QUEUE_SIZE = 128
+
     def __init__(
         self,
         port: str,
@@ -645,6 +647,9 @@ class N10PSerialSource:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._latest: LidarScan | None = None
+        self._scans: deque[LidarScan] = deque(maxlen=self.SCAN_QUEUE_SIZE)
+        self._scan_queue_dropped = 0
+        self._last_scan_t_ns = 0
         self._decoder = N10PDecoder(self.protocol_profile)
         self._scan_times = deque(maxlen=24)
 
@@ -652,6 +657,18 @@ class N10PSerialSource:
     def latest(self) -> LidarScan | None:
         with self._lock:
             return self._latest
+
+    @property
+    def scan_queue_dropped(self) -> int:
+        with self._lock:
+            return self._scan_queue_dropped
+
+    def drain_scans(self, limit: int = 16) -> tuple[LidarScan, ...]:
+        if limit <= 0:
+            return ()
+        with self._lock:
+            count = min(int(limit), len(self._scans))
+            return tuple(self._scans.popleft() for _ in range(count))
 
     @property
     def scan_rate_hz(self) -> float:
@@ -668,8 +685,11 @@ class N10PSerialSource:
             raise RuntimeError("pyserial is required for N10P capture") from error
         self._stop.clear()
         self._decoder = N10PDecoder(self.protocol_profile)
-        self._latest = None
         with self._lock:
+            self._latest = None
+            self._scans.clear()
+            self._scan_queue_dropped = 0
+            self._last_scan_t_ns = 0
             self._scan_times.clear()
         try:
             self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
@@ -725,7 +745,13 @@ class N10PSerialSource:
                     wrapped = last_angle is not None and last_angle > 355.0 and angle < 5.0
                     if wrapped and points:
                         with self._lock:
-                            self._latest = LidarScan(timestamp, tuple(points))
+                            scan_t_ns = max(utc_ns(), self._last_scan_t_ns + 1)
+                            self._last_scan_t_ns = scan_t_ns
+                            scan = LidarScan(scan_t_ns, tuple(points))
+                            self._latest = scan
+                            if len(self._scans) == self._scans.maxlen:
+                                self._scan_queue_dropped += 1
+                            self._scans.append(scan)
                             self._scan_times.append(time.monotonic())
                         points = []
                     points.append(point)

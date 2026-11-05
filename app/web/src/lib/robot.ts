@@ -167,7 +167,11 @@ class RobotBridge {
   }
 
   send(payload: RobotMessage): Promise<RobotMessage[]> {
-    if (String(payload.command ?? "") === "velocity") return this.sendVelocity(payload);
+    const command = String(payload.command ?? "");
+    if (command === "velocity") return this.sendVelocity(payload);
+    if (["emergency_stop", "scan_start", "scan_save", "scan_stop"].includes(command)) {
+      return this.sendPriorityCommand(payload);
+    }
     const request = this.commandQueue.then(async () => {
       await this.ensureConnected();
       if (!this.socket || this.socket.destroyed || !this.connected) throw new Error("robot backend is not connected");
@@ -177,6 +181,14 @@ class RobotBridge {
     });
     this.commandQueue = request.catch(() => []);
     return request;
+  }
+
+  private async sendPriorityCommand(payload: RobotMessage): Promise<RobotMessage[]> {
+    // Safety and scan lifecycle commands must bypass queued map/plan requests.
+    await this.ensureConnected();
+    if (!this.socket || this.socket.destroyed || !this.connected) throw new Error("robot backend is not connected");
+    this.socket.write(encodeCommand(payload));
+    return this.messages();
   }
 
   private async sendVelocity(payload: RobotMessage): Promise<RobotMessage[]> {
@@ -207,6 +219,8 @@ function mapHistoryRecord(message: RobotMessage): RobotMessage {
 type RobotGlobal = typeof globalThis & { __mecanumRobotBridge?: RobotBridge };
 const globalState = globalThis as RobotGlobal;
 const bridge = globalState.__mecanumRobotBridge ?? new RobotBridge();
+// Keep the existing socket while refreshing bridge methods on dev reload.
+Object.setPrototypeOf(bridge, RobotBridge.prototype);
 globalState.__mecanumRobotBridge = bridge;
 
 export function readRobot(): Promise<RobotMessage[]> {

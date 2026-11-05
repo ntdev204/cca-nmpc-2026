@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import base64
 import binascii
+from concurrent.futures import TimeoutError as FutureTimeoutError
 import io
 import json
 import math
@@ -29,6 +30,16 @@ except ModuleNotFoundError:
 
 
 ZERO = (0.0, 0.0, 0.0)
+
+
+def error_text(error: BaseException) -> str:
+    """OpenNI bindings can raise again from exception.__str__/__repr__."""
+    try:
+        return str(error)
+    except Exception:
+        return type(error).__name__
+
+
 APP_PORT = 8765
 CAMERA_HTTP_PORT = 8766
 MAX_POINTS = 360
@@ -402,6 +413,20 @@ class CameraVideoTrack(VideoStreamTrack):
 class CameraMjpegHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            # A browser/bridge may abort a request or discard a keep-alive
+            # socket. End only that connection, including read/flush failures.
+            self.close_connection = True
+
+    def finish(self) -> None:
+        try:
+            super().finish()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            self.close_connection = True
+
     def log_message(self, _format: str, *_args: Any) -> None:
         return
 
@@ -505,11 +530,13 @@ class RobotService:
         self.port = port
         self.stop_event = threading.Event()
         self.state_lock = threading.RLock()
+        self.motion_lock = threading.RLock()
         self.map_lock = threading.RLock()
         self.peers: set[Peer] = set()
         self.server_socket: socket.socket | None = None
         self.camera_http_server: ThreadingHTTPServer | None = None
         self.webrtc_loop: asyncio.AbstractEventLoop | None = None
+        self.webrtc_offer_lock: asyncio.Lock | None = None
         self.webrtc_thread: threading.Thread | None = None
         self.webrtc_peers: set[Any] = set()
         self._closed = False
@@ -520,8 +547,15 @@ class RobotService:
         self.camera_capture_thread: threading.Thread | None = None
         self.map_thread: threading.Thread | None = None
         self.map_fusion_thread: threading.Thread | None = None
-        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=8)
+        self.scan_save_thread: threading.Thread | None = None
+        self.scan_start_thread: threading.Thread | None = None
+        self.map_fusion_queue: queue.Queue = queue.Queue(maxsize=128)
         self.map_scans_dropped = 0
+        self.pose_history: deque[Any] = deque(maxlen=3000)
+        self.map_to_odom = (0.0, 0.0, 0.0)
+        self.map_scans_queued = 0
+        self.map_scan_lag_s = 0.0
+        self.lidar_dropped_at_scan_start = 0
         self.last_map_error_broadcast_mono = 0.0
         self.camera_capture_queue: queue.Queue = queue.Queue(maxsize=2)
         self.camera_count_lock = threading.Lock()
@@ -537,6 +571,8 @@ class RobotService:
         self.run_root: Path | None = None
         self.scan_started_ns = 0
         self.scan_active = False
+        self.scan_starting = False
+        self.scan_saving = False
         self.scan_saved = False
         self.last_saved_root: Path | None = None
         self.armed = False
@@ -658,6 +694,8 @@ class RobotService:
                 "maps": self.saved_maps_payload(),
                 "dataset": {
                     "active": self.scan_active,
+                    "starting": self.scan_starting,
+                    "saving": self.scan_saving,
                     "run": self.run_root.name if self.run_root else None,
                     "saved": self.scan_saved,
                     "lidar_scans": int(self.mapper.scans) if self.mapper is not None else 0,
@@ -667,6 +705,10 @@ class RobotService:
                     "slam_optimizations": int(self.mapper.graph_optimizations) if self.mapper is not None else 0,
                     "slam_match_score": round(float(self.mapper.last_scan_match.score), 3) if self.mapper is not None else 0.0,
                     "slam_scans_dropped": self.map_scans_dropped,
+                    "slam_scans_queued": self.map_scans_queued,
+                    "slam_queue_depth": self.map_fusion_queue.qsize(),
+                    "slam_scan_lag_s": round(self.map_scan_lag_s, 3),
+                    "lidar_scans_dropped": max(0, int(getattr(self.lidar, "scan_queue_dropped", 0)) - self.lidar_dropped_at_scan_start),
                     "camera_frames": int(camera_frames_saved),
                 },
             }
@@ -677,12 +719,13 @@ class RobotService:
         stm_port = serial_port(os.environ.get("CCA_STM_PORT", "/dev/rai_controller"), ("/dev/ttyACM0", "COM5"))
         lidar_port = serial_port(os.environ.get("CCA_LIDAR_PORT", "/dev/rai_lidar"), ("/dev/ttyACM1", "COM6"))
         try:
-            self.stm = Stm32SerialSource(stm_port, baudrate=115200, backend="auto")
+            # Bound serial writes so a stalled port cannot hold the control lock.
+            self.stm = Stm32SerialSource(stm_port, baudrate=115200, backend="python")
             self.stm.start()
             self.stm.send_velocity(*ZERO)
             with self.state_lock:
-                self.armed = True
-                self.status["armed"] = True
+                self.armed = False
+                self.status["armed"] = False
             self._set_status("stm", "online", f"STM {stm_port} / {self.stm.backend}")
         except Exception as error:
             self.stm = None
@@ -714,7 +757,7 @@ class RobotService:
         except Exception as error:
             self.camera = None
             self.camera_status = "error"
-            self._set_status("camera", "error", str(error))
+            self._set_status("camera", "error", error_text(error))
 
     def latest_camera_frame(self) -> tuple[int, Any] | None:
         with self.state_lock:
@@ -769,9 +812,19 @@ class RobotService:
             self._create_webrtc_answer(sdp, offer_type),
             self.webrtc_loop,
         )
-        return future.result(timeout=15.0)
+        try:
+            return future.result(timeout=15.0)
+        except FutureTimeoutError as error:
+            future.cancel()
+            raise TimeoutError("WebRTC negotiation timed out; retry camera connection") from error
 
     async def _create_webrtc_answer(self, sdp: str, offer_type: str) -> dict[str, str]:
+        if self.webrtc_offer_lock is None:
+            self.webrtc_offer_lock = asyncio.Lock()
+        async with self.webrtc_offer_lock:
+            return await self._create_webrtc_answer_locked(sdp, offer_type)
+
+    async def _create_webrtc_answer_locked(self, sdp: str, offer_type: str) -> dict[str, str]:
         if RTCPeerConnection is None or RTCSessionDescription is None:
             raise RuntimeError("aiortc is unavailable")
         await self._close_webrtc_peers()
@@ -813,7 +866,7 @@ class RobotService:
                 "sdp": peer.localDescription.sdp,
                 "type": peer.localDescription.type,
             }
-        except Exception:
+        except BaseException:
             await self._remove_webrtc_peer(peer)
             raise
 
@@ -1021,10 +1074,37 @@ class RobotService:
             return None
 
     def start_scan(self) -> None:
+        with self.state_lock:
+            if self.stop_event.is_set():
+                return
+            if self.scan_active or self.scan_starting or self.scan_saving:
+                return
+            if self.stm is None or self.lidar is None:
+                self.broadcast({"type": "event", "event": "error", "message": "STM32 and N10P must be online before scanning"})
+                return
+            self.scan_starting = True
+            self.status["scan"] = "starting"
+
+            def run() -> None:
+                try:
+                    self._start_scan_impl()
+                except Exception as error:
+                    with self.state_lock:
+                        self.scan_starting = False
+                        self.scan_start_thread = None
+                        self.status["scan"] = "idle"
+                    self.broadcast({"type": "event", "event": "error", "message": str(error)})
+
+            worker = threading.Thread(target=run, name="robot-console-map-start", daemon=True)
+            self.scan_start_thread = worker
+            self.broadcast({"type": "event", "event": "scan_starting"})
+            worker.start()
+
+    def _start_scan_impl(self) -> None:
         from app.backend.manual_map import OccupancyMap, Pose, RunFiles
 
         with self.state_lock:
-            if self.scan_active:
+            if self.scan_active or self.scan_saving:
                 return
             if self.stm is None or self.lidar is None:
                 self.broadcast({"type": "event", "event": "error", "message": "STM32 and N10P must be online before scanning"})
@@ -1050,10 +1130,20 @@ class RobotService:
             )
             self.pose = initial_pose
             self.map_pose = copy_pose_for_mapping(initial_pose)
+            self.map_to_odom = (0.0, 0.0, 0.0)
+            self.map_scans_dropped = 0
+            self.map_scans_queued = 0
+            self.map_scan_lag_s = 0.0
+            self.lidar_dropped_at_scan_start = int(getattr(self.lidar, "scan_queue_dropped", 0))
+            drain = getattr(self.lidar, "drain_scans", None)
+            if callable(drain):
+                drain(128)
             self.files = RunFiles(root)
             self.run_root = root
             self.scan_started_ns = now_ns()
             self.scan_active = True
+            self.scan_starting = False
+            self.scan_start_thread = None
             self.scan_saved = False
             self.plan_payload = None
             self.last_scan_ns = 0
@@ -1069,33 +1159,73 @@ class RobotService:
         self.broadcast({"type": "event", "event": "scan_started", "status": self.status_payload()})
 
     def save_scan(self, reason: str = "operator") -> None:
+        tail_work = []
         with self.state_lock:
+            if self.scan_saving:
+                return
             if not self.scan_active or self.mapper is None or self.run_root is None:
                 self.broadcast({"type": "event", "event": "error", "message": "no active scan"})
                 return
             root = self.run_root
             mapper = self.mapper
             files = self.files
-            try:
-                self._flush_map_fusion()
-                with self.map_lock:
-                    mapper.save(root)
-                if files is not None:
-                    self._flush_camera_capture()
-                    files.event("console_scan_saved", reason)
-                    files.flush()
-                    files.close()
-                with self.map_lock:
-                    self._write_manifest(root, mapper, reason)
+            stop_t_ns = now_ns()
+            drain = getattr(self.lidar, "drain_scans", None)
+            if callable(drain):
+                for scan in drain(128):
+                    if self.last_scan_ns < scan.t_ns <= stop_t_ns and scan.t_ns >= self.scan_started_ns:
+                        tail_work.append((scan, mapper, self._pose_at_locked(scan.t_ns), files))
+                        self.last_scan_ns = scan.t_ns
+            self.scan_active = False
+            self.scan_saving = True
+            self.status["scan"] = "saving"
+            worker = threading.Thread(
+                target=self._save_scan_worker,
+                args=(root, mapper, files, reason, tail_work),
+                name="robot-console-map-save",
+                daemon=True,
+            )
+            self.scan_save_thread = worker
+            self.broadcast({"type": "event", "event": "scan_saving"})
+            worker.start()
+
+    def _save_scan_worker(self, root: Path, mapper: Any, files: Any, reason: str,
+                          tail_work: list[tuple[Any, Any, Any, Any]]) -> None:
+        try:
+            # Include scans already captured by the LiDAR before Stop arrived.
+            for item in tail_work:
+                self.map_fusion_queue.put(item, timeout=60.0)
+                with self.state_lock:
+                    self.map_scans_queued += 1
+            # Fusion needs state_lock to finish each queued scan.
+            self._flush_map_fusion(timeout_s=60.0)
+            if self.map_fusion_queue.unfinished_tasks:
+                raise TimeoutError("SLAM queue is still processing; retry saving after it drains")
+            with self.map_lock:
+                mapper.save(root)
+            if files is not None:
+                self._flush_camera_capture()
+                files.event("console_scan_saved", reason)
+                files.flush()
+                files.close()
+            with self.map_lock:
+                self._write_manifest(root, mapper, reason)
+            with self.state_lock:
                 self.scan_saved = True
                 self.last_saved_root = root
                 self.saved_maps_cache_mono = 0.0
-                self.scan_active = False
                 self.files = None
                 self.status["scan"] = "saved"
-            except Exception as error:
-                self.broadcast({"type": "event", "event": "error", "message": str(error)})
-                return
+        except Exception as error:
+            with self.state_lock:
+                self.scan_active = True
+                self.status["scan"] = "recording"
+            self.broadcast({"type": "event", "event": "error", "message": str(error)})
+            return
+        finally:
+            with self.state_lock:
+                self.scan_saving = False
+                self.scan_save_thread = None
         self.broadcast({"type": "event", "event": "scan_saved", "path": str(root), "status": self.status_payload()})
 
     def load_saved_map(self, message: dict[str, Any] | None = None) -> None:
@@ -1297,41 +1427,45 @@ class RobotService:
     def _apply_velocity(self, values: tuple[float, float, float]) -> None:
         if not all(math.isfinite(value) for value in values):
             raise ValueError("velocity must be finite")
-        with self.state_lock:
+        with self.motion_lock:
             active = self.armed and self.stm is not None
-            self.last_command_mono = time.monotonic()
-            self.watchdog_zero_sent = False
-        if active:
-            self.stm.send_velocity(*values)
-            with self.state_lock:
+            if active:
+                self.stm.send_velocity(*values)
                 self.last_command = values
                 self.command_sequence += 1
-                if self.files is not None:
-                    self.files.control(now_ns(), values, self.stm.latest, self.command_sequence, getattr(self.stm, "backend", "serial"))
-        else:
-            self.send_zero()
+                self.last_command_mono = time.monotonic()
+                self.watchdog_zero_sent = False
+            else:
+                self.send_zero()
+
+    def _record_control(self, values: tuple[float, float, float]) -> None:
+        with self.state_lock:
+            if self.files is not None and self.stm is not None:
+                self.files.control(now_ns(), values, self.stm.latest, self.command_sequence, getattr(self.stm, "backend", "serial"))
 
     def handle(self, peer: Peer, message: dict[str, Any]) -> None:
         command = str(message.get("command", "")).strip().lower()
         try:
             if command == "arm":
                 enabled = bool(message.get("enabled", False))
-                with self.state_lock:
+                with self.motion_lock:
                     self.armed = enabled and self.stm is not None
                     self.status["armed"] = self.armed
                     self.last_command_mono = time.monotonic()
                     self.watchdog_zero_sent = False
-                if not self.armed:
-                    self.send_zero()
+                    if not self.armed:
+                        self.send_zero()
                 self.broadcast({"type": "event", "event": "armed", "enabled": self.armed, "status": self.status_payload()})
             elif command == "velocity":
                 values = tuple(float(message.get(name, 0.0)) for name in ("vx", "vy", "wz"))
                 self._apply_velocity(values)
+                self._record_control(values)
             elif command in {"move", "direction"}:
                 speed = float(message.get("speed_mps", message.get("speed", 0.0)))
                 yaw_speed = float(message.get("yaw_radps", message.get("yaw_speed", 0.0)))
                 values = direction_velocity(str(message.get("direction", "")), speed, yaw_speed)
                 self._apply_velocity(values)
+                self._record_control(values)
             elif command in {"stop", "emergency_stop"}:
                 self.disarm(command)
             elif command == "scan_start":
@@ -1339,36 +1473,51 @@ class RobotService:
             elif command in {"scan_save", "scan_stop"}:
                 self.save_scan(command)
             elif command == "map_load":
-                self.load_saved_map(message)
+                self._start_background_command(peer, command, message)
             elif command == "plan":
-                self.plan_route(message)
+                self._start_background_command(peer, command, message)
             elif command in {"plan_clear", "clear_plan"}:
-                self.clear_plan()
+                self._start_background_command(peer, command, message)
             elif command == "ping":
                 peer.enqueue({"type": "pong", "t_ns": now_ns()})
             else:
                 peer.enqueue({"type": "event", "event": "error", "message": "unknown command"})
         except Exception as error:
-            if command not in {"plan", "plan_clear", "clear_plan", "map_load"}:
+            if isinstance(error, (OSError, RuntimeError)) and command in {"arm", "velocity", "move", "direction"}:
                 self.disarm("command_error")
             peer.enqueue({"type": "event", "event": "error", "message": str(error)})
 
-    def send_zero(self) -> None:
-        if self.stm is not None:
+    def _start_background_command(self, peer: Peer, command: str, message: dict[str, Any]) -> None:
+        def run() -> None:
             try:
-                self.stm.send_velocity(*ZERO)
+                if command == "map_load":
+                    self.load_saved_map(message)
+                elif command == "plan":
+                    self.plan_route(message)
+                else:
+                    self.clear_plan()
             except Exception as error:
-                self._set_status("stm", "error", str(error))
-        with self.state_lock:
+                peer.enqueue({"type": "event", "event": "error", "message": str(error)})
+
+        threading.Thread(target=run, name=f"robot-console-{command}", daemon=True).start()
+
+    def send_zero(self) -> None:
+        with self.motion_lock:
+            if self.stm is not None:
+                try:
+                    self.stm.send_velocity(*ZERO)
+                except Exception:
+                    self.status["stm"] = "error"
             self.last_command = ZERO
 
     def disarm(self, reason: str) -> None:
-        self.send_zero()
-        with self.state_lock:
+        with self.motion_lock:
             self.armed = False
             self.status["armed"] = False
-            self.last_command_mono = time.monotonic()
-        self.broadcast({"type": "event", "event": "stopped", "reason": reason, "status": self.status_payload()})
+            self.send_zero()
+        # Keep E-stop independent of map/state locks; the regular state stream
+        # will publish the disarmed status on its next tick.
+        self.broadcast({"type": "event", "event": "stopped", "reason": reason})
 
     def _client_loop(self, peer: Peer) -> None:
         try:
@@ -1396,23 +1545,72 @@ class RobotService:
                         with self.state_lock:
                             mapper_missing = self.mapper is None
                         if mapper_missing:
-                            try:
-                                self.load_saved_map()
-                            except FileNotFoundError:
-                                pass
+                            threading.Thread(
+                                target=self._load_latest_map_safely,
+                                name="robot-console-initial-map-load",
+                                daemon=True,
+                            ).start()
         except (ConnectionError, OSError):
             pass
         finally:
             with self.state_lock:
                 self.peers.discard(peer)
-                no_peers = not self.peers
             peer.close()
-            if no_peers:
-                self.disarm("client_disconnected")
 
     def broadcast(self, payload: dict[str, Any]) -> None:
         for peer in tuple(self.peers):
             peer.enqueue(payload)
+
+    def _load_latest_map_safely(self) -> None:
+        try:
+            self.load_saved_map()
+        except FileNotFoundError:
+            pass
+
+    @staticmethod
+    def _compose_pose(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+        c, s = math.cos(a[2]), math.sin(a[2])
+        return (a[0] + c * b[0] - s * b[1], a[1] + s * b[0] + c * b[1],
+                math.atan2(math.sin(a[2] + b[2]), math.cos(a[2] + b[2])))
+
+    @staticmethod
+    def _inverse_pose(pose: tuple[float, float, float]) -> tuple[float, float, float]:
+        c, s = math.cos(pose[2]), math.sin(pose[2])
+        return (-c * pose[0] - s * pose[1], s * pose[0] - c * pose[1], -pose[2])
+
+    def _corrected_map_pose(self, odom_pose: Any) -> Any:
+        pose = copy_pose_for_mapping(odom_pose)
+        pose.x_m, pose.y_m, pose.yaw_rad = self._compose_pose(self.map_to_odom, pose.as_tuple())
+        return pose
+
+    def _pose_at_locked(self, target_t_ns: int) -> Any:
+        """Interpolate odometry at acquisition time, before applying SLAM correction."""
+        samples = list(self.pose_history)
+        if not samples:
+            return copy_pose_for_mapping(self.pose)
+        before = after = samples[0]
+        for sample in samples:
+            if sample.last_t_ns <= target_t_ns:
+                before = sample
+            if sample.last_t_ns >= target_t_ns:
+                after = sample
+                break
+        else:
+            after = samples[-1]
+        pose = copy_pose_for_mapping(before)
+        if after.last_t_ns > before.last_t_ns:
+            ratio = max(0.0, min(1.0, (target_t_ns - before.last_t_ns) / (after.last_t_ns - before.last_t_ns)))
+            pose.x_m += ratio * (after.x_m - before.x_m)
+            pose.y_m += ratio * (after.y_m - before.y_m)
+            delta = math.atan2(math.sin(after.yaw_rad - before.yaw_rad), math.cos(after.yaw_rad - before.yaw_rad))
+            pose.yaw_rad = math.atan2(math.sin(before.yaw_rad + ratio * delta), math.cos(before.yaw_rad + ratio * delta))
+            for name in ("last_vx_mps", "last_vy_mps", "last_yaw_rate_radps"):
+                setattr(pose, name, getattr(before, name) + ratio * (getattr(after, name) - getattr(before, name)))
+        elif target_t_ns > before.last_t_ns:
+            pose._integrate(pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps,
+                            min((target_t_ns - before.last_t_ns) / 1e9, 0.25))
+        pose.last_t_ns = target_t_ns
+        return pose
 
     def _state_payload(self) -> dict[str, Any]:
         with self.state_lock:
@@ -1420,16 +1618,16 @@ class RobotService:
             if telemetry is not None and self.pose is not None and telemetry.t_ns != self.last_telemetry_ns:
                 self.pose.update(telemetry)
                 self.last_telemetry_ns = telemetry.t_ns
+                self.pose_history.append(copy_pose_for_mapping(self.pose))
                 if self.files is not None:
                     self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"))
             if self.pose is not None:
                 mapper_uses_matching = self.mapper is not None and bool(
                     getattr(self.mapper, "scan_matching_enabled", False)
                 )
-                # With the current odometry-only map, the rendered marker must
-                # follow the live odometry on every state tick.  A scan matcher
-                # may own map_pose only when it is explicitly enabled.
-                if self.map_pose is None or not mapper_uses_matching:
+                if mapper_uses_matching:
+                    self.map_pose = self._corrected_map_pose(self.pose)
+                else:
                     self.map_pose = copy_pose_for_mapping(self.pose)
             pose = [0.0, 0.0, 0.0] if self.pose is None else list(self.pose.as_tuple())
             map_pose = pose if self.map_pose is None else list(self.map_pose.as_tuple())
@@ -1502,52 +1700,54 @@ class RobotService:
             }
 
     def _sensor_payload(self) -> dict[str, Any] | None:
-        scan: Any = None
-        mapper: Any = None
-        mapping_pose: Any = None
-        capture_files: Any = None
-        telemetry: Any = None
         with self.state_lock:
             if self.lidar is None:
                 return None
-            scan = self.lidar.latest
-            if scan is None or scan.t_ns == self.last_scan_ns:
+            drain = getattr(self.lidar, "drain_scans", None)
+            if callable(drain):
+                available = self.map_fusion_queue.maxsize - self.map_fusion_queue.qsize()
+                limit = min(16, available) if self.scan_active else 128
+                scans = drain(limit) if limit > 0 else ()
+            else:
+                latest = self.lidar.latest
+                scans = (latest,) if latest is not None else ()
+            scans = tuple(scan for scan in scans if scan.t_ns > self.last_scan_ns)
+            if not scans:
                 return None
+            scan = scans[-1]
             self.last_scan_ns = scan.t_ns
             self.latest_lidar = compact_points(scan.points)
+            work = []
             if self.scan_active and self.mapper is not None and self.pose is not None:
-                mapper = self.mapper
-                matching_enabled = bool(getattr(mapper, "scan_matching_enabled", False))
-                prior_map_pose = self.map_pose if matching_enabled and self.map_pose is not None else self.pose
-                mapping_pose = copy_pose_for_mapping(prior_map_pose)
-                capture_files = self.files
-                telemetry = self.stm.latest if self.stm is not None else None
-                mapping_pose.project_to(scan.t_ns, telemetry)
-        if mapper is not None and mapping_pose is not None:
-            try:
-                self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
-            except queue.Full:
+                for queued_scan in scans:
+                    if queued_scan.t_ns < self.scan_started_ns:
+                        continue
+                    work.append((queued_scan, self.mapper, self._pose_at_locked(queued_scan.t_ns), self.files))
+            for item in work:
                 try:
-                    self.map_fusion_queue.get_nowait()
-                    self.map_fusion_queue.task_done()
+                    self.map_fusion_queue.put_nowait(item)
+                    self.map_scans_queued += 1
+                except queue.Full:
                     self.map_scans_dropped += 1
-                    self.map_fusion_queue.put_nowait((scan, mapper, mapping_pose, capture_files))
-                except queue.Empty:
-                    pass
         return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
 
     def _map_fusion_loop(self) -> None:
-        while not self.stop_event.is_set() or not self.map_fusion_queue.empty():
+        while not self.stop_event.is_set() or not self.map_fusion_queue.empty() or self.scan_saving:
             try:
-                scan, mapper, mapping_pose, capture_files = self.map_fusion_queue.get(timeout=0.1)
+                scan, mapper, odom_pose, capture_files = self.map_fusion_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
+                with self.state_lock:
+                    mapping_pose = self._corrected_map_pose(odom_pose)
                 with self.map_lock:
                     mapper.update(scan, mapping_pose)
                     history_record = mapper.history[-1]
                 with self.state_lock:
-                    self.map_pose = mapping_pose
+                    if mapper is self.mapper:
+                        self.map_to_odom = self._compose_pose(mapping_pose.as_tuple(), self._inverse_pose(odom_pose.as_tuple()))
+                        self.map_pose = self._corrected_map_pose(self.pose)
+                        self.map_scan_lag_s = max(0.0, (now_ns() - scan.t_ns) / 1e9)
                 if capture_files is not None:
                     capture_files.scan(scan)
                     capture_files.write_map_history(history_record)
@@ -1595,15 +1795,13 @@ class RobotService:
         while not self.stop_event.wait(0.02):
             now = time.monotonic()
             watchdog_expired = False
-            with self.state_lock:
+            with self.motion_lock:
                 if self.armed and now - self.last_command_mono > 0.7 and not self.watchdog_zero_sent:
                     self.watchdog_zero_sent = True
                     watchdog_expired = True
             if watchdog_expired:
-                # Keep the keyboard session armed so a short GUI/network stall
-                # does not force an operator to re-arm.  Motion is still
-                # stopped immediately, and disconnect/emergency-stop paths
-                # continue to disarm the service.
+                # Stop stale motion without disarming; a short link stall does
+                # not require re-arming, while the last velocity cannot persist.
                 self.send_zero()
                 self.broadcast({"type": "event", "event": "watchdog_zero", "status": self.status_payload()})
             if now - self.last_state_mono >= STATE_PERIOD_S:
@@ -1616,6 +1814,19 @@ class RobotService:
                     self.broadcast(payload)
 
     def serve(self) -> None:
+        # Reserve the command port before opening serial devices or OpenNI.
+        # A second console must not send start/stop frames to shared hardware.
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self.server_socket.bind((self.bind, self.port))
+            self.server_socket.listen(4)
+            self.server_socket.settimeout(0.5)
+        except OSError as error:
+            self.server_socket.close()
+            self.server_socket = None
+            print(f"Cannot start robot console on {self.bind}:{self.port}: {error_text(error)}. Stop the existing console first.")
+            return
         self.start_sources()
         self.start_webrtc()
         self.map_fusion_thread = threading.Thread(target=self._map_fusion_loop, name="robot-console-map-fusion", daemon=True)
@@ -1624,11 +1835,6 @@ class RobotService:
         self.map_thread.start()
         loop_thread = threading.Thread(target=self.loop, name="robot-console-state", daemon=True)
         loop_thread.start()
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind((self.bind, self.port))
-        self.server_socket.listen(4)
-        self.server_socket.settimeout(0.5)
         print(f"Robot console service listening on {self.bind}:{self.port}")
         camera_port = int(os.environ.get("CCA_CAMERA_PORT", str(CAMERA_HTTP_PORT)))
         try:
@@ -1707,8 +1913,16 @@ class RobotService:
         self._closed = True
         self.stop_event.set()
         self.disarm("service_shutdown")
+        with self.state_lock:
+            start_thread = self.scan_start_thread
+        if start_thread is not None and start_thread is not threading.current_thread():
+            start_thread.join()
         if self.scan_active:
             self.save_scan("service_shutdown")
+        with self.state_lock:
+            save_thread = self.scan_save_thread
+        if save_thread is not None and save_thread is not threading.current_thread():
+            save_thread.join()
         self.stop_webrtc()
         if self.camera is not None:
             try:
@@ -1823,6 +2037,7 @@ class ConsoleApp:
         safety = ttk.LabelFrame(control, text="Safety", padding=8)
         safety.pack(fill="x", pady=(0, 8))
         ttk.Button(safety, text="EMERGENCY STOP", command=self.emergency_stop).pack(fill="x")
+        ttk.Button(safety, text="Motion ON", command=lambda: self.send({"command": "arm", "enabled": True})).pack(fill="x")
         motion = ttk.LabelFrame(control, text="Teleoperation", padding=8)
         motion.pack(fill="x", pady=(0, 8))
         ttk.Label(motion, text="Speed (m/s)").pack(anchor="w")
@@ -2222,10 +2437,7 @@ class ConsoleApp:
             self._set_plan(message.get("plan"))
         elif kind == "hello":
             self.connection_text.set("Connected")
-            # The GUI has no separate motion-enable control.  The service
-            # still gates actuation on a live STM connection and retains its
-            # emergency-stop/disconnect interlocks.
-            self.send({"command": "arm", "enabled": True})
+            self.armed = False
         elif kind == "event":
             event = str(message.get("event", ""))
             if event == "disconnect":

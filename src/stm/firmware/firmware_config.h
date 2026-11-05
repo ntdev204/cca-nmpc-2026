@@ -11,8 +11,8 @@
 #define CCA_WHEEL_PWM_LIMIT         16000.0f
 #define CCA_CONTROL_PERIOD_S        0.01f
 
-#define CCA_MAX_VX_MMPS             500
-#define CCA_MAX_VY_MMPS             500
+#define CCA_MAX_VX_MMPS             1600
+#define CCA_MAX_VY_MMPS             1600
 #define CCA_MAX_WZ_MRADPS           1000
 #define CCA_MAX_DEADLINE_TICKS      50u
 
