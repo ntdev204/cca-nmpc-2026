@@ -573,8 +573,10 @@ class RobotService:
         self.scan_started_ns = 0
         self.scan_active = False
         self.scan_starting = False
+        self.scan_stopped = False
         self.scan_saving = False
         self.scan_saved = False
+        self.stopped_scan_tail: list[tuple[Any, Any, Any, Any]] = []
         self.map_source: str | None = None
         self.last_saved_root: Path | None = None
         self.armed = False
@@ -656,6 +658,7 @@ class RobotService:
                 entries.append(
                     {
                         "run_id": root.name,
+                        "name": str(manifest.get("name") or root.name),
                         "saved_at_ns": stopped_at_ns,
                         "scans": int(map_meta.get("scans", 0)),
                         "points": int(map_meta.get("points", 0)),
@@ -711,6 +714,7 @@ class RobotService:
                 "dataset": {
                     "active": self.scan_active,
                     "starting": self.scan_starting,
+                    "stopped": self.scan_stopped,
                     "saving": self.scan_saving,
                     "run": self.run_root.name if self.run_root else None,
                     "saved": self.scan_saved,
@@ -1160,7 +1164,9 @@ class RobotService:
             self.scan_active = True
             self.scan_starting = False
             self.scan_start_thread = None
+            self.scan_stopped = False
             self.scan_saved = False
+            self.stopped_scan_tail = []
             self.plan_payload = None
             self.map_source = "scan"
             self.last_scan_ns = 0
@@ -1183,30 +1189,53 @@ class RobotService:
         self.broadcast({"type": "map", "t_ns": now_ns(), "map": initial_map, "plan": None})
         self.broadcast({"type": "event", "event": "scan_started", "status": self.status_payload()})
 
-    def save_scan(self, reason: str = "operator") -> None:
-        tail_work = []
+    def stop_scan(self) -> None:
         with self.state_lock:
-            if self.scan_saving:
-                return
-            if not self.scan_active or self.mapper is None or self.run_root is None:
+            if not self.scan_active or self.mapper is None:
                 self.broadcast({"type": "event", "event": "error", "message": "no active scan"})
                 return
-            root = self.run_root
-            mapper = self.mapper
-            files = self.files
             stop_t_ns = now_ns()
             drain = getattr(self.lidar, "drain_scans", None)
             if callable(drain):
                 for scan in drain(128):
                     if self.last_scan_ns < scan.t_ns <= stop_t_ns and scan.t_ns >= self.scan_started_ns:
-                        tail_work.append((scan, mapper, self._pose_at_locked(scan.t_ns), files))
+                        self.stopped_scan_tail.append((scan, self.mapper, self._pose_at_locked(scan.t_ns), self.files))
                         self.last_scan_ns = scan.t_ns
             self.scan_active = False
+            self.scan_stopped = True
+            self.status["scan"] = "stopped"
+        self.broadcast({"type": "event", "event": "scan_stopped", "status": self.status_payload()})
+
+    def save_scan(self, reason: str = "operator", map_name: str = "") -> None:
+        tail_work: list[tuple[Any, Any, Any, Any]] = []
+        display_name = " ".join(str(map_name).split())[:80]
+        with self.state_lock:
+            if self.scan_saving:
+                return
+            if (not self.scan_active and not self.scan_stopped) or self.mapper is None or self.run_root is None:
+                self.broadcast({"type": "event", "event": "error", "message": "no stopped or active scan to save"})
+                return
+            root = self.run_root
+            mapper = self.mapper
+            files = self.files
+            was_active = self.scan_active
+            tail_work.extend(self.stopped_scan_tail)
+            self.stopped_scan_tail = []
+            if was_active:
+                stop_t_ns = now_ns()
+                drain = getattr(self.lidar, "drain_scans", None)
+                if callable(drain):
+                    for scan in drain(128):
+                        if self.last_scan_ns < scan.t_ns <= stop_t_ns and scan.t_ns >= self.scan_started_ns:
+                            tail_work.append((scan, mapper, self._pose_at_locked(scan.t_ns), files))
+                            self.last_scan_ns = scan.t_ns
+            self.scan_active = False
+            self.scan_stopped = False
             self.scan_saving = True
             self.status["scan"] = "saving"
             worker = threading.Thread(
                 target=self._save_scan_worker,
-                args=(root, mapper, files, reason, tail_work),
+                args=(root, mapper, files, reason, display_name or root.name, tail_work, was_active),
                 name="robot-console-map-save",
                 daemon=True,
             )
@@ -1214,8 +1243,8 @@ class RobotService:
             self.broadcast({"type": "event", "event": "scan_saving"})
             worker.start()
 
-    def _save_scan_worker(self, root: Path, mapper: Any, files: Any, reason: str,
-                          tail_work: list[tuple[Any, Any, Any, Any]]) -> None:
+    def _save_scan_worker(self, root: Path, mapper: Any, files: Any, reason: str, map_name: str,
+                          tail_work: list[tuple[Any, Any, Any, Any]], was_active: bool) -> None:
         try:
             # Include scans already captured by the LiDAR before Stop arrived.
             for item in tail_work:
@@ -1234,17 +1263,19 @@ class RobotService:
                 files.flush()
                 files.close()
             with self.map_lock:
-                self._write_manifest(root, mapper, reason)
+                self._write_manifest(root, mapper, reason, map_name)
             with self.state_lock:
                 self.scan_saved = True
+                self.scan_stopped = False
                 self.last_saved_root = root
                 self.saved_maps_cache_mono = 0.0
                 self.files = None
                 self.status["scan"] = "saved"
         except Exception as error:
             with self.state_lock:
-                self.scan_active = True
-                self.status["scan"] = "recording"
+                self.scan_active = was_active
+                self.scan_stopped = not was_active
+                self.status["scan"] = "recording" if was_active else "stopped"
             self.broadcast({"type": "event", "event": "error", "message": str(error)})
             return
         finally:
@@ -1343,7 +1374,13 @@ class RobotService:
                 digest.update(block)
         return digest.hexdigest()
 
-    def _write_manifest(self, root: Path, mapper: Any, reason: str) -> None:
+    def _write_manifest(self, root: Path, mapper: Any, reason: str, map_name: str | None = None) -> None:
+        if not map_name:
+            try:
+                previous = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+                map_name = str(previous.get("name") or root.name) if isinstance(previous, dict) else root.name
+            except (OSError, TypeError, json.JSONDecodeError):
+                map_name = root.name
         files = {
             path.relative_to(root).as_posix(): {"bytes": path.stat().st_size, "sha256": self._sha256(path)}
             for path in root.rglob("*")
@@ -1352,6 +1389,7 @@ class RobotService:
         payload = {
             "schema": "cca-robot-console-capture-v1",
             "run_id": root.name,
+            "name": map_name,
             "capture_source": "hardware",
             "status": "completed",
             "paper_edit": False,
@@ -1466,7 +1504,7 @@ class RobotService:
 
     def _record_control(self, values: tuple[float, float, float]) -> None:
         with self.state_lock:
-            if self.files is not None and self.stm is not None:
+            if self.files is not None and self.scan_active and self.stm is not None:
                 self.files.control(now_ns(), values, self.stm.latest, self.command_sequence, getattr(self.stm, "backend", "serial"))
 
     def handle(self, peer: Peer, message: dict[str, Any]) -> None:
@@ -1513,8 +1551,10 @@ class RobotService:
                 self.disarm(command)
             elif command == "scan_start":
                 self.start_scan()
-            elif command in {"scan_save", "scan_stop"}:
-                self.save_scan(command)
+            elif command == "scan_stop":
+                self.stop_scan()
+            elif command == "scan_save":
+                self.save_scan(command, str(message.get("name", "")))
             elif command == "map_load":
                 self._start_background_command(peer, command, message)
             elif command == "plan":
@@ -1649,7 +1689,7 @@ class RobotService:
                     self.status["stm"] = "online"
                     self.status["message"] = "STM32 telemetry recovered; re-arm motion"
                 self.pose_history.append(copy_pose_for_mapping(self.pose))
-                if self.files is not None:
+                if self.files is not None and self.scan_active:
                     self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"))
             if self.pose is not None:
                 mapper_uses_matching = self.mapper is not None and bool(
