@@ -31,26 +31,6 @@ def bresenham(start: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, 
             y0 += sy
 
 
-def _filter_components(occupied: set[tuple[int, int]], minimum: int) -> set[tuple[int, int]]:
-    remaining = set(occupied)
-    cleaned: set[tuple[int, int]] = set()
-    while remaining:
-        seed = remaining.pop()
-        component, stack = [seed], [seed]
-        while stack:
-            x, y = stack.pop()
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    neighbour = (x + dx, y + dy)
-                    if (dx or dy) and neighbour in remaining:
-                        remaining.remove(neighbour)
-                        component.append(neighbour)
-                        stack.append(neighbour)
-        if len(component) >= minimum:
-            cleaned.update(component)
-    return cleaned
-
-
 def _wrap(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 
@@ -112,7 +92,6 @@ class OccupancyMap:
     OCCUPIED_THRESHOLD = 0.75
     FREE_EVIDENCE = -0.35
     OCCUPIED_EVIDENCE = 0.85
-    CLEAN_MIN_COMPONENT_CELLS = 3
     KEYFRAME_DISTANCE_M = 0.18
     KEYFRAME_YAW_RAD = math.radians(8.0)
     KEYFRAME_MAX_PERIOD_NS = 1_000_000_000
@@ -525,15 +504,17 @@ class OccupancyMap:
         }
 
     def _clean_occupied(self) -> set[tuple[int, int]]:
-        return _filter_components(self.occupied, self.CLEAN_MIN_COMPONENT_CELLS)
+        # Sparse N10P returns often occupy isolated 2.5 cm cells, especially
+        # at longer range. Filtering connected components here erased valid
+        # walls and made live maps appear blank, so SLAM hit cells are retained.
+        return set(self.occupied)
 
     def payload(self) -> dict[str, Any]:
         cleaned = self._clean_occupied()
-        return self._payload_for(cleaned, {"enabled": True, "method": "occupied_connected_components",
-                                           "min_component_cells": self.CLEAN_MIN_COMPONENT_CELLS,
+        return self._payload_for(cleaned, {"enabled": False, "method": "preserve_slam_occupied_cells",
                                            "raw_occupied_cells": len(self.occupied),
                                            "clean_occupied_cells": len(cleaned),
-                                           "removed_occupied_cells": len(self.occupied) - len(cleaned)})
+                                           "removed_occupied_cells": 0})
 
     def raw_payload(self) -> dict[str, Any]:
         return self._payload_for(set(self.occupied), {"enabled": False, "method": "raw_log_odds_threshold",
