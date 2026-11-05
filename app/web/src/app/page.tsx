@@ -423,8 +423,13 @@ export default function Home() {
   const telemetry = (state.telemetry as Record<string, unknown> | undefined) ?? {};
   const poseDiagnostics = (state.pose_diagnostics as Record<string, unknown> | undefined) ?? {};
   const tf = (state.tf as TfPayload | undefined);
-  const mapData = snapshot.map?.map as Record<string, unknown> | undefined;
-  const plan = snapshot.map?.plan as MapPlan | undefined;
+  const dataset = (status.dataset as Record<string, unknown> | undefined) ?? {};
+  const mapVisible = Boolean(
+    dataset.active || dataset.starting || dataset.saving ||
+    status.map_source === "scan" || status.map_source === "saved",
+  );
+  const mapData = mapVisible ? snapshot.map?.map as Record<string, unknown> | undefined : undefined;
+  const plan = mapVisible ? snapshot.map?.plan as MapPlan | undefined : undefined;
   const lidar = useMemo(() => (Array.isArray(snapshot.lidar?.points) ? snapshot.lidar.points as number[][] : []), [snapshot.lidar]);
   const mapHistory = useMemo(() => {
     const historyPayload = (mapData?.metadata as Record<string, unknown> | undefined)?.history as Record<string, unknown> | undefined;
@@ -434,7 +439,6 @@ export default function Home() {
   const online = snapshot.backend === "online";
   const cameraOnline = online && status.camera === "online";
   const cameraActive = cameraOnline && view !== "telemetry";
-  const dataset = (status.dataset as Record<string, unknown> | undefined) ?? {};
   const savedMaps = useMemo<SavedMap[]>(() => {
     if (!Array.isArray(status.maps)) return [];
     return status.maps.filter((item): item is SavedMap => Boolean(item && typeof item === "object"));

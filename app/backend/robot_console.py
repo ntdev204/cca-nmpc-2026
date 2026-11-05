@@ -575,6 +575,7 @@ class RobotService:
         self.scan_starting = False
         self.scan_saving = False
         self.scan_saved = False
+        self.map_source: str | None = None
         self.last_saved_root: Path | None = None
         self.armed = False
         self.last_command = ZERO
@@ -697,6 +698,7 @@ class RobotService:
                     and time.monotonic() - self.last_telemetry_mono <= STM_TELEMETRY_MAX_AGE_S
                 ),
                 "scan_active": self.scan_active,
+                "map_source": self.map_source,
                 "run": self.run_root.name if self.run_root else None,
                 "lidar_target_hz": LIDAR_TARGET_HZ,
                 "lidar_rate_hz": round(lidar_rate_hz, 2),
@@ -1160,6 +1162,7 @@ class RobotService:
             self.scan_start_thread = None
             self.scan_saved = False
             self.plan_payload = None
+            self.map_source = "scan"
             self.last_scan_ns = 0
             self.last_broadcast_map_signature = ""
             # A new scan starts with an empty live map. Older runs remain in
@@ -1312,6 +1315,7 @@ class RobotService:
         with self.state_lock:
             self.plan_payload = plan
             self.last_saved_root = map_path.parent
+            self.map_source = "saved"
             self.saved_maps_cache_mono = 0.0
             self.last_broadcast_map_signature = ""
         try:
