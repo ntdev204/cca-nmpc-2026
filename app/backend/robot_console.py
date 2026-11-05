@@ -1562,7 +1562,6 @@ class RobotService:
         try:
             peer.sock.settimeout(None)
             file = peer.sock.makefile("rb")
-            initial_map_checked = False
             for line in file:
                 if self.stop_event.is_set():
                     break
@@ -1579,16 +1578,6 @@ class RobotService:
                         requested = [requested]
                     peer.compression_enabled = isinstance(requested, list) and WIRE_ENCODING in requested
                     self.handle(peer, message)
-                    if not initial_map_checked:
-                        initial_map_checked = True
-                        with self.state_lock:
-                            mapper_missing = self.mapper is None
-                        if mapper_missing:
-                            threading.Thread(
-                                target=self._load_latest_map_safely,
-                                name="robot-console-initial-map-load",
-                                daemon=True,
-                            ).start()
         except (ConnectionError, OSError):
             pass
         finally:
@@ -1599,12 +1588,6 @@ class RobotService:
     def broadcast(self, payload: dict[str, Any]) -> None:
         for peer in tuple(self.peers):
             peer.enqueue(payload)
-
-    def _load_latest_map_safely(self) -> None:
-        try:
-            self.load_saved_map()
-        except FileNotFoundError:
-            pass
 
     @staticmethod
     def _compose_pose(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
