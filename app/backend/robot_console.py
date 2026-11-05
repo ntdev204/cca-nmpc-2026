@@ -34,7 +34,9 @@ CAMERA_HTTP_PORT = 8766
 MAX_POINTS = 360
 STATE_PERIOD_S = 0.10
 SENSOR_PERIOD_S = 0.05
-MAP_PERIOD_S = 1.0
+# Keep live occupancy feedback responsive while staying below the 10 Hz LiDAR
+# rate; map payload generation is a full-grid operation.
+MAP_PERIOD_S = 0.5
 LIDAR_TARGET_HZ = 10.0
 MAP_RESOLUTION_M = 0.025
 SAVED_MAP_CACHE_PERIOD_S = 2.0
@@ -1773,6 +1775,8 @@ class ConsoleApp:
         self.state: dict[str, Any] = {}
         self.lidar: list[list[float]] = []
         self.map_payload: dict[str, Any] | None = None
+        self.map_render_key: tuple[Any, ...] | None = None
+        self.map_image: Any = None
         self.saved_map_view = False
         self.map_view_initialized = False
         self.view_bounds: tuple[float, float, float, float] | None = None
@@ -2193,6 +2197,24 @@ class ConsoleApp:
             self.lidar = message.get("points") or []
         elif kind == "map":
             incoming_map = message.get("map")
+            # Live map messages use RLE on the wire. Expand it once when the
+            # message arrives; the drawing loop should only read plain cells.
+            if isinstance(incoming_map, dict) and incoming_map.get("occupancy_encoding") == "rle-v1":
+                expected = int(incoming_map.get("occupancy_length", 0))
+                expanded: list[int] = []
+                for run in incoming_map.get("occupancy_rle", []):
+                    if not isinstance(run, (list, tuple)) or len(run) != 2:
+                        expanded = []
+                        break
+                    value, count = int(run[0]), int(run[1])
+                    if count < 0 or len(expanded) + count > expected:
+                        expanded = []
+                        break
+                    expanded.extend([value] * count)
+                if len(expanded) == expected:
+                    incoming_map = dict(incoming_map)
+                    incoming_map["occupancy"] = expanded
+                    incoming_map.pop("occupancy_rle", None)
             if incoming_map is not self.map_payload:
                 if self.map_payload is None and incoming_map is not None:
                     self.map_view_initialized = False
@@ -2351,16 +2373,23 @@ class ConsoleApp:
 
     def _draw_map(self) -> None:
         canvas = self.map_canvas
-        canvas.delete("all")
         width = max(10, canvas.winfo_width())
         height = max(10, canvas.winfo_height())
         xmin, ymin, xmax, ymax = self._world_bounds()
         scale = min((width - 30) / max(xmax - xmin, 0.1), (height - 30) / max(ymax - ymin, 0.1))
         def point(x: float, y: float) -> tuple[float, float]:
             return 15.0 + (x - xmin) * scale, height - 15.0 - (y - ymin) * scale
-        canvas.create_line(*point(xmin, 0.0), *point(xmax, 0.0), fill="#263746", tags="grid")
-        canvas.create_line(*point(0.0, ymin), *point(0.0, ymax), fill="#263746", tags="grid")
-        if self.map_payload:
+
+        # Occupancy cells are the expensive, mostly static layer. Recreate it
+        # only when the map, view bounds, or canvas dimensions actually change.
+        render_key = (id(self.map_payload), self.view_bounds, width, height)
+        if render_key != self.map_render_key:
+            canvas.delete("static")
+            self.map_image = None
+            canvas.create_line(*point(xmin, 0.0), *point(xmax, 0.0), fill="#263746", tags="static")
+            canvas.create_line(*point(0.0, ymin), *point(0.0, ymax), fill="#263746", tags="static")
+        canvas.delete("dynamic")
+        if self.map_payload and render_key != self.map_render_key:
             resolution = float(self.map_payload.get("resolution_m", MAP_RESOLUTION_M))
             origin = self.map_payload.get("origin", [0.0, 0.0, 0.0])
             mw = int(self.map_payload.get("width", 0))
@@ -2368,24 +2397,39 @@ class ConsoleApp:
             occupancy = self.map_payload.get("occupancy", [])
             if mw <= 0 or mh <= 0 or len(origin) < 2:
                 occupancy = []
-            for index, value in enumerate(occupancy[: max(0, mw * mh)]):
-                if value == -1:
-                    continue
-                cell_x = index % mw
-                cell_y = index // mw
-                x0, y0 = point(float(origin[0]) + cell_x * resolution, float(origin[1]) + cell_y * resolution)
-                x1, y1 = point(float(origin[0]) + (cell_x + 1) * resolution, float(origin[1]) + (cell_y + 1) * resolution)
-                color = "#e05252" if value == 100 else "#263b49"
-                canvas.create_rectangle(x0, y1, x1, y0, fill=color, outline="", tags="map")
+            if occupancy and len(occupancy) >= mw * mh:
+                # Rasterize occupancy into one viewport-sized PPM image. A
+                # Canvas item per cell becomes very expensive as maps grow.
+                image_width = max(1, min(width - 30, round(mw * resolution * scale)))
+                image_height = max(1, min(height - 30, round(mh * resolution * scale)))
+                rgb = { -1: bytes((16, 24, 32)), 0: bytes((38, 59, 73)), 100: bytes((224, 82, 82)) }
+                pixels = bytearray(image_width * image_height * 3)
+                output_offset = 0
+                for py in range(image_height):
+                    cell_y = mh - 1 - min(mh - 1, py * mh // image_height)
+                    row_offset = cell_y * mw
+                    for px in range(image_width):
+                        cell_x = min(mw - 1, px * mw // image_width)
+                        color = rgb.get(int(occupancy[row_offset + cell_x]), rgb[-1])
+                        pixels[output_offset:output_offset + 3] = color
+                        output_offset += 3
+                ppm = f"P6\n{image_width} {image_height}\n255\n".encode("ascii") + pixels
+                self.map_image = self.tk.PhotoImage(
+                    data=base64.b64encode(ppm).decode("ascii"), format="PPM"
+                )
+                map_left, map_top = point(float(origin[0]), float(origin[1]) + mh * resolution)
+                canvas.create_image(map_left, map_top, image=self.map_image, anchor="nw", tags="static")
+        if render_key != self.map_render_key:
+            self.map_render_key = render_key
         if len(self.trace) > 1:
-            canvas.create_line([coordinate for xy in self.trace for coordinate in point(*xy)], fill="#f2c94c", width=2, tags="trace")
+            canvas.create_line([coordinate for xy in self.trace for coordinate in point(*xy)], fill="#f2c94c", width=2, tags="dynamic")
         if len(self.planned_path) > 1:
             canvas.create_line(
                 [coordinate for xy in self.planned_path for coordinate in point(*xy)],
                 fill="#b18cff",
                 width=3,
                 dash=(8, 3),
-                tags="astar",
+                tags="dynamic",
             )
         if self.map_goal_xy is not None:
             gx, gy = point(*self.map_goal_xy)
@@ -2397,9 +2441,9 @@ class ConsoleApp:
                 fill="#b18cff",
                 outline="#ffffff",
                 width=2,
-                tags="goal",
+                tags="dynamic",
             )
-            canvas.create_text(gx + 10, gy - 10, anchor="sw", fill="#d9c9ff", text="A* goal", tags="goal")
+            canvas.create_text(gx + 10, gy - 10, anchor="sw", fill="#d9c9ff", text="A* goal", tags="dynamic")
         # The marker must use the same map-frame pose that placed the latest
         # lidar scan.  Using raw odometry here makes the marker disagree with
         # a scan-matched map and can make a moving robot appear stationary.
@@ -2411,16 +2455,27 @@ class ConsoleApp:
             x = px + math.cos(yaw) * cx - math.sin(yaw) * cy
             y = py + math.sin(yaw) * cx + math.cos(yaw) * cy
             corners.extend(point(x, y))
-        canvas.create_polygon(corners, fill="#2f80ed", outline="#b9dcff", tags="robot")
-        canvas.create_line(rx, ry, *point(px + 0.35 * math.cos(yaw), py + 0.35 * math.sin(yaw)), fill="#ffffff", width=2, tags="robot")
+        canvas.create_polygon(corners, fill="#2f80ed", outline="#b9dcff", tags="dynamic")
+        # A long arrow and a nose marker make the robot's forward axis clear
+        # even when the square footprint itself is visually symmetric.
+        arrow_x = px + 0.42 * math.cos(yaw)
+        arrow_y = py + 0.42 * math.sin(yaw)
+        canvas.create_line(rx, ry, *point(arrow_x, arrow_y), fill="#ffffff", width=4,
+                           arrow="last", arrowshape=(12, 15, 5), tags="dynamic")
         if not self.saved_map_view:
             for angle, distance in self.lidar:
                 lx = px + 0.10 * math.cos(yaw) - 0.0 * math.sin(yaw) + distance * math.cos(yaw + angle)
                 ly = py + 0.10 * math.sin(yaw) + distance * math.sin(yaw + angle)
-                canvas.create_line(rx, ry, *point(lx, ly), fill="#48d597", width=1, tags="lidar")
+                canvas.create_line(rx, ry, *point(lx, ly), fill="#48d597", width=1, tags="dynamic")
         else:
-            canvas.create_text(18, 38, anchor="nw", fill="#b9dcff", text="saved map · live pose overlay", tags="label")
-        canvas.create_text(18, 16, anchor="nw", fill="#d6e4ef", text=f"map pose  x={px:.2f}  y={py:.2f}  yaw={yaw:.2f}", tags="label")
+            canvas.create_text(18, 38, anchor="nw", fill="#b9dcff", text="saved map · live pose overlay", tags="dynamic")
+        heading_deg = math.degrees(yaw) % 360.0
+        heading_cardinal = ("E", "NE", "N", "NW", "W", "SW", "S", "SE")[int((heading_deg + 22.5) // 45.0) % 8]
+        diagnostics = self.state.get("pose_diagnostics") or {}
+        yaw_source = str(diagnostics.get("yaw_rate_source", "unknown"))
+        canvas.create_text(18, 16, anchor="nw", fill="#d6e4ef",
+                           text=f"map pose  x={px:.2f} m  y={py:.2f} m  heading={heading_deg:.0f}° {heading_cardinal}  yaw source={yaw_source}",
+                           tags="dynamic")
 
     def close(self) -> None:
         self.emergency_stop()
