@@ -65,6 +65,8 @@ class _ScanFrame:
     vx: float
     vy: float
     wz: float
+    clear_free: bool = True
+    occupied_evidence: float = 0.85
 
 
 @dataclass(frozen=True)
@@ -95,7 +97,7 @@ class OccupancyMap:
     KEYFRAME_DISTANCE_M = 0.18
     KEYFRAME_YAW_RAD = math.radians(8.0)
     KEYFRAME_MAX_PERIOD_NS = 1_000_000_000
-    MAX_KEYFRAME_POINTS = 240
+    MAX_KEYFRAME_POINTS = 180
     LOOP_MIN_SEPARATION = 18
     LOOP_SEARCH_RADIUS_M = 0.45
     LOOP_SEARCH_YAW_RAD = math.radians(12.0)
@@ -216,16 +218,27 @@ class OccupancyMap:
             endpoints.append((sx + distance * math.cos(ray_yaw), sy + distance * math.sin(ray_yaw)))
         return tuple(endpoints)
 
-    def _score(self, endpoints: tuple[tuple[float, float], ...], pose: tuple[float, float, float]) -> float:
+    def _score(
+        self,
+        endpoints: tuple[tuple[float, float], ...],
+        pose: tuple[float, float, float],
+        occupied_neighbourhood: set[tuple[int, int]] | None = None,
+    ) -> float:
         if not endpoints or len(self.occupied) < 12:
             return 0.0
+        if occupied_neighbourhood is None:
+            occupied_neighbourhood = {
+                (x + dx, y + dy)
+                for x, y in self.occupied
+                for dx in (-1, 0, 1)
+                for dy in (-1, 0, 1)
+            }
         cosine, sine = math.cos(pose[2]), math.sin(pose[2])
         hits = 0
         for local_x, local_y in endpoints:
             x = pose[0] + cosine * local_x - sine * local_y
             y = pose[1] + sine * local_x + cosine * local_y
-            cx, cy = self.cell(x, y)
-            if any((cx + dx, cy + dy) in self.occupied for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+            if self.cell(x, y) in occupied_neighbourhood:
                 hits += 1
         return hits / len(endpoints)
 
@@ -239,8 +252,14 @@ class OccupancyMap:
             return self._match_result(False, "insufficient_features", count=len(points)), base
         self.scan_match_attempts += 1
         endpoints = self._local_endpoints(points, scan_t_ns, vx, vy, wz)
+        occupied_neighbourhood = {
+            (x + dx, y + dy)
+            for x, y in self.occupied
+            for dx in (-1, 0, 1)
+            for dy in (-1, 0, 1)
+        }
         best = base
-        base_score = self._score(endpoints, base)
+        base_score = self._score(endpoints, base, occupied_neighbourhood)
         best_score = base_score
         # Coarse-to-fine correlative scan matching, bounded around odometry.
         for step_xy, step_yaw, factor in (
@@ -257,7 +276,7 @@ class OccupancyMap:
                     for it in range(-nyaw, nyaw + 1):
                         candidate = (center[0] + ix * step_xy, center[1] + iy * step_xy,
                                      _wrap(center[2] + it * step_yaw))
-                        score = self._score(endpoints, candidate)
+                        score = self._score(endpoints, candidate, occupied_neighbourhood)
                         movement_penalty = 0.0005 * (ix * ix + iy * iy + it * it)
                         if score - movement_penalty > best_score:
                             best, best_score = candidate, score
@@ -276,7 +295,7 @@ class OccupancyMap:
         if (math.hypot(correction[0], correction[1]) > max_translation_correction
                 or abs(correction[2]) > max_yaw_correction):
             return self._match_result(False, "correction_out_of_bounds", best_score, len(points), correction), base
-        accepted = best_score >= 0.22 and (not require_improvement or best_score >= base_score + 0.015)
+        accepted = best_score >= 0.45 and (not require_improvement or best_score >= base_score + 0.015)
         if not accepted:
             return self._match_result(False, "weak_match", best_score, len(points), correction), base
         return self._match_result(True, "matched", best_score, len(points), correction), best
@@ -295,16 +314,18 @@ class OccupancyMap:
             self.free.discard(cell)
 
     def _integrate(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
-                   scan_t_ns: int, vx: float, vy: float, wz: float) -> None:
+                   scan_t_ns: int, vx: float, vy: float, wz: float, *, clear_free: bool = True,
+                   occupied_evidence: float = OCCUPIED_EVIDENCE) -> None:
         for point in points:
             sx, sy, ex, ey = self._world_endpoint(point, pose, scan_t_ns, vx, vy, wz)
             start = self.cell(sx, sy)
             ray = bresenham(start, self.cell(ex, ey))
-            for cell in ray[:-1]:
-                wx, wy = (cell[0] + 0.5) * self.resolution_m, (cell[1] + 0.5) * self.resolution_m
-                if math.hypot(wx - pose[0], wy - pose[1]) > self.robot_radius_m:
-                    self._apply_evidence(cell, self.FREE_EVIDENCE)
-            self._apply_evidence(ray[-1], self.OCCUPIED_EVIDENCE)
+            if clear_free:
+                for cell in ray[:-1]:
+                    wx, wy = (cell[0] + 0.5) * self.resolution_m, (cell[1] + 0.5) * self.resolution_m
+                    if math.hypot(wx - pose[0], wy - pose[1]) > self.robot_radius_m:
+                        self._apply_evidence(cell, self.FREE_EVIDENCE)
+            self._apply_evidence(ray[-1], occupied_evidence)
 
     def _new_keyframe(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
                       scan_t_ns: int, vx: float, vy: float, wz: float) -> bool:
@@ -421,7 +442,10 @@ class OccupancyMap:
             anchor_pose = self.keyframes[frame.anchor].pose
             pose = _compose(anchor_pose, frame.relative_pose)
             corrected_poses.append(pose)
-            self._integrate(self._unpack_scan(frame), pose, frame.t_ns, frame.vx, frame.vy, frame.wz)
+            self._integrate(
+                self._unpack_scan(frame), pose, frame.t_ns, frame.vx, frame.vy, frame.wz,
+                clear_free=frame.clear_free, occupied_evidence=frame.occupied_evidence,
+            )
         self.poses = corrected_poses[-5000:]
 
     def update(self, scan: LidarScan, pose: Any) -> None:
@@ -434,8 +458,14 @@ class OccupancyMap:
             self.scan_match_accepted += 1
             pose.x_m, pose.y_m, pose.yaw_rad = corrected
         current_pose = pose.as_tuple()
-        self._integrate(points, current_pose, scan.t_ns, pose.last_vx_mps,
-                        pose.last_vy_mps, pose.last_yaw_rate_radps)
+        reliable = match.accepted and match.score >= 0.55
+        clear_free = reliable or self.scans == 0
+        occupied_evidence = self.OCCUPIED_EVIDENCE if clear_free else 0.30
+        self._integrate(
+            points, current_pose, scan.t_ns, pose.last_vx_mps,
+            pose.last_vy_mps, pose.last_yaw_rate_radps,
+            clear_free=clear_free, occupied_evidence=occupied_evidence,
+        )
         self.scans += 1
         self.points += len(points)
         added = self._new_keyframe(points, current_pose, scan.t_ns, pose.last_vx_mps,
@@ -445,7 +475,7 @@ class OccupancyMap:
         self.scan_frames.append(_ScanFrame(anchor, _relative(anchor_pose, current_pose),
                                           self._pack_scan(points, scan.t_ns), scan.t_ns,
                                           pose.last_vx_mps, pose.last_vy_mps,
-                                          pose.last_yaw_rate_radps))
+                                          pose.last_yaw_rate_radps, clear_free, occupied_evidence))
         if added:
             index = len(self.keyframes) - 1
             closed = self._try_loop_closure(index, points, self.keyframes[index])
