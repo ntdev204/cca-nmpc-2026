@@ -345,6 +345,9 @@ export default function Home() {
   const [cameraConnection, setCameraConnection] = useState("idle");
   const [cameraFallback, setCameraFallback] = useState(false);
   const firstRefresh = useRef(true);
+  const refreshInFlight = useRef(false);
+  const mapEpoch = useRef(0);
+  const mapTimestamp = useRef("");
 
   const selectView = useCallback((next: DashboardView) => {
     setView(next);
@@ -364,22 +367,47 @@ export default function Home() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const mergeSnapshot = useCallback((previous: Snapshot, next: Snapshot): Snapshot => ({
-    ...previous,
-    ...next,
-    state: next.state ?? previous.state,
-    lidar: next.lidar ?? previous.lidar,
-    map: next.map ?? previous.map,
-    events: next.events ?? previous.events,
-    error: next.error,
-  }), []);
+  const mergeSnapshot = useCallback((previous: Snapshot, next: Snapshot): Snapshot => {
+    const state = next.state ?? previous.state;
+    const status = state?.status as Record<string, unknown> | undefined;
+    const dataset = status?.dataset as Record<string, unknown> | undefined;
+    const activeMapId = String(dataset?.run ?? "");
+    let map = next.map ?? previous.map;
+    const mapData = map?.map as Record<string, unknown> | undefined;
+    const metadata = mapData?.metadata as Record<string, unknown> | undefined;
+    if (String(status?.map_source ?? "") === "scan" && activeMapId && String(metadata?.map_id ?? "") !== activeMapId) {
+      map = undefined;
+    }
+    return {
+      ...previous,
+      ...next,
+      state,
+      lidar: next.lidar ?? previous.lidar,
+      map,
+      events: next.events ?? previous.events,
+      error: next.error,
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    const requestMapEpoch = mapEpoch.current;
     try {
-      const endpoint = firstRefresh.current ? "/api/status?full=1" : "/api/status";
+      const params = new URLSearchParams();
+      if (firstRefresh.current) params.set("full", "1");
+      else if (mapTimestamp.current) params.set("map_since", mapTimestamp.current);
+      const endpoint = `/api/status?${params.toString()}`;
       firstRefresh.current = false;
       const response = await fetch(endpoint, { cache: "no-store" });
-      const body = (await response.json()) as Snapshot;
+      const received = (await response.json()) as Snapshot;
+      const body = requestMapEpoch === mapEpoch.current
+        ? received
+        : { ...received, map: undefined, lidar: undefined };
+      if (body.map) {
+        const timestamp = String(body.map.t_ns ?? body.map.capture_t_ns ?? "");
+        if (timestamp) mapTimestamp.current = timestamp;
+      }
       setSnapshot((previous) => mergeSnapshot(previous, body));
       const nextPose = body.state ? poseFrom(body) : null;
       if (!nextPose) return;
@@ -391,6 +419,8 @@ export default function Home() {
     } catch (error) {
       firstRefresh.current = true;
       setSnapshot((previous) => ({ ...previous, backend: "offline", error: String(error) }));
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [mergeSnapshot]);
 
@@ -404,6 +434,8 @@ export default function Home() {
 
   const command = useCallback(async (payload: Record<string, unknown>) => {
     if (payload.command === "scan_start" || payload.command === "scan_discard") {
+      mapEpoch.current += 1;
+      mapTimestamp.current = "";
       setSelectedMapId("");
       if (payload.command === "scan_start") setTrace([]);
       setSnapshot((previous) => ({ ...previous, map: undefined, lidar: undefined }));

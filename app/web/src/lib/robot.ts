@@ -277,10 +277,9 @@ function historyItem(type: string, item: RobotMessage): RobotMessage {
 }
 
 type SnapshotOptions = { full?: boolean };
+type SnapshotOptionsWithCursor = SnapshotOptions & { mapSince?: string };
 
-const deliveredStreams = { map: "" };
-
-export function snapshot(messages: RobotMessage[], options: SnapshotOptions = {}) {
+export function snapshot(messages: RobotMessage[], options: SnapshotOptionsWithCursor = {}) {
   const result: { state?: RobotMessage; lidar?: RobotMessage; map?: RobotMessage; events: RobotMessage[] } = { events: [] };
   for (const message of messages) {
     const type = String(message.type ?? "");
@@ -289,22 +288,20 @@ export function snapshot(messages: RobotMessage[], options: SnapshotOptions = {}
     else if (type === "map") result.map = message;
     else result.events.push(message);
   }
-  // Map frames are delivered once per new timestamp; the browser keeps the last frame.
-  // State and LiDAR remain frequent because they are small and drive the UI.
-  if (!options.full) {
-    for (const type of ["map"] as const) {
-      const message = result[type];
-      const timestamp = String(message?.t_ns ?? message?.capture_t_ns ?? "");
-      if (!message || !timestamp) continue;
-      if (deliveredStreams[type] === timestamp) delete result[type];
-      else deliveredStreams[type] = timestamp;
-    }
-  } else {
-    for (const type of ["map"] as const) {
-      const message = result[type];
-      const timestamp = String(message?.t_ns ?? message?.capture_t_ns ?? "");
-      if (timestamp) deliveredStreams[type] = timestamp;
-    }
+  // Each browser owns its own map cursor. A process-global cursor can consume
+  // a frame for a different request before this browser receives it.
+  const map = result.map;
+  const timestamp = String(map?.t_ns ?? map?.capture_t_ns ?? "");
+  if (!options.full && map && timestamp && timestamp === options.mapSince) delete result.map;
+
+  const status = result.state?.status as RobotMessage | undefined;
+  const dataset = status?.dataset as RobotMessage | undefined;
+  const currentRun = String(dataset?.run ?? "");
+  const mapData = result.map?.map as RobotMessage | undefined;
+  const metadata = mapData?.metadata as RobotMessage | undefined;
+  const source = String(status?.map_source ?? "");
+  if (result.map && source === "scan" && currentRun && String(metadata?.map_id ?? "") !== currentRun) {
+    delete result.map;
   }
   return result;
 }

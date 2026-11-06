@@ -2080,6 +2080,14 @@ class RobotService:
                 return None
             payload = mapper.wire_payload()
         with self.state_lock:
+            # A scan can replace the mapper while its previous frame is being
+            # serialized. Never publish that late frame into the new map.
+            if self.mapper is not mapper:
+                return None
+            metadata = payload.get("metadata")
+            map_id = metadata.get("map_id") if isinstance(metadata, dict) else None
+            if self.map_source == "scan" and self.run_root is not None and map_id != self.run_root.name:
+                return None
             self.last_broadcast_map_signature = signature
             return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
 
