@@ -48,7 +48,7 @@ STATE_PERIOD_S = 0.10
 SENSOR_PERIOD_S = 0.05
 # Keep live occupancy feedback responsive while staying below the 10 Hz LiDAR
 # rate; map payload generation is a full-grid operation.
-MAP_PERIOD_S = 0.5
+MAP_PERIOD_S = 1.0 / 3.0
 LIDAR_TARGET_HZ = 10.0
 LIDAR_STALE_AFTER_S = 1.5
 MAP_FUSION_PERIOD_S = 0.20
@@ -1307,6 +1307,7 @@ class RobotService:
                 robot_radius_m=self.geometry["footprint_radius_m"],
                 scan_matching=True,
                 map_id=root.name,
+                defer_graph_optimization=True,
             )
             self.pose = initial_pose
             self.map_pose = copy_pose_for_mapping(initial_pose)
@@ -1417,6 +1418,16 @@ class RobotService:
             self._flush_map_fusion(timeout_s=60.0)
             if self.map_fusion_queue.unfinished_tasks:
                 raise TimeoutError("SLAM queue is still processing; retry saving after it drains")
+            with self.map_lock:
+                previous_pose = mapper.poses[-1] if mapper.poses else None
+                mapper.optimize_pending_graph()
+                optimized_pose = mapper.poses[-1] if mapper.poses else None
+            if previous_pose is not None and optimized_pose is not None and optimized_pose != previous_pose:
+                with self.state_lock:
+                    if mapper is self.mapper:
+                        correction = self._compose_pose(optimized_pose, self._inverse_pose(previous_pose))
+                        self.map_to_odom = self._compose_pose(correction, self.map_to_odom)
+                        self.map_pose = self._corrected_map_pose(self.pose)
             with self.map_lock:
                 mapper.save(root)
             if files is not None:
@@ -2195,10 +2206,20 @@ class RobotService:
                     predicted_map_pose = mapping_pose.as_tuple()
                     map_to_odom = self.map_to_odom
                 with self.map_lock:
-                    mapper.update(scan, mapping_pose)
-                    history_record = dict(mapper.history[-1])
-                    match = mapper.last_scan_match
+                    remaining_s = MAP_FUSION_MAX_AGE_S - (now_ns() - scan.t_ns) / 1e9
+                    updated = remaining_s > 0 and mapper.update(
+                        scan, mapping_pose, deadline_mono=time.monotonic() + remaining_s,
+                    )
+                    if updated:
+                        history_record = dict(mapper.history[-1])
+                        match = mapper.last_scan_match
                 completion_age_s = max(0.0, (now_ns() - scan.t_ns) / 1e9)
+                if not updated:
+                    with self.state_lock:
+                        self.map_scans_stale += 1
+                        self.map_scan_lag_s = completion_age_s
+                        self.map_fusion_processing_ms = (time.monotonic() - process_started_mono) * 1000
+                    continue
                 with self.state_lock:
                     correction_applied = (0.0, 0.0, 0.0)
                     score = float(getattr(match, "score", 0.0))
@@ -2276,7 +2297,7 @@ class RobotService:
             plan_payload = self.plan_payload
             previous_signature = self.last_broadcast_map_signature
         with self.map_lock:
-            signature = f"{mapper.scans}:{mapper.points}:{json.dumps(plan_payload, sort_keys=True, separators=(',', ':'))}"
+            signature = f"{mapper.revision}:{json.dumps(plan_payload, sort_keys=True, separators=(',', ':'))}"
             if signature == previous_signature:
                 return None
             payload = mapper.wire_payload()
