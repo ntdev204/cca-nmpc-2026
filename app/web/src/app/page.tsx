@@ -88,10 +88,10 @@ function poseFrom(snapshot: Snapshot): Pose {
   return { x: asNumber(pose[0]), y: asNumber(pose[1]), yaw: asNumber(pose[2]) };
 }
 
-function dataAge(timestamp: unknown): string {
-  if (timestamp == null) return "—";
-  const ms = Date.now() - asNumber(timestamp, Number.NaN) / 1e6;
-  return Number.isFinite(ms) && ms >= -100 ? `${Math.max(0, Math.round(ms))} ms` : "—";
+function dataAge(timestamp: unknown, robotTimestamp: unknown): string {
+  if (timestamp == null || robotTimestamp == null) return "—";
+  const ms = (asNumber(robotTimestamp, Number.NaN) - asNumber(timestamp, Number.NaN)) / 1e6;
+  return Number.isFinite(ms) ? `${Math.max(0, Math.round(ms))} ms` : "—";
 }
 
 function frameFrom(tf: TfPayload | undefined, child: string): TfFrame {
@@ -677,7 +677,7 @@ export default function Home() {
 
         {(view === "overview" || view === "monitor" || view === "control" || view === "mapping") && <Card className="overflow-hidden shadow-sm">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
-            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · pose age {dataAge(markerState?.pose_sample_t_ns)} · map age {dataAge(snapshot.map?.capture_t_ns)}</CardDescription></div>
+            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · pose age {dataAge(markerState?.pose_sample_t_ns, markerState?.t_ns)} · map age {dataAge(snapshot.map?.capture_t_ns, markerState?.t_ns)}</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
               {Boolean(dataset.active) && (dataset.slam_localization === "unconfirmed" || dataset.slam_localization === "ambiguous") &&
                 <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">

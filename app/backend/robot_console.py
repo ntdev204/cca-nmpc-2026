@@ -54,7 +54,7 @@ LIDAR_TARGET_HZ = 10.0
 LIDAR_STALE_AFTER_S = 1.5
 MAP_FUSION_PERIOD_S = 0.20
 MAP_FUSION_MAX_AGE_S = 0.50
-MAP_FUSION_QUEUE_SIZE = 4
+MAP_FUSION_QUEUE_SIZE = 1
 MAP_RESOLUTION_M = 0.025
 SAVED_MAP_CACHE_PERIOD_S = 10.0
 STM_TELEMETRY_MAX_AGE_S = 1.0
@@ -371,9 +371,10 @@ class Peer:
             while not self.closed and not self.writer_stop.is_set():
                 if self.control_outgoing:
                     return self.control_outgoing.popleft()
-                for message_type in ("state", "lidar", "map"):
-                    if message_type in self.latest_stream:
-                        return self.latest_stream.pop(message_type)
+                if self.latest_stream:
+                    # Replacing a frame preserves its position in the dict.
+                    # Send the longest-waiting stream after control messages.
+                    return self.latest_stream.pop(next(iter(self.latest_stream)))
                 self.outgoing_condition.wait(timeout=0.25)
             return None
 

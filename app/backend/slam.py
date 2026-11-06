@@ -576,7 +576,14 @@ class OccupancyMap:
                    rays: tuple[tuple[float, float, float, float], ...] | None = None,
                    deadline_mono: float | None = None) -> bool:
         pose_x, pose_y = pose[0] / self.resolution_m, pose[1] / self.resolution_m
-        radius_sq = (self.robot_radius_m / self.resolution_m) ** 2
+        radius = self.robot_radius_m / self.resolution_m
+        radius_sq = radius ** 2
+        footprint = {
+            (x, y)
+            for x in range(math.ceil(pose_x - radius - 0.5), math.floor(pose_x + radius - 0.5) + 1)
+            for y in range(math.ceil(pose_y - radius - 0.5), math.floor(pose_y + radius - 0.5) + 1)
+            if (x + 0.5 - pose_x) ** 2 + (y + 0.5 - pose_y) ** 2 <= radius_sq
+        }
         separation_cells = max(1, math.ceil(self.OCCLUSION_MIN_SEPARATION_M / self.resolution_m))
         blocked_returns = 0
         hits: set[tuple[int, int]] = set()
@@ -589,30 +596,34 @@ class OccupancyMap:
                           for sx, sy, ex, ey in rays)
         for sx, sy, ex, ey in world_rays:
             end = self.cell(ex, ey)
-            occluded = False
-            if clear_free or self.occupied:
-                for cell in bresenham(self.cell(sx, sy), end)[:-1]:
-                    dx, dy = cell[0] + 0.5 - pose_x, cell[1] + 0.5 - pose_y
-                    if dx * dx + dy * dy <= radius_sq:
-                        continue
-                    if clear_free:
-                        misses.add(cell)
-                    if (cell in self.occupied and
-                            max(abs(cell[0] - end[0]), abs(cell[1] - end[1])) >= separation_cells):
-                        # A return behind a mapped wall conflicts with the old
-                        # geometry. Collect clearing evidence at the wall first.
-                        occluded = True
-                        break
-            if not occluded:
+            if not clear_free and not self.occupied:
                 hits.add(end)
+                continue
+            cells = bresenham(self.cell(sx, sy), end)
+            stop = len(cells) - 1
+            # Each Bresenham step moves one cell on the major axis, so the
+            # index also gives the Chebyshev distance from the end of the ray.
+            if self.occupied:
+                for index, cell in enumerate(cells[:-separation_cells]):
+                    if cell in self.occupied and cell not in footprint:
+                        blocked_returns += 1
+                        stop = index + 1
+                        break
+                else:
+                    hits.add(end)
             else:
-                blocked_returns += 1
+                hits.add(end)
+            if clear_free:
+                misses.update(cells[:stop])
         pending = set()
-        free_votes = misses - hits
+        misses.difference_update(footprint, hits)
         if deadline_mono is not None and time.monotonic() >= deadline_mono:
             return False
-        for cell in free_votes:
-            if self.log_odds.get(cell, 0.0) > self.STRONG_OCCUPIED_THRESHOLD:
+        for cell in misses:
+            score = self.log_odds.get(cell, 0.0)
+            if score <= self.LOG_ODDS_MIN:
+                continue
+            if score > self.STRONG_OCCUPIED_THRESHOLD:
                 pending.add(cell)
                 if cell not in self._pending_wall_clears:
                     continue
