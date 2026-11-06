@@ -262,11 +262,23 @@ class OccupancyMap:
                         if score - movement_penalty > best_score:
                             best, best_score = candidate, score
         correction = _relative(base, best)
-        if math.hypot(correction[0], correction[1]) > 0.06 or abs(correction[2]) > math.radians(3.0):
-            return self._match_result(False, "correction_out_of_bounds", best_score, len(points)), base
+        # The coarse grid uses ceil(radius / step), then the fine pass searches
+        # around the coarse winner. Derive the admissible correction from that
+        # actual search window; fixed 6 cm / 3 degree gates rejected valid grid
+        # results (and made larger loop-closure corrections impossible).
+        coarse_xy_step = 0.05
+        fine_xy_step = 0.02
+        coarse_yaw_step = math.radians(3.0)
+        fine_yaw_step = math.radians(1.0)
+        max_axis_correction = math.ceil(radius / coarse_xy_step) * coarse_xy_step + fine_xy_step
+        max_translation_correction = math.sqrt(2.0) * max_axis_correction
+        max_yaw_correction = math.ceil(yaw_radius / coarse_yaw_step) * coarse_yaw_step + fine_yaw_step
+        if (math.hypot(correction[0], correction[1]) > max_translation_correction
+                or abs(correction[2]) > max_yaw_correction):
+            return self._match_result(False, "correction_out_of_bounds", best_score, len(points), correction), base
         accepted = best_score >= 0.22 and (not require_improvement or best_score >= base_score + 0.015)
         if not accepted:
-            return self._match_result(False, "weak_match", best_score, len(points)), base
+            return self._match_result(False, "weak_match", best_score, len(points), correction), base
         return self._match_result(True, "matched", best_score, len(points), correction), best
 
     def _apply_evidence(self, cell: tuple[int, int], evidence: float) -> None:

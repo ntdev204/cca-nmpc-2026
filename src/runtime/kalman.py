@@ -230,20 +230,41 @@ class SixStateKalman:
                 raise ValueError("Kalman gyro_z must be finite")
         if dt > 0.0:
             x, y, theta, vx, vy, omega = self._state
+            delta = omega * dt
+            if abs(delta) < 1.0e-4:
+                delta2 = delta * delta
+                delta3 = delta2 * delta
+                delta4 = delta2 * delta2
+                travel_x = dt * (1.0 - delta2 / 6.0 + delta4 / 120.0)
+                travel_y = dt * (delta / 2.0 - delta3 / 24.0 + delta3 * delta2 / 720.0)
+                travel_x_omega = dt * dt * (-delta / 3.0 + delta3 / 30.0)
+                travel_y_omega = dt * dt * (0.5 - delta2 / 8.0 + delta4 / 144.0)
+            else:
+                travel_x = dt * math.sin(delta) / delta
+                travel_y = dt * (1.0 - math.cos(delta)) / delta
+                travel_x_omega = dt * dt * (delta * math.cos(delta) - math.sin(delta)) / (delta * delta)
+                travel_y_omega = dt * dt * (delta * math.sin(delta) - (1.0 - math.cos(delta))) / (delta * delta)
+
+            body_dx = travel_x * vx - travel_y * vy
+            body_dy = travel_y * vx + travel_x * vy
             c, s = math.cos(theta), math.sin(theta)
-            self._state[0] = x + dt * (c * vx - s * vy)
-            self._state[1] = y + dt * (s * vx + c * vy)
-            self._state[2] = wrap_angle(theta + dt * omega)
+            self._state[0] = x + c * body_dx - s * body_dy
+            self._state[1] = y + s * body_dx + c * body_dy
+            self._state[2] = wrap_angle(theta + delta)
             if acceleration is not None:
                 self._state[3] = vx + dt * float(acceleration[0])
                 self._state[4] = vy + dt * float(acceleration[1])
             jacobian = np.eye(STATE_SIZE, dtype=np.float64)
-            jacobian[0, 2] = dt * (-s * vx - c * vy)
-            jacobian[0, 3] = dt * c
-            jacobian[0, 4] = -dt * s
-            jacobian[1, 2] = dt * (c * vx - s * vy)
-            jacobian[1, 3] = dt * s
-            jacobian[1, 4] = dt * c
+            jacobian[0, 2] = -s * body_dx - c * body_dy
+            jacobian[1, 2] = c * body_dx - s * body_dy
+            jacobian[0, 3] = c * travel_x - s * travel_y
+            jacobian[1, 3] = s * travel_x + c * travel_y
+            jacobian[0, 4] = -c * travel_y - s * travel_x
+            jacobian[1, 4] = -s * travel_y + c * travel_x
+            body_dx_omega = travel_x_omega * vx - travel_y_omega * vy
+            body_dy_omega = travel_y_omega * vx + travel_x_omega * vy
+            jacobian[0, 5] = c * body_dx_omega - s * body_dy_omega
+            jacobian[1, 5] = s * body_dx_omega + c * body_dy_omega
             jacobian[2, 5] = dt
             q = np.diag(
                 (
