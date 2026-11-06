@@ -722,6 +722,7 @@ class RobotService:
         with self.state_lock:
             with self.camera_count_lock:
                 camera_frames_saved = self.camera_frames_saved
+            stm_telemetry_age_s = self._stm_telemetry_age_s()
             lidar_rate_hz = 0.0
             lidar_scan_age_s: float | None = None
             lidar_reconnects = 0
@@ -748,12 +749,11 @@ class RobotService:
                 "lidar_error": lidar_error,
                 "armed": self.armed,
                 "stm_telemetry_age_s": (
-                    round(max(0.0, time.monotonic() - self.last_telemetry_mono), 3)
-                    if self.last_telemetry_mono > 0.0 else None
+                    round(stm_telemetry_age_s, 3)
+                    if math.isfinite(stm_telemetry_age_s) else None
                 ),
                 "stm_telemetry_fresh": (
-                    self.last_telemetry_mono > 0.0
-                    and time.monotonic() - self.last_telemetry_mono <= STM_TELEMETRY_MAX_AGE_S
+                    stm_telemetry_age_s <= STM_TELEMETRY_MAX_AGE_S
                 ),
                 "scan_active": self.scan_active,
                 "map_source": self.map_source,
@@ -1677,6 +1677,17 @@ class RobotService:
                     self._write_manifest(root, mapper, "astar_plan_cleared")
         self.broadcast({"type": "event", "event": "plan_cleared", "status": self.status_payload()})
 
+    def _stm_telemetry_age_s(self) -> float:
+        """Measure age at serial receive time, independent of SLAM/state-loop load."""
+        telemetry = getattr(self.stm, "latest", None) if self.stm is not None else None
+        if telemetry is None:
+            return math.inf
+        try:
+            received_t_ns = int(telemetry.t_ns)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return math.inf
+        return max(0.0, (time.time_ns() - received_t_ns) / 1e9)
+
     def _apply_velocity(self, values: tuple[float, float, float]) -> None:
         if not all(math.isfinite(value) for value in values):
             raise ValueError("velocity must be finite")
@@ -2221,8 +2232,7 @@ class RobotService:
             with self.motion_lock:
                 telemetry_expired = (
                     self.armed
-                    and (self.last_telemetry_mono <= 0.0
-                         or now - self.last_telemetry_mono > STM_TELEMETRY_MAX_AGE_S)
+                    and self._stm_telemetry_age_s() > STM_TELEMETRY_MAX_AGE_S
                 )
             if telemetry_expired:
                 with self.state_lock:
