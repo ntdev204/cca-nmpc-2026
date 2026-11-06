@@ -177,6 +177,8 @@ class OccupancyMap:
         self.graph_optimization_pending = False
         self.revision = 0
         self.last_scan_match = self._match_result(False, "not_run")
+        self._held_streak = 0
+        self._recovery_candidate: tuple[int, tuple[float, float, float], tuple[float, float, float]] | None = None
         self.last_loop_closure: dict[str, Any] = {"accepted": False, "reason": "not_run"}
 
     @staticmethod
@@ -798,6 +800,31 @@ class OccupancyMap:
             )
         self.poses = corrected_poses[-5000:]
 
+    def _recover_pose(self, points, scan, pose, base, rays, deadline_mono):
+        if self._held_streak < 4 or self._held_streak % 4 != 0 or not self.scan_frames:
+            return None
+        if deadline_mono is not None and deadline_mono - time.monotonic() < 0.10:
+            return None
+        match, corrected = self._match(
+            points[::2], base, scan.t_ns, pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps,
+            radius=0.60, yaw_radius=math.radians(24), require_improvement=False, loop_search=True,
+            reference_cells=self.occupied, rays=rays[::2] if rays is not None else None,
+            deadline_mono=deadline_mono,
+        )
+        if not match.accepted or match.score < 0.68 or match.inliers < 32:
+            self._recovery_candidate = None
+            return None
+        prior = self._recovery_candidate
+        self._recovery_candidate = (scan.t_ns, base, corrected)
+        if prior is None or not 0 < scan.t_ns - prior[0] <= 3_000_000_000:
+            return None
+        expected = _compose(prior[2], _relative(prior[1], base))
+        dx, dy, dyaw = _relative(expected, corrected)
+        if math.hypot(dx, dy) > 0.08 or abs(dyaw) > math.radians(4):
+            return None
+        self._recovery_candidate = None
+        return replace(match, reason="relocalized"), corrected
+
     def update(self, scan: LidarScan, pose: Any, *, deadline_mono: float | None = None,
                pose_samples: tuple[tuple[int, float, float, float], ...] = ()) -> bool:
         started_mono = time.monotonic()
@@ -824,9 +851,20 @@ class OccupancyMap:
         self.last_scan_match = match
         reliable = (match.accepted and match.score >= self.MIN_MAP_MATCH_SCORE
                     and match.correction_m <= 0.15 and abs(match.correction_yaw_rad) <= math.radians(7))
+        self._held_streak = 0 if reliable or not self.scan_frames else self._held_streak + 1
+        if reliable:
+            self._recovery_candidate = None
+        recovered = None if reliable else self._recover_pose(points, scan, pose, base, rays, deadline_mono)
+        matched_mono = time.monotonic()
+        if deadline_mono is not None and matched_mono >= deadline_mono:
+            return False
+        if recovered is not None:
+            match, corrected = recovered
+            self.last_scan_match = match
+            self._held_streak = 0
         if match.accepted:
             self.scan_match_accepted += 1
-        if reliable:
+        if reliable or recovered is not None:
             pose.x_m, pose.y_m, pose.yaw_rad = corrected
         current_pose = pose.as_tuple()
         self.scans += 1
@@ -874,6 +912,7 @@ class OccupancyMap:
             "search_radius_m": radius,
             "search_yaw_radius_rad": yaw_radius,
             "map_update": "full" if clear_free else "hits_only" if integrated else "held",
+            "localization": "relocalized" if recovered is not None else "tracking" if reliable else "unconfirmed",
             "loop_closure": loop_closure,
             "occupied_cells": len(self.occupied),
             "free_cells": len(self.free),

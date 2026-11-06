@@ -8,7 +8,7 @@ const ROBOT_HOST = process.env.ROBOT_HOST ?? "100.69.39.18";
 const ROBOT_PORT = Number(process.env.ROBOT_PORT ?? "8765");
 const WIRE_ENCODING = "zlib+base64";
 const parseJson = JSONbig({ storeAsString: true }).parse;
-const STREAM_TYPES = new Set(["state", "lidar", "map"]);
+const STREAM_TYPES = new Set(["pose", "state", "lidar", "map"]);
 const HISTORY_LIMIT = 2400;
 
 function decodeWireMessage(value: RobotMessage): RobotMessage {
@@ -104,7 +104,7 @@ class RobotBridge {
         if (type === "pong") continue;
         if (STREAM_TYPES.has(type)) {
           this.latest.set(type, message);
-          this.appendHistory(type, message);
+          if (type !== "pose") this.appendHistory(type, message);
         }
         else {
           this.recentEvents.push(message);
@@ -286,7 +286,7 @@ export function snapshot(messages: RobotMessage[], options: SnapshotOptionsWithC
     if (type === "state") result.state = message;
     else if (type === "lidar") result.lidar = message;
     else if (type === "map") result.map = message;
-    else result.events.push(message);
+    else if (type !== "pose") result.events.push(message);
   }
   // Each browser owns its own map cursor. A process-global cursor can consume
   // a frame for a different request before this browser receives it.

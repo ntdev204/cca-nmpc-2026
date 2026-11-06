@@ -393,8 +393,14 @@ class SixStateKalman:
         *,
         acceleration_body_mps2: np.ndarray | list[float] | tuple[float, float] | None = None,
         gyro_z_radps: float | None = None,
+        stationary: bool = False,
     ) -> np.ndarray:
         velocity = self._vector(velocity_body_mps, VELOCITY_MEASUREMENT_SIZE, "velocity measurement")
+        if stationary:
+            self.motion_mode = "stationary_zero_velocity"
+            self._state[3:] = 0.0
+            self.predict(t_ns)
+            return self.update_velocity((0.0, 0.0, 0.0))
         gyro_value = None if gyro_z_radps is None else float(gyro_z_radps)
         turning = gyro_value is not None and abs(gyro_value) >= self.config.turning_rate_threshold_radps
         self.motion_mode = "turning_imu_priority" if turning else "straight_encoder_priority"

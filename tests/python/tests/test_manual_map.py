@@ -10,6 +10,7 @@ import pytest
 
 from app.backend.manual_map import OccupancyMap, Pose, RunFiles
 from hardware import LidarPoint, LidarScan
+from runtime.kalman import SixStateKalman
 from scripts.python.tools.calibrate_lidar_time_offset import evaluate
 
 
@@ -269,3 +270,30 @@ def test_calibration_recovers_synthetic_receive_delay(tmp_path) -> None:
         files.close()
     scores = evaluate(root, [0, 40, 80])
     assert min(scores, key=lambda row: row["mean_clipped_distance_m"])["offset_ms"] == 40
+
+
+def test_stationary_update_keeps_pose_fixed_with_imu_bias() -> None:
+    ekf = SixStateKalman(state=[1.0, 2.0, 0.5, -0.06, 0.01, -0.006])
+    for i in range(200):
+        state = ekf.step(1 + i * 50_000_000, (0, 0, 0), acceleration_body_mps2=(-0.55, 0.09),
+                         gyro_z_radps=-0.03, stationary=True)
+    assert state.tolist() == pytest.approx([1.0, 2.0, 0.5, 0.0, 0.0, 0.0])
+    assert ekf.motion_mode == "stationary_zero_velocity"
+
+
+def test_relocalization_requires_two_consistent_matches_before_pose_change() -> None:
+    mapper = make_mapper()
+    rng = random.Random(80)
+    geometry = [(rng.uniform(0.6, 2.8), rng.uniform(-2, 2)) for _ in range(120)]
+    mapper.update(make_scan(geometry), Pose())
+    previous_grid = dict(mapper.log_odds)
+    for i in range(1, 9):
+        pose = Pose(x_m=0.4)
+        mapper.update(make_scan(geometry, 1 + i * 200_000_000), pose)
+        if i < 8:
+            assert pose.x_m == pytest.approx(0.4)
+    assert mapper.last_scan_match.reason == "relocalized"
+    assert pose.x_m == pytest.approx(0.0, abs=0.025)
+    assert mapper.log_odds == previous_grid
+    mapper.update(make_scan(geometry, 1_800_000_001), Pose())
+    assert len(mapper.scan_frames) == 2

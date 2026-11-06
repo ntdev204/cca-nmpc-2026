@@ -45,6 +45,7 @@ APP_PORT = 8765
 CAMERA_HTTP_PORT = 8766
 MAX_POINTS = 360
 STATE_PERIOD_S = 0.05
+STATUS_PERIOD_S = 0.20
 SENSOR_PERIOD_S = 0.05
 # Keep live occupancy feedback responsive while staying below the 10 Hz LiDAR
 # rate; map payload generation is a full-grid operation.
@@ -69,7 +70,7 @@ CAMERA_CAPTURE_JPEG_QUALITY = 75
 WEBRTC_IDLE_FPS = 15.0
 WEBRTC_SCAN_FPS = 5.0
 WEBRTC_OFFER_PATH = "/webrtc/offer"
-STREAM_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
+STREAM_MESSAGE_TYPES = frozenset({"pose", "state", "lidar", "map"})
 COMPRESS_MESSAGE_TYPES = frozenset({"state", "lidar", "map"})
 WIRE_ENCODING = "zlib+base64"
 COMPRESS_MIN_BYTES = 220
@@ -613,6 +614,9 @@ class RobotService:
 
         self.pose: Any = Pose()
         self.estimator: Any = SixStateKalman()
+        self.stationary_since_ns: int | None = None
+        self.imu_bias = ZERO
+        self.imu_bias_initialized = False
         self._apply_estimator_state = apply_estimator_state
         self._update_pose_with_ekf = update_pose_with_ekf
         self.map_pose: Any = None
@@ -645,6 +649,7 @@ class RobotService:
         self.last_telemetry_mono = 0.0
         self.last_scan_ns = 0
         self.last_state_mono = 0.0
+        self.last_status_mono = 0.0
         self.last_sensor_mono = 0.0
         self.last_map_mono = 0.0
         self.last_broadcast_map_signature = ""
@@ -782,7 +787,8 @@ class RobotService:
                 "run": self.run_root.name if self.run_root else None,
                 "lidar_target_hz": LIDAR_TARGET_HZ,
                 "lidar_rate_hz": round(lidar_rate_hz, 2),
-                "state_target_hz": 1.0 / STATE_PERIOD_S,
+                "state_target_hz": 1.0 / STATUS_PERIOD_S,
+                "pose_target_hz": 1.0 / STATE_PERIOD_S,
                 "map_target_hz": 1.0 / MAP_PERIOD_S,
                 "sensor_target_hz": 1.0 / SENSOR_PERIOD_S,
                 "camera_rate_hz": round(self.camera_rate_hz, 2),
@@ -812,6 +818,8 @@ class RobotService:
                     "slam_scans_dropped": self.map_scans_dropped,
                     "slam_scans_queued": self.map_scans_queued,
                     "slam_scans_integrated": len(self.mapper.scan_frames) if self.mapper is not None else 0,
+                    "slam_localization": self.mapper.history[-1].get("localization")
+                    if self.mapper is not None and self.mapper.history else None,
                     "slam_queue_depth": self.map_fusion_queue.qsize(),
                     "slam_scan_lag_s": round(self.map_scan_lag_s, 3),
                     "slam_scans_stale": self.map_scans_stale,
@@ -2008,18 +2016,19 @@ class RobotService:
 
     def _pose_at_locked(self, target_t_ns: int) -> Any:
         """Interpolate odometry at acquisition time, before applying SLAM correction."""
-        samples = list(self.pose_history)
+        samples = self.pose_history
         if not samples:
             return copy_pose_for_mapping(self.pose)
-        before = after = samples[0]
-        for sample in samples:
+        before = after = samples[-1]
+        for sample in reversed(samples):
+            if sample.last_t_ns is None:
+                continue
+            before = sample
             if sample.last_t_ns <= target_t_ns:
-                before = sample
-            if sample.last_t_ns >= target_t_ns:
-                after = sample
                 break
-        else:
-            after = samples[-1]
+            after = sample
+        if before.last_t_ns is None:
+            return copy_pose_for_mapping(self.pose)
         pose = copy_pose_for_mapping(before)
         if after.last_t_ns > before.last_t_ns:
             ratio = max(0.0, min(1.0, (target_t_ns - before.last_t_ns) / (after.last_t_ns - before.last_t_ns)))
@@ -2035,7 +2044,29 @@ class RobotService:
         pose.last_t_ns = target_t_ns
         return pose
 
-    def _state_payload(self) -> dict[str, Any]:
+    def _observe_stationary(self, telemetry: Any) -> bool:
+        still = (
+            max(abs(value) for value in self.last_command) < 0.005
+            and math.hypot(telemetry.vx_mps, telemetry.vy_mps) < 0.015
+            and abs(telemetry.wz_radps) < 0.025
+            and abs(telemetry.gyro_z_radps) < 0.08
+        )
+        if not still:
+            self.stationary_since_ns = None
+            return False
+        stamp = telemetry.t_ns
+        if self.stationary_since_ns is None:
+            self.stationary_since_ns = stamp
+        if stamp - self.stationary_since_ns < 300_000_000:
+            return False
+        sample = (telemetry.accel_x_mps2, telemetry.accel_y_mps2, telemetry.gyro_z_radps)
+        if all(math.isfinite(value) for value in sample):
+            gain = 0.025 if self.imu_bias_initialized else 1.0
+            self.imu_bias = tuple(old + gain * (value - old) for old, value in zip(self.imu_bias, sample))
+            self.imu_bias_initialized = True
+        return True
+
+    def _state_payload(self, *, pose_only: bool = False) -> dict[str, Any]:
         with self.state_lock:
             raw_telemetry = self.stm.latest if self.stm is not None else None
             telemetry = self._calibrated_telemetry(raw_telemetry)
@@ -2043,6 +2074,7 @@ class RobotService:
                 self._update_pose_with_ekf(
                     self.pose, self.estimator, raw_telemetry,
                     yaw_measurement_sign=self.geometry["yaw_measurement_sign"],
+                    stationary=self._observe_stationary(raw_telemetry), imu_bias=self.imu_bias,
                 )
                 self.last_telemetry_ns = raw_telemetry.t_ns
                 self.last_telemetry_mono = time.monotonic()
@@ -2062,6 +2094,9 @@ class RobotService:
                     self.map_pose = copy_pose_for_mapping(self.pose)
             pose = [0.0, 0.0, 0.0] if self.pose is None else list(self.pose.as_tuple())
             map_pose = pose if self.map_pose is None else list(self.map_pose.as_tuple())
+            if pose_only:
+                return {"type": "pose", "t_ns": now_ns(), "pose": pose, "map_pose": map_pose,
+                        "pose_sample_t_ns": self.pose.last_t_ns if self.pose is not None else None}
             telemetry_payload = None
             if telemetry is not None:
                 telemetry_payload = {
@@ -2163,6 +2198,7 @@ class RobotService:
             self.last_scan_ns = scan.t_ns
             self.last_lidar_stale_broadcast_ns = 0
             self.latest_lidar = compact_points(scan.points)
+            lidar_pose = self._corrected_map_pose(self._pose_at_locked(scan.t_ns)).as_tuple()
             if self.scan_active and self.mapper is not None and self.pose is not None:
                 eligible = tuple(item for item in scans if item.t_ns >= self.scan_started_ns)
                 now_mono = time.monotonic()
@@ -2174,7 +2210,7 @@ class RobotService:
                     self._enqueue_map_fusion(work)
                 elif eligible:
                     self.map_scans_dropped += len(eligible)
-        return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
+        return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar, "map_pose": lidar_pose}
 
     def _service_graph_optimization(self) -> None:
         # The fusion thread installs results between scans, so the map and
@@ -2283,14 +2319,14 @@ class RobotService:
                         math.sin(mapping_pose.yaw_rad - predicted_map_pose[2]),
                         math.cos(mapping_pose.yaw_rad - predicted_map_pose[2]),
                     )
+                    relocalized = match.reason == "relocalized"
                     if (
                         mapper is self.mapper
                         and self.pose is not None
                         and completion_age_s <= MAP_FUSION_MAX_AGE_S
                         and bool(getattr(match, "accepted", False))
                         and score >= 0.55
-                        and correction_m <= 0.15
-                        and abs(correction_yaw) <= math.radians(7.0)
+                        and (relocalized or (correction_m <= 0.15 and abs(correction_yaw) <= math.radians(7.0)))
                     ):
                         # Bound the displacement at the scan pose, not at the
                         # map origin, so yaw correction cannot swing a distant robot.
@@ -2304,6 +2340,12 @@ class RobotService:
                             (mapping_pose.y_m - predicted_map_pose[1]) * scale * alpha,
                             max(-math.radians(4.0), min(math.radians(4.0), correction_yaw)) * alpha,
                         )
+                        if relocalized:
+                            correction_applied = (
+                                mapping_pose.x_m - predicted_map_pose[0],
+                                mapping_pose.y_m - predicted_map_pose[1],
+                                correction_yaw,
+                            )
                         corrected_at_scan = tuple(a + b for a, b in zip(predicted_map_pose, correction_applied))
                         self.map_to_odom = self._compose_pose(corrected_at_scan, self._inverse_pose(odom_pose.as_tuple()))
                         self.map_pose = self._corrected_map_pose(self.pose)
@@ -2406,7 +2448,10 @@ class RobotService:
                 self.disarm("stm_telemetry_lost")
             if now - self.last_state_mono >= STATE_PERIOD_S:
                 self.last_state_mono = now
-                self.broadcast(self._state_payload())
+                full = now - self.last_status_mono >= STATUS_PERIOD_S
+                if full:
+                    self.last_status_mono = now
+                self.broadcast(self._state_payload(pose_only=not full))
             if now - self.last_sensor_mono >= SENSOR_PERIOD_S:
                 self.last_sensor_mono = now
                 payload = self._sensor_payload()
@@ -3001,8 +3046,9 @@ class ConsoleApp:
 
     def _message(self, message: dict[str, Any]) -> None:
         kind = message.get("type")
-        if kind == "state":
-            self.state = message
+        if kind in {"state", "pose"}:
+            if kind == "state":
+                self.state = message
             pose = message.get("pose") or [0.0, 0.0, 0.0]
             if len(pose) >= 3:
                 try:

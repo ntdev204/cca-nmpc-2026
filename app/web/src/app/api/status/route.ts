@@ -7,7 +7,9 @@ export async function GET(request: Request) {
     const messages = await readRobot();
     const search = new URL(request.url).searchParams;
     if (search.get("pose_only") === "1") {
-      const state = messages.find((message) => message.type === "state");
+      const state = messages.filter((message) => message.type === "state" || message.type === "pose")
+        .reduce<(typeof messages)[number] | undefined>((latest, item) =>
+          !latest || Number(item.t_ns) > Number(latest.t_ns) ? item : latest, undefined);
       return NextResponse.json({
         state: state && {
           t_ns: state.t_ns,

@@ -296,13 +296,15 @@ def apply_estimator_state(pose: Pose, state: Any, *, t_ns: int | None = None,
 
 
 def update_pose_with_ekf(pose: Pose, estimator: Any, telemetry: Stm32Telemetry,
-                         *, yaw_measurement_sign: float = 1.0) -> Any:
+                         *, yaw_measurement_sign: float = 1.0, stationary: bool = False,
+                         imu_bias: tuple[float, float, float] = (0.0, 0.0, 0.0)) -> Any:
     previous_t_ns = estimator.last_t_ns
     state = estimator.step(
         telemetry.t_ns,
         (telemetry.vx_mps, telemetry.vy_mps, telemetry.wz_radps * yaw_measurement_sign),
-        acceleration_body_mps2=(telemetry.accel_x_mps2, telemetry.accel_y_mps2),
-        gyro_z_radps=telemetry.gyro_z_radps * yaw_measurement_sign,
+        acceleration_body_mps2=(telemetry.accel_x_mps2 - imu_bias[0], telemetry.accel_y_mps2 - imu_bias[1]),
+        gyro_z_radps=(telemetry.gyro_z_radps - imu_bias[2]) * yaw_measurement_sign,
+        stationary=stationary,
     )
     dt_s = 0.0 if previous_t_ns is None else min(max(0.0, (telemetry.t_ns - previous_t_ns) / 1e9), 0.25)
     apply_estimator_state(pose, state, t_ns=telemetry.t_ns, dt_s=dt_s,

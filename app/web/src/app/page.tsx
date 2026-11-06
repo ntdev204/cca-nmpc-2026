@@ -215,6 +215,7 @@ function OccupancyCanvas({ data, viewport }: { data?: Record<string, unknown>; v
 function MapView({
   data,
   pose,
+  lidarPose,
   lidar,
   tf,
   trace,
@@ -226,6 +227,7 @@ function MapView({
 }: {
   data?: Record<string, unknown>;
   pose: Pose;
+  lidarPose: Pose;
   lidar: number[][];
   tf?: TfPayload;
   trace: Point[];
@@ -280,28 +282,31 @@ function MapView({
   const radius = Math.max(0.05, asNumber(tf?.footprint?.circumscribed_radius_m, 0.2828427));
   const laserFrame = frameFrom(tf, "laser");
   const [laserX, laserY] = translationFrom(laserFrame);
-  const laserWorldX = pose.x + Math.cos(pose.yaw) * laserX - Math.sin(pose.yaw) * laserY;
-  const laserWorldY = pose.y + Math.sin(pose.yaw) * laserX + Math.cos(pose.yaw) * laserY;
+  const laserWorldX = lidarPose.x + Math.cos(lidarPose.yaw) * laserX - Math.sin(lidarPose.yaw) * laserY;
+  const laserWorldY = lidarPose.y + Math.sin(lidarPose.yaw) * laserX + Math.cos(lidarPose.yaw) * laserY;
   const robotSvg = worldToSvg(pose.x, pose.y);
-  const laserRays: ReactNode[] = [];
-  if (showLaser) {
+  const laserYaw = asNumber(laserFrame.yaw_rad);
+  const laserRays = useMemo(() => {
+    const rays: ReactNode[] = [];
+    if (!showLaser) return rays;
     lidar.forEach((raw, index) => {
       const angle = asNumber(raw?.[0], Number.NaN);
       const distance = asNumber(raw?.[1], Number.NaN);
       if (!Number.isFinite(angle) || !Number.isFinite(distance) || distance <= 0) return;
-      const globalAngle = pose.yaw + asNumber(laserFrame.yaw_rad) + angle;
+      const globalAngle = lidarPose.yaw + laserYaw + angle;
       const [startX, startY] = worldToSvg(
-        pose.x + radius * Math.cos(globalAngle),
-        pose.y + radius * Math.sin(globalAngle),
+        lidarPose.x + radius * Math.cos(globalAngle),
+        lidarPose.y + radius * Math.sin(globalAngle),
       );
       const [endX, endY] = worldToSvg(
         laserWorldX + distance * Math.cos(globalAngle),
         laserWorldY + distance * Math.sin(globalAngle),
       );
-      laserRays.push(<line key={`ray-${index}`} x1={startX} y1={startY} x2={endX} y2={endY} stroke="#16a34a" strokeWidth="0.012" opacity="0.7" />);
-      laserRays.push(<circle key={`hit-${index}`} cx={endX} cy={endY} r="0.018" fill="#15803d" opacity="0.85" />);
+      rays.push(<line key={`ray-${index}`} x1={startX} y1={startY} x2={endX} y2={endY} stroke="#16a34a" strokeWidth="0.012" opacity="0.7" />);
+      rays.push(<circle key={`hit-${index}`} cx={endX} cy={endY} r="0.018" fill="#15803d" opacity="0.85" />);
     });
-  }
+    return rays;
+  }, [laserWorldX, laserWorldY, laserYaw, lidar, lidarPose, radius, showLaser]);
 
   const tracePoints = (history.length > 1 ? history : trace).map(([x, y]) => worldToSvg(x, y).join(",")).join(" ");
   const planPoints = (plan?.path_xy ?? []).map((point) => worldToSvg(asNumber(point?.[0]), asNumber(point?.[1])).join(",")).join(" ");
@@ -341,7 +346,7 @@ function MapView({
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot>({ backend: "connecting" });
   const [view, setView] = useState<DashboardView>("overview");
-  const [showLaser, setShowLaser] = useState(false);
+  const [laserPreference, setLaserPreference] = useState<boolean | null>(null);
   const [showTrace, setShowTrace] = useState(true);
   const [showPath, setShowPath] = useState(true);
   const [trace, setTrace] = useState<Point[]>([]);
@@ -375,11 +380,13 @@ export default function Home() {
   }, []);
 
   const mergeSnapshot = useCallback((previous: Snapshot, next: Snapshot): Snapshot => {
-    const state = next.state ?? previous.state;
+    const state = next.state && asNumber(next.state.t_ns) >= asNumber(previous.state?.t_ns)
+      ? next.state : previous.state;
     const status = state?.status as Record<string, unknown> | undefined;
     const dataset = status?.dataset as Record<string, unknown> | undefined;
     const activeMapId = String(dataset?.run ?? "");
-    let map = next.map ?? previous.map;
+    let map = next.map && asNumber(next.map.t_ns) >= asNumber(previous.map?.t_ns)
+      ? next.map : previous.map;
     const mapData = map?.map as Record<string, unknown> | undefined;
     const metadata = mapData?.metadata as Record<string, unknown> | undefined;
     if (String(status?.map_source ?? "") === "scan" && activeMapId && String(metadata?.map_id ?? "") !== activeMapId) {
@@ -389,7 +396,8 @@ export default function Home() {
       ...previous,
       ...next,
       state,
-      lidar: next.lidar ?? previous.lidar,
+      lidar: next.lidar && asNumber(next.lidar.t_ns) >= asNumber(previous.lidar?.t_ns)
+        ? next.lidar : previous.lidar,
       map,
       events: next.events ?? previous.events,
       error: next.error,
@@ -411,10 +419,6 @@ export default function Home() {
       const body = requestMapEpoch === mapEpoch.current
         ? received
         : { ...received, map: undefined, lidar: undefined };
-      if (body.map) {
-        const timestamp = String(body.map.t_ns ?? body.map.capture_t_ns ?? "");
-        if (timestamp) mapTimestamp.current = timestamp;
-      }
       setSnapshot((previous) => mergeSnapshot(previous, body));
       const nextPose = body.state ? poseFrom(body) : null;
       if (!nextPose) return;
@@ -430,6 +434,10 @@ export default function Home() {
       refreshInFlight.current = false;
     }
   }, [mergeSnapshot]);
+
+  useEffect(() => {
+    mapTimestamp.current = String(snapshot.map?.t_ns ?? snapshot.map?.capture_t_ns ?? "");
+  }, [snapshot.map]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh(), 0);
@@ -469,6 +477,7 @@ export default function Home() {
       mapEpoch.current += 1;
       mapTimestamp.current = "";
       setFastPose(undefined);
+      setLaserPreference(null);
       setSelectedMapId("");
       if (payload.command === "scan_start") setTrace([]);
       setSnapshot((previous) => ({ ...previous, map: undefined, lidar: undefined }));
@@ -489,6 +498,7 @@ export default function Home() {
   const poseDiagnostics = (state.pose_diagnostics as Record<string, unknown> | undefined) ?? {};
   const tf = (state.tf as TfPayload | undefined);
   const dataset = (status.dataset as Record<string, unknown> | undefined) ?? {};
+  const showLaser = laserPreference ?? Boolean(dataset.active);
   const mapVisible = !dataset.discarding && Boolean(
     dataset.active || dataset.starting || dataset.saving ||
     status.map_source === "scan" || status.map_source === "saved",
@@ -496,6 +506,10 @@ export default function Home() {
   const mapData = mapVisible ? snapshot.map?.map as Record<string, unknown> | undefined : undefined;
   const plan = mapVisible ? snapshot.map?.plan as MapPlan | undefined : undefined;
   const lidar = useMemo(() => (Array.isArray(snapshot.lidar?.points) ? snapshot.lidar.points as number[][] : []), [snapshot.lidar]);
+  const lidarPose = useMemo(
+    () => poseFrom({ state: snapshot.lidar?.map_pose ? snapshot.lidar : snapshot.state }),
+    [snapshot.lidar, snapshot.state],
+  );
   const mapHistory = useMemo(() => {
     const historyPayload = (mapData?.metadata as Record<string, unknown> | undefined)?.history as Record<string, unknown> | undefined;
     const trajectory = Array.isArray(historyPayload?.trajectory) ? historyPayload.trajectory : [];
@@ -665,14 +679,16 @@ export default function Home() {
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
             <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · pose age {dataAge(markerState?.pose_sample_t_ns)} · map age {dataAge(snapshot.map?.capture_t_ns)}</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
-              <MapToggle checked={showLaser} label="Laser" onChange={setShowLaser} />
+              {Boolean(dataset.active) && dataset.slam_localization === "unconfirmed" &&
+                <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">Map paused · low scan match</Badge>}
+              <MapToggle checked={showLaser} label="Laser" onChange={setLaserPreference} />
               <MapToggle checked={showTrace} label="Trace" onChange={setShowTrace} />
               <MapToggle checked={showPath} label="Path" onChange={setShowPath} />
               <Badge variant="outline" className="gap-1.5 bg-white"><ScanLine className="size-3.5" />{lidar.length} points</Badge>
             </div>
           </CardHeader>
           <CardContent className="grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.38fr)]">
-            <MapView data={mapData} pose={pose} lidar={lidar} tf={tf} trace={trace} history={mapHistory} plan={plan} showLaser={showLaser} showTrace={showTrace} showPath={showPath} />
+            <MapView data={mapData} pose={pose} lidarPose={lidarPose} lidar={lidar} tf={tf} trace={trace} history={mapHistory} plan={plan} showLaser={showLaser} showTrace={showTrace} showPath={showPath} />
             <section className="flex min-h-[520px] flex-col rounded-lg border bg-slate-950/5 p-2" aria-label="Astra-S camera monitor">
               <div className="flex items-center justify-between px-1 pb-2"><div className="flex items-center gap-2 text-sm font-medium"><Camera className="size-4 text-primary" />Astra-S camera</div><span className="text-xs text-muted-foreground">{cameraAge}</span></div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-slate-100">{cameraOnline && cameraFallback ? <><span className="sr-only">Astra-S MJPEG fallback stream</span>{/* MJPEG multipart must stay an img stream. */}<img src="/api/camera" className="max-h-full w-full object-contain" alt="Astra-S MJPEG camera stream" /></> : cameraOnline && !cameraConnection.startsWith("failed") ? <><span className="sr-only">Astra-S WebRTC H.264 stream</span><video ref={cameraVideoRef} muted autoPlay playsInline className="max-h-full w-full object-contain" aria-label="Astra-S WebRTC H.264 camera stream" /></> : <p className="px-3 text-center text-sm text-muted-foreground">{cameraConnection.startsWith("failed") ? cameraConnection : "Camera stream unavailable"}</p>}</div>
@@ -681,7 +697,7 @@ export default function Home() {
           </CardContent>
         </Card>}
 
-        {(view === "overview" || view === "monitor") && <section className="grid items-start gap-4 xl:grid-cols-[minmax(260px,0.45fr)_minmax(0,1fr)]">
+        {(view === "overview" || view === "monitor" || view === "mapping") && <section className="grid items-start gap-4 xl:grid-cols-[minmax(260px,0.45fr)_minmax(0,1fr)]">
           <Card className="overflow-hidden shadow-sm">
             <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Radar className="size-4 text-primary" />Live LiDAR</CardTitle><CardDescription>{lidar.length} returns · {lidarAge}</CardDescription></CardHeader>
             <Separator />
