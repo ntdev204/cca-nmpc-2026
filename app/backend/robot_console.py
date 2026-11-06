@@ -613,6 +613,12 @@ class RobotService:
         self.watchdog_zero_sent = False
         self.command_sequence = 0
         self.client_control_sequences: dict[str, int] = {}
+        self.yaw_command_gains = {1: 1.0, -1: 1.0}
+        self.yaw_adaptive_sign = 0
+        self.yaw_adaptive_target = 0.0
+        self.yaw_adaptive_since = 0.0
+        self.yaw_adaptive_last_update = 0.0
+        self.yaw_adaptive_last_sample_ns = 0
         self.last_telemetry_ns = 0
         self.last_telemetry_mono = 0.0
         self.last_scan_ns = 0
@@ -744,6 +750,8 @@ class RobotService:
                 "mjpeg_clients": self.camera_http_clients,
                 "camera_transport": self.camera_transport,
                 "webrtc_clients": len(self.webrtc_peers),
+                "yaw_command_gain_positive": round(self.yaw_command_gains[1], 3),
+                "yaw_command_gain_negative": round(self.yaw_command_gains[-1], 3),
                 "map_resolution_m": MAP_RESOLUTION_M,
                 "selected_map": self.last_saved_root.name if self.last_saved_root is not None else None,
                 "maps": maps_payload,
@@ -1648,13 +1656,65 @@ class RobotService:
         with self.motion_lock:
             active = self.armed and self.stm is not None
             if active:
-                self.stm.send_velocity(values[0], values[1], values[2] * self.geometry["yaw_command_sign"])
+                yaw_gain = self._update_yaw_command_gain(values)
+                self.stm.send_velocity(
+                    values[0], values[1],
+                    values[2] * yaw_gain * self.geometry["yaw_command_sign"],
+                )
                 self.last_command = values
                 self.command_sequence += 1
                 self.last_command_mono = time.monotonic()
                 self.watchdog_zero_sent = False
             else:
+                self._reset_yaw_adaptation()
                 self.send_zero()
+
+    def _reset_yaw_adaptation(self) -> None:
+        self.yaw_adaptive_sign = 0
+        self.yaw_adaptive_target = 0.0
+        self.yaw_adaptive_since = 0.0
+        self.yaw_adaptive_last_update = 0.0
+
+    def _update_yaw_command_gain(self, values: tuple[float, float, float]) -> float:
+        """Slowly balance clockwise/counterclockwise rate using fresh encoder feedback."""
+        yaw = values[2]
+        if abs(yaw) < 1e-3 or abs(values[0]) > 0.02 or abs(values[1]) > 0.02:
+            self._reset_yaw_adaptation()
+            return 1.0 if abs(yaw) < 1e-3 else self.yaw_command_gains[1 if yaw > 0.0 else -1]
+
+        sign = 1 if yaw > 0.0 else -1
+        target = abs(yaw)
+        now = time.monotonic()
+        if sign != self.yaw_adaptive_sign or abs(target - self.yaw_adaptive_target) > 0.03:
+            self.yaw_adaptive_sign = sign
+            self.yaw_adaptive_target = target
+            self.yaw_adaptive_since = now
+            self.yaw_adaptive_last_update = now
+            self.yaw_adaptive_last_sample_ns = 0
+            return self.yaw_command_gains[sign]
+
+        if now - self.yaw_adaptive_since < 0.6 or now - self.yaw_adaptive_last_update < 0.6:
+            return self.yaw_command_gains[sign]
+        telemetry = self.stm.latest if self.stm is not None else None
+        if (
+            telemetry is None
+            or telemetry.t_ns == self.yaw_adaptive_last_sample_ns
+            or self.last_telemetry_mono <= 0.0
+            or now - self.last_telemetry_mono > 0.5
+        ):
+            return self.yaw_command_gains[sign]
+
+        self.yaw_adaptive_last_sample_ns = telemetry.t_ns
+        self.yaw_adaptive_last_update = now
+        measured = abs(telemetry.wz_radps * self.geometry["yaw_measurement_sign"])
+        if measured < 0.12 or measured > target * 1.8:
+            return self.yaw_command_gains[sign]
+
+        current = self.yaw_command_gains[sign]
+        desired = min(1.35, max(0.75, current * target / measured))
+        delta = min(0.04, max(-0.04, (desired - current) * 0.2))
+        self.yaw_command_gains[sign] = min(1.35, max(0.75, current + delta))
+        return self.yaw_command_gains[sign]
 
     def _record_control(self, values: tuple[float, float, float]) -> None:
         with self.state_lock:
@@ -1764,6 +1824,7 @@ class RobotService:
 
     def send_zero(self) -> None:
         with self.motion_lock:
+            self._reset_yaw_adaptation()
             if self.stm is not None:
                 try:
                     self.stm.send_velocity(*ZERO)
