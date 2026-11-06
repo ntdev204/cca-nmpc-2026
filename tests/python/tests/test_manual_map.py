@@ -323,3 +323,38 @@ def test_turn_with_competing_wall_matches_holds_map_until_confirmed() -> None:
     mapper.update(make_scan(geometry, 600_000_001), Pose())
     assert mapper.history[-1]["localization"] == "tracking"
     assert len(mapper.scan_frames) == 2
+
+
+def test_turn_pose_correction_waits_for_two_stable_scans_before_writing(monkeypatch) -> None:
+    mapper = make_mapper()
+    geometry = distinctive_points()
+    mapper.update(make_scan(geometry), Pose())
+    grid = dict(mapper.log_odds)
+
+    def match(points, base, stamp, *args, **kwargs):
+        dx = 0.12 if stamp == 200_000_001 else 0.0
+        return (mapper._match_result(True, "matched", 0.9, len(points), (dx, 0, 0)),
+                (base[0] + dx, base[1], base[2]))
+
+    monkeypatch.setattr(mapper, "_match", match)
+    turning = Pose(last_yaw_rate_radps=0.5)
+    mapper.update(make_scan(geometry, 200_000_001), turning)
+    assert turning.x_m == pytest.approx(0.12)
+    assert mapper.history[-1]["map_write_reason"] == "turn_pose_change"
+    assert mapper.log_odds == grid
+    mapper.update(make_scan(geometry, 400_000_001), Pose())
+    assert mapper.history[-1]["map_write_reason"] == "confirming_map_pose"
+    assert mapper.log_odds == grid
+    mapper.update(make_scan(geometry, 600_000_001), Pose())
+    assert mapper.history[-1]["map_update"] == "full"
+    assert len(mapper.scan_frames) == 2
+
+
+def test_expired_map_votes_do_not_change_grid() -> None:
+    mapper = make_mapper()
+    mapper.update(make_scan(distinctive_points()), Pose())
+    grid = dict(mapper.log_odds)
+    pending = mapper._pending_wall_clears.copy()
+    assert not mapper._integrate(((0.0, 3.0, 1),), (0, 0, 0), 1, 0, 0, 0, deadline_mono=0)
+    assert mapper.log_odds == grid
+    assert mapper._pending_wall_clears == pending

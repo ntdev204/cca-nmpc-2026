@@ -184,6 +184,8 @@ class OccupancyMap:
         self._recovery_candidate: tuple[int, tuple[float, float, float], tuple[float, float, float]] | None = None
         self._corner_ambiguous = False
         self._corner_candidate: tuple[int, tuple[float, float, float], tuple[float, float, float]] | None = None
+        self._map_write_needs_confirmation = False
+        self._last_stable_map_stamp: int | None = None
         self.last_loop_closure: dict[str, Any] = {"accepted": False, "reason": "not_run"}
 
     @staticmethod
@@ -568,7 +570,8 @@ class OccupancyMap:
 
     def _integrate(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
                    scan_t_ns: int, vx: float, vy: float, wz: float, *, clear_free: bool = True,
-                   rays: tuple[tuple[float, float, float, float], ...] | None = None) -> None:
+                   rays: tuple[tuple[float, float, float, float], ...] | None = None,
+                   deadline_mono: float | None = None) -> bool:
         pose_x, pose_y = pose[0] / self.resolution_m, pose[1] / self.resolution_m
         radius_sq = (self.robot_radius_m / self.resolution_m) ** 2
         hits: set[tuple[int, int]] = set()
@@ -588,7 +591,10 @@ class OccupancyMap:
                     if dx * dx + dy * dy > radius_sq:
                         misses.add(cell)
         pending = set()
-        for cell in misses - hits:
+        free_votes = misses - hits
+        if deadline_mono is not None and time.monotonic() >= deadline_mono:
+            return False
+        for cell in free_votes:
             if self.log_odds.get(cell, 0.0) > self.STRONG_OCCUPIED_THRESHOLD:
                 pending.add(cell)
                 if cell not in self._pending_wall_clears:
@@ -597,6 +603,25 @@ class OccupancyMap:
         for end in hits:
             self._apply_evidence(end, self.OCCUPIED_EVIDENCE)
         self._pending_wall_clears = pending
+        return True
+
+    def _corner_write_reason(self, stamp: int, yaw_rate: float, match: _MatchResult, reliable: bool) -> str | None:
+        turning = abs(yaw_rate) >= self.LOCAL_AMBIGUITY_TURN_RADPS
+        small_correction = match.correction_m <= 0.06 and abs(match.correction_yaw_rad) <= math.radians(2.5)
+        risky = reliable and turning and (abs(yaw_rate) >= 0.8 or not small_correction)
+        if risky:
+            self._map_write_needs_confirmation = True
+            self._last_stable_map_stamp = None
+            return "turn_pose_change"
+        if self._map_write_needs_confirmation:
+            prior = self._last_stable_map_stamp
+            stable = reliable and small_correction
+            self._last_stable_map_stamp = stamp if stable else None
+            if not stable or prior is None or not 0 < stamp - prior <= 1_000_000_000:
+                return "confirming_map_pose"
+            self._map_write_needs_confirmation = False
+            self._last_stable_map_stamp = None
+        return None
 
     def _new_keyframe(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
                       scan_t_ns: int, vx: float, vy: float, wz: float,
@@ -934,15 +959,23 @@ class OccupancyMap:
         current_pose = pose.as_tuple()
         self.scans += 1
         bootstrap = not self.scan_frames and len(points) >= 16
-        integrated = bool(points) and (reliable or bootstrap or not self.scan_matching_enabled)
+        map_write_reason = self._corner_write_reason(scan.t_ns, pose.last_yaw_rate_radps, match, reliable)
+        integrated = bool(points) and (
+            bootstrap or not self.scan_matching_enabled or (reliable and map_write_reason is None)
+        )
         clear_free = integrated and (bootstrap or not self.scan_matching_enabled or
                                       (match.score >= self.MIN_CLEAR_MATCH_SCORE
                                        and (match.observability is None or match.observability >= 0.025)
                                        and abs(pose.last_yaw_rate_radps) < 0.8))
         if integrated:
-            self._integrate(points, current_pose, scan.t_ns, pose.last_vx_mps, pose.last_vy_mps,
-                            pose.last_yaw_rate_radps, clear_free=clear_free, rays=rays)
-        else:
+            integrated = self._integrate(
+                points, current_pose, scan.t_ns, pose.last_vx_mps, pose.last_vy_mps,
+                pose.last_yaw_rate_radps, clear_free=clear_free, rays=rays, deadline_mono=deadline_mono,
+            )
+            if not integrated:
+                map_write_reason = "stale_before_map_write"
+                clear_free = False
+        if not integrated:
             self._pending_wall_clears.clear()
         integrated_mono = time.monotonic()
         loop_closure = None
@@ -977,6 +1010,7 @@ class OccupancyMap:
             "search_radius_m": radius,
             "search_yaw_radius_rad": yaw_radius,
             "map_update": "full" if clear_free else "hits_only" if integrated else "held",
+            "map_write_reason": map_write_reason,
             "localization": (
                 "relocalized" if recovered is not None else "tracking" if reliable
                 else "ambiguous" if self._corner_ambiguous else "unconfirmed"
