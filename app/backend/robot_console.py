@@ -44,7 +44,7 @@ def error_text(error: BaseException) -> str:
 APP_PORT = 8765
 CAMERA_HTTP_PORT = 8766
 MAX_POINTS = 360
-STATE_PERIOD_S = 0.10
+STATE_PERIOD_S = 0.05
 SENSOR_PERIOD_S = 0.05
 # Keep live occupancy feedback responsive while staying below the 10 Hz LiDAR
 # rate; map payload generation is a full-grid operation.
@@ -120,6 +120,8 @@ def load_robot_geometry() -> dict[str, float]:
     defaults = {
         "footprint_radius_m": math.sqrt(0.2**2 + 0.2**2),
         "lidar_position_x_m": 0.10,
+        "lidar_time_offset_s": 0.0,
+        "slam_fusion_hz": 1.0 / MAP_FUSION_PERIOD_S,
         "lidar_height_m": 0.24,
         "camera_position_x_m": 0.165,
         "camera_height_m": 0.20,
@@ -584,6 +586,9 @@ class RobotService:
         self.camera_capture_thread: threading.Thread | None = None
         self.map_thread: threading.Thread | None = None
         self.map_fusion_thread: threading.Thread | None = None
+        self.graph_worker: threading.Thread | None = None
+        self.graph_result: tuple[Any, Any] | None = None
+        self.last_graph_attempt_mono = 0.0
         self.scan_save_thread: threading.Thread | None = None
         self.scan_discard_thread: threading.Thread | None = None
         self.scan_start_thread: threading.Thread | None = None
@@ -663,6 +668,7 @@ class RobotService:
         self.camera_status = "disabled"
         self.camera_transport = "webrtc-h264" if WEBRTC_AVAILABLE else "mjpeg-fallback"
         self.geometry = load_robot_geometry()
+        self.map_fusion_period_s = 1.0 / max(3.0, min(10.0, self.geometry["slam_fusion_hz"]))
         self.saved_maps_cache: list[dict[str, Any]] = []
         self.saved_maps_cache_mono = 0.0
         # A* is a planning/visualisation layer.  It never sends a motion
@@ -810,7 +816,7 @@ class RobotService:
                     "slam_scan_lag_s": round(self.map_scan_lag_s, 3),
                     "slam_scans_stale": self.map_scans_stale,
                     "slam_processing_ms": round(self.map_fusion_processing_ms, 1),
-                    "slam_fusion_target_hz": 1.0 / MAP_FUSION_PERIOD_S,
+                    "slam_fusion_target_hz": 1.0 / self.map_fusion_period_s,
                     "lidar_scans_dropped": max(0, int(getattr(self.lidar, "scan_queue_dropped", 0)) - self.lidar_dropped_at_scan_start),
                     "camera_frames": int(camera_frames_saved),
                 },
@@ -1309,6 +1315,7 @@ class RobotService:
                 scan_matching=True,
                 map_id=root.name,
                 defer_graph_optimization=True,
+                lidar_time_offset_s=self.geometry["lidar_time_offset_s"],
             )
             self.pose = initial_pose
             self.map_pose = copy_pose_for_mapping(initial_pose)
@@ -1668,7 +1675,7 @@ class RobotService:
                 "slam_algorithm": "no_ros_correlative_scan_matching_pose_graph",
                 "fusion_queue_max": MAP_FUSION_QUEUE_SIZE,
                 "fusion_max_scan_age_s": MAP_FUSION_MAX_AGE_S,
-                "fusion_target_hz": 1.0 / MAP_FUSION_PERIOD_S,
+                "fusion_target_hz": 1.0 / self.map_fusion_period_s,
                 "fusion_scans_queue_dropped": self.map_scans_dropped,
                 "fusion_scans_stale_dropped": self.map_scans_stale,
                 "fusion_last_scan_lag_s": round(self.map_scan_lag_s, 4),
@@ -2044,7 +2051,7 @@ class RobotService:
                     self.status["message"] = "STM32 telemetry recovered; re-arm motion"
                 self.pose_history.append(copy_pose_for_mapping(self.pose))
                 if self.files is not None and self.scan_active:
-                    self.files.state(now_ns(), self.pose, telemetry, getattr(self.stm, "backend", "serial"), self.estimator)
+                    self.files.state(raw_telemetry.t_ns, self.pose, telemetry, getattr(self.stm, "backend", "serial"), self.estimator)
             if self.pose is not None:
                 mapper_uses_matching = self.mapper is not None and bool(
                     getattr(self.mapper, "scan_matching_enabled", False)
@@ -2106,6 +2113,7 @@ class RobotService:
             return {
                 "type": "state",
                 "t_ns": now_ns(),
+                "pose_sample_t_ns": self.pose.last_t_ns if self.pose is not None else None,
                 "pose": pose,
                 "map_pose": map_pose,
                 "telemetry": telemetry_payload,
@@ -2158,7 +2166,7 @@ class RobotService:
             if self.scan_active and self.mapper is not None and self.pose is not None:
                 eligible = tuple(item for item in scans if item.t_ns >= self.scan_started_ns)
                 now_mono = time.monotonic()
-                if eligible and now_mono - self.last_map_enqueue_mono >= MAP_FUSION_PERIOD_S:
+                if eligible and now_mono - self.last_map_enqueue_mono >= self.map_fusion_period_s:
                     newest = eligible[-1]
                     self.map_scans_dropped += max(0, len(eligible) - 1)
                     work = (newest, self.mapper, self._pose_at_locked(newest.t_ns), self.files)
@@ -2168,8 +2176,45 @@ class RobotService:
                     self.map_scans_dropped += len(eligible)
         return {"type": "lidar", "t_ns": scan.t_ns, "points": self.latest_lidar}
 
+    def _service_graph_optimization(self) -> None:
+        # The fusion thread installs results between scans, so the map and
+        # map-to-odom transform cannot change mid-match.
+        with self.state_lock:
+            result, self.graph_result = self.graph_result, None
+            mapper = self.mapper
+            if mapper is None or self.scan_saving or self.scan_discarding or self.stop_event.is_set():
+                return
+            if result is not None and result[0] is mapper:
+                with self.map_lock:
+                    before = mapper.poses[-1]
+                    if mapper.install_optimized_snapshot(result[1]):
+                        correction = self._compose_pose(mapper.poses[-1], self._inverse_pose(before))
+                        self.map_to_odom = self._compose_pose(correction, self.map_to_odom)
+                        self.map_pose = self._corrected_map_pose(self.pose)
+            now = time.monotonic()
+            if (not mapper.graph_optimization_pending or now - self.last_graph_attempt_mono < 3
+                    or (self.graph_worker is not None and self.graph_worker.is_alive())):
+                return
+            with self.map_lock:
+                snapshot = mapper.optimization_snapshot()
+            self.last_graph_attempt_mono = now
+
+            def solve() -> None:
+                try:
+                    snapshot.optimize_pending_graph()
+                except Exception as error:
+                    self.broadcast({"type": "event", "event": "map_error", "message": error_text(error)})
+                    return
+                with self.state_lock:
+                    if self.mapper is mapper:
+                        self.graph_result = (mapper, snapshot)
+
+            self.graph_worker = threading.Thread(target=solve, name="robot-console-graph", daemon=True)
+            self.graph_worker.start()
+
     def _map_fusion_loop(self) -> None:
         while not self.stop_event.is_set() or not self.map_fusion_queue.empty() or self.scan_saving:
+            self._service_graph_optimization()
             try:
                 job = self.map_fusion_queue.get(timeout=0.1)
             except queue.Empty:
@@ -2203,13 +2248,19 @@ class RobotService:
             process_started_mono = time.monotonic()
             try:
                 with self.state_lock:
+                    reference_ns = mapper.scan_reference_ns(scan)
+                    odom_pose = self._pose_at_locked(reference_ns)
+                    pose_samples = tuple(
+                        (p.last_t_ns, p.x_m, p.y_m, p.yaw_rad)
+                        for p in list(self.pose_history)[-12:] if p.last_t_ns is not None
+                    )
                     mapping_pose = self._corrected_map_pose(odom_pose)
                     predicted_map_pose = mapping_pose.as_tuple()
-                    map_to_odom = self.map_to_odom
                 with self.map_lock:
                     remaining_s = MAP_FUSION_MAX_AGE_S - (now_ns() - scan.t_ns) / 1e9
                     updated = remaining_s > 0 and mapper.update(
                         scan, mapping_pose, deadline_mono=time.monotonic() + remaining_s,
+                        pose_samples=pose_samples,
                     )
                     if updated:
                         history_record = dict(mapper.history[-1])
@@ -2241,21 +2292,20 @@ class RobotService:
                         and correction_m <= 0.15
                         and abs(correction_yaw) <= math.radians(7.0)
                     ):
-                        # Convert this delayed scan's local match into a small
-                        # map->odom transform update. Never inject an old scan
-                        # delta into the EKF's present-time pose.
-                        map_correction = self._compose_pose(
-                            mapping_pose.as_tuple(), self._inverse_pose(predicted_map_pose),
-                        )
-                        translation = math.hypot(map_correction[0], map_correction[1])
-                        scale = min(1.0, 0.04 / translation) if translation > 0.0 else 1.0
-                        alpha = 0.35
+                        # Bound the displacement at the scan pose, not at the
+                        # map origin, so yaw correction cannot swing a distant robot.
+                        alpha = max(0.30, min(1.0, (score - 0.55) / 0.25))
+                        observability = match.observability
+                        if observability is None or observability < 0.025:
+                            alpha = min(alpha, 0.35)
+                        scale = min(1.0, 0.10 / correction_m) if correction_m > 0.0 else 1.0
                         correction_applied = (
-                            map_correction[0] * scale * alpha,
-                            map_correction[1] * scale * alpha,
-                            max(-math.radians(1.0), min(math.radians(1.0), map_correction[2])) * alpha,
+                            (mapping_pose.x_m - predicted_map_pose[0]) * scale * alpha,
+                            (mapping_pose.y_m - predicted_map_pose[1]) * scale * alpha,
+                            max(-math.radians(4.0), min(math.radians(4.0), correction_yaw)) * alpha,
                         )
-                        self.map_to_odom = self._compose_pose(correction_applied, map_to_odom)
+                        corrected_at_scan = tuple(a + b for a, b in zip(predicted_map_pose, correction_applied))
+                        self.map_to_odom = self._compose_pose(corrected_at_scan, self._inverse_pose(odom_pose.as_tuple()))
                         self.map_pose = self._corrected_map_pose(self.pose)
                     process_ms = (time.monotonic() - process_started_mono) * 1000.0
                     self.map_fusion_processing_ms = process_ms
@@ -2302,6 +2352,7 @@ class RobotService:
             if signature == previous_signature:
                 return None
             payload = mapper.wire_payload()
+            capture_t_ns = mapper.scan_frames[-1].t_ns if mapper.scan_frames else None
         with self.state_lock:
             # A scan can replace the mapper while its previous frame is being
             # serialized. Never publish that late frame into the new map.
@@ -2312,7 +2363,8 @@ class RobotService:
             if self.map_source == "scan" and self.run_root is not None and map_id != self.run_root.name:
                 return None
             self.last_broadcast_map_signature = signature
-            return {"type": "map", "t_ns": now_ns(), "map": payload, "plan": self.plan_payload}
+            return {"type": "map", "t_ns": now_ns(), "capture_t_ns": capture_t_ns,
+                    "map": payload, "plan": self.plan_payload}
 
     def _map_loop(self) -> None:
         next_map_mono = time.monotonic()

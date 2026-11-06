@@ -431,7 +431,8 @@ class RunFiles:
 
     def write_map_history(self, record: dict[str, Any], scan: LidarScan | None = None) -> None:
         if scan is not None:
-            record = {**record, "lidar_point_offsets_ns": [point.t_ns - scan.t_ns for point in scan.points]}
+            record = {**record, "lidar_period_ns": scan.period_ns,
+                      "lidar_point_offsets_ns": [point.t_ns - scan.t_ns for point in scan.points]}
         with self.io_lock:
             if not self.closed:
                 self.history_stream.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
@@ -775,7 +776,7 @@ def main() -> int:
                     files.control(utc_ns(), command, calibrated_telemetry, sequence, stm.backend)
                     next_send = now + 1.0 / args.send_rate
                 if now >= next_state:
-                    files.state(utc_ns(), pose, calibrated_telemetry, stm.backend, estimator)
+                    files.state(pose.last_t_ns or utc_ns(), pose, calibrated_telemetry, stm.backend, estimator)
                     next_state = now + 1.0 / args.send_rate
                 if now >= next_report:
                     scan_count = mapper.scans

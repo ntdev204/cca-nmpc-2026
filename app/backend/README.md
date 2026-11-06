@@ -19,9 +19,9 @@ and map are zlib-compressed and Base64-framed when that is smaller than JSON;
 
 Pose estimation uses the shared six-state EKF: STM32 body velocity (wheel
 odometry) and IMU planar acceleration/gyro drive the prediction and velocity
-updates. Accepted LiDAR scan-matching corrections are fused as gated pose
-measurements. The same EKF path is used by the manual map capture tool; the
-direct runtime experiment uses the encoder/IMU portion while recording LiDAR.
+updates. The console applies accepted LiDAR scan matches to the map-to-odom
+transform. The standalone manual capture tool can feed scan matches into its
+EKF as pose measurements.
 During straight motion the filter gives more weight to encoder yaw; when gyro Z
 reports a turn, it gives more weight to IMU yaw while continuing to use encoder
 translation.
@@ -30,14 +30,35 @@ separately so a motor-direction correction cannot reverse the map heading.
 EKF covariance and LiDAR update diagnostics are included in the live state and
 scan logs.
 
-Motion is ready automatically when STM32 is online; the web client does not
-need a separate enable command. Mapping uses a no-ROS 2D SLAM pipeline:
-per-scan correlative matching, keyframe pose-graph constraints, nearby
-loop-closure detection, robust sparse graph optimization, and occupancy replay
-from all retained scans after optimization. Saved runs include
-`slam_pose_graph.json`. N10P packet timestamps support packet-level motion
-compensation; they do not provide true per-beam deskew.
-camera frames are resized and JPEG-encoded for the constrained link. TCP
+The operator enables motion from the console. Local SLAM uses correlative
+search followed by continuous refinement on a smoothed grid. It limits
+correction along poorly observed directions and holds occupancy writes when
+scan matching is unreliable. Closed submaps provide independent references for
+loop closure. Graph optimization and occupancy replay run on a background
+snapshot, with any pending optimization handled when saving.
+
+The console estimates beam times from scan angle and the measured revolution
+period. It interpolates EKF history for those times and falls back to packet
+timing and constant twist when history is insufficient. Pose publication
+targets 20 Hz and map publication targets 3 Hz. Fusion defaults to 5 Hz.
+The optional top-level `slam_fusion_hz` in `configs/physical_robot.json` is
+bounded to 3–10 Hz. Increase it only after checking scan age, queue depth and
+end-to-end latency on the target Jetson.
+
+To estimate the optional top-level `lidar_time_offset_s`, record two separate
+runs with the robot stationary at first, then turning in place near fixed
+walls. Run the calibration tool from the repository root:
+
+```bash
+python3 scripts/python/tools/calibrate_lidar_time_offset.py RUN --validation INDEPENDENT_RUN
+```
+
+The tool reports errors for candidate offsets on the calibration run and
+compares the selected offset with zero on the independent run. Apply an offset
+only if it improves the independent result. A positive offset means the LiDAR
+timestamp is later than the estimated acquisition time.
+
+Camera frames are resized and JPEG-encoded for the constrained link. TCP
 keep-alive and `TCP_NODELAY` are enabled so short control packets are not held
 behind a stale stream frame. Compression is negotiated by the client in the
 initial `ping`; clients that do not advertise it continue to receive ordinary

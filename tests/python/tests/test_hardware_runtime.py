@@ -34,6 +34,7 @@ def n10p_packet() -> bytes:
     packet[9] = 12
     packet[10:12] = (2500).to_bytes(2, "big")
     packet[12] = 34
+    packet[13:15] = b"\xff\xff"
     packet[-1] = sum(packet[:-1]) & 0xFF
     return bytes(packet)
 
@@ -43,7 +44,8 @@ def test_n10p_decoder_stream_and_crc() -> None:
     packet = n10p_packet()
     assert decoder.feed(packet[:30], 10) == ()
     points = decoder.feed(packet[30:], 10)
-    assert len(points) == 32
+    # Zero and 0xffff denote absent returns, not valid range measurements.
+    assert len(points) == 2
     assert points[0].range_m == pytest.approx(1.5)
     assert points[0].intensity == 12
     assert points[1].range_m == pytest.approx(2.5)

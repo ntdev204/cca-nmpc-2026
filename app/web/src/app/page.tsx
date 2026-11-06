@@ -88,6 +88,12 @@ function poseFrom(snapshot: Snapshot): Pose {
   return { x: asNumber(pose[0]), y: asNumber(pose[1]), yaw: asNumber(pose[2]) };
 }
 
+function dataAge(timestamp: unknown): string {
+  if (timestamp == null) return "—";
+  const ms = Date.now() - asNumber(timestamp, Number.NaN) / 1e6;
+  return Number.isFinite(ms) && ms >= -100 ? `${Math.max(0, Math.round(ms))} ms` : "—";
+}
+
 function frameFrom(tf: TfPayload | undefined, child: string): TfFrame {
   const frame = (tf?.frames ?? []).find((item) => item?.child === child);
   return frame ?? {};
@@ -348,6 +354,7 @@ export default function Home() {
   const refreshInFlight = useRef(false);
   const mapEpoch = useRef(0);
   const mapTimestamp = useRef("");
+  const [fastPose, setFastPose] = useState<Snapshot["state"]>();
 
   const selectView = useCallback((next: DashboardView) => {
     setView(next);
@@ -430,12 +437,38 @@ export default function Home() {
     return () => { window.clearTimeout(initial); window.clearInterval(id); };
   }, [refresh]);
 
-  const pose = poseFrom(snapshot);
+  useEffect(() => {
+    if (view !== "overview" && view !== "mapping") return;
+    const controller = new AbortController();
+    let inFlight = false;
+    const id = window.setInterval(async () => {
+      if (inFlight || document.hidden) return;
+      const epoch = mapEpoch.current;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/status?pose_only=1", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const result = (await response.json()) as Pick<Snapshot, "state">;
+        if (epoch === mapEpoch.current && result.state?.t_ns != null) {
+          setFastPose((prior) => String(result.state?.t_ns) === String(prior?.t_ns) ? prior : result.state);
+        }
+      } catch {
+        // The main status poll reports transport failures.
+      } finally {
+        inFlight = false;
+      }
+    }, 50);
+    return () => { window.clearInterval(id); controller.abort(); };
+  }, [view]);
+
+  const markerState = fastPose && asNumber(fastPose.t_ns) > asNumber(snapshot.state?.t_ns) ? fastPose : snapshot.state;
+  const pose = poseFrom({ ...snapshot, state: markerState });
 
   const command = useCallback(async (payload: Record<string, unknown>) => {
     if (payload.command === "scan_start" || payload.command === "scan_discard") {
       mapEpoch.current += 1;
       mapTimestamp.current = "";
+      setFastPose(undefined);
       setSelectedMapId("");
       if (payload.command === "scan_start") setTrace([]);
       setSnapshot((previous) => ({ ...previous, map: undefined, lidar: undefined }));
@@ -630,7 +663,7 @@ export default function Home() {
 
         {(view === "overview" || view === "monitor" || view === "control" || view === "mapping") && <Card className="overflow-hidden shadow-sm">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
-            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · odometry marker</CardDescription></div>
+            <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · pose age {dataAge(markerState?.pose_sample_t_ns)} · map age {dataAge(snapshot.map?.capture_t_ns)}</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
               <MapToggle checked={showLaser} label="Laser" onChange={setShowLaser} />
               <MapToggle checked={showTrace} label="Trace" onChange={setShowTrace} />

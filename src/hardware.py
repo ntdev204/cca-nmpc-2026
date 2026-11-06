@@ -256,7 +256,11 @@ class _PythonStm32SerialSource:
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
-                payload = self._serial.read(128)
+                # Drain bytes already buffered, or wait only for the first byte.
+                # Waiting for 128 bytes otherwise batches multiple 24-byte
+                # telemetry frames and hides fresh samples from the 20 Hz EKF.
+                waiting = int(getattr(self._serial, "in_waiting", 0) or 0)
+                payload = self._serial.read(max(1, min(waiting, 512)))
                 if not payload:
                     continue
                 timestamp = utc_ns()
@@ -551,6 +555,7 @@ class LidarPoint:
 class LidarScan:
     t_ns: int
     points: tuple[LidarPoint, ...]
+    period_ns: int | None = None
 
     @property
     def minimum_range_m(self) -> float:
@@ -783,8 +788,13 @@ class N10PSerialSource:
                                 scan_mono = time.monotonic()
                                 with self._lock:
                                     scan_t_ns = max(utc_ns(), self._last_scan_t_ns + 1)
+                                    period_ns = (round((scan_mono - self._scan_times[-1]) * 1e9)
+                                                 if self._scan_times else 0)
                                     self._last_scan_t_ns = scan_t_ns
-                                    scan = LidarScan(scan_t_ns, tuple(points))
+                                    scan = LidarScan(
+                                        scan_t_ns, tuple(points),
+                                        period_ns if 50_000_000 <= period_ns <= 200_000_000 else None,
+                                    )
                                     self._latest = scan
                                     self._last_scan_mono = scan_mono
                                     self._last_error = ""
@@ -822,6 +832,7 @@ class N10PSerialSource:
                         last_valid_scan_mono = time.monotonic()
                         with self._lock:
                             self._scans.clear()
+                            self._scan_times.clear()
                             self._reconnect_count += 1
                         break
                     except Exception as reconnect_error:

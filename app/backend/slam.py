@@ -5,7 +5,8 @@ import json
 import math
 import time
 from array import array
-from dataclasses import dataclass
+from copy import copy
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,7 @@ class _Keyframe:
     vx: float
     vy: float
     wz: float
+    rays: tuple[tuple[float, float, float, float], ...] | None = None
 
 
 @dataclass
@@ -70,6 +72,14 @@ class _ScanFrame:
     wz: float
     scan_index: int
     clear_free: bool = True
+    rays: tuple[tuple[float, float, float, float], ...] | None = None
+
+
+@dataclass(frozen=True)
+class _FrozenSubmap:
+    anchor: int
+    end: int
+    hits: frozenset[tuple[int, int]]
 
 
 @dataclass(frozen=True)
@@ -81,6 +91,7 @@ class _MatchResult:
     correction_m: float
     correction_yaw_rad: float
     reason: str
+    observability: float | None = None
 
 
 class OccupancyMap:
@@ -102,8 +113,9 @@ class OccupancyMap:
     KEYFRAME_MAX_PERIOD_NS = 1_000_000_000
     MAX_KEYFRAME_POINTS = 180
     LOOP_MIN_SEPARATION = 18
-    LOOP_SEARCH_RADIUS_M = 0.45
-    LOOP_SEARCH_YAW_RAD = math.radians(12.0)
+    SUBMAP_KEYFRAMES = 6
+    LOOP_SEARCH_RADIUS_M = 0.70
+    LOOP_SEARCH_YAW_RAD = math.radians(18.0)
     LOOP_MIN_SCORE = 0.65
     LOOP_MIN_INLIERS = 24
     LOOP_AMBIGUITY_MARGIN = 0.08
@@ -126,6 +138,7 @@ class OccupancyMap:
         scan_match_interval: int = 1,
         map_id: str = "",
         defer_graph_optimization: bool = False,
+        lidar_time_offset_s: float = 0.0,
     ) -> None:
         if not math.isfinite(resolution_m) or resolution_m <= 0:
             raise ValueError("map resolution must be positive and finite")
@@ -150,6 +163,7 @@ class OccupancyMap:
         self.poses: list[tuple[float, float, float]] = []
         self.history: list[dict[str, Any]] = []
         self.keyframes: list[_Keyframe] = []
+        self.submaps: list[_FrozenSubmap] = []
         self.scan_frames: list[_ScanFrame] = []
         self.graph_edges: list[tuple[int, int, tuple[float, float, float], str]] = []
         self.scans = 0
@@ -159,6 +173,7 @@ class OccupancyMap:
         self.loop_closures = 0
         self.graph_optimizations = 0
         self.defer_graph_optimization = defer_graph_optimization
+        self.lidar_time_offset_ns = round(lidar_time_offset_s * 1e9)
         self.graph_optimization_pending = False
         self.revision = 0
         self.last_scan_match = self._match_result(False, "not_run")
@@ -193,6 +208,51 @@ class OccupancyMap:
             stride = len(points) / self.MAX_KEYFRAME_POINTS
             points = [points[min(len(points) - 1, int(i * stride))] for i in range(self.MAX_KEYFRAME_POINTS)]
         return tuple(points)
+
+    def scan_reference_ns(self, scan: LidarScan) -> int:
+        # A positive offset represents delay between acquisition and receipt.
+        return scan.t_ns - self.lidar_time_offset_ns
+
+    def _deskew_rays(self, scan: LidarScan, points: tuple[tuple[float, float, int], ...],
+                     pose_samples: tuple[tuple[int, float, float, float], ...]
+                     ) -> tuple[tuple[float, float, float, float], ...] | None:
+        if len(scan.points) < 2 or not points or len(pose_samples) < 2:
+            return None
+        raw_angles = np.unwrap([point.angle_rad for point in scan.points])
+        sweep = float(raw_angles[-1] - raw_angles[0])
+        if not math.isfinite(sweep) or abs(sweep) < math.pi:
+            return None
+        direction = math.copysign(1.0, sweep)
+        angles = np.asarray([point[0] for point in points])
+        phase = np.mod(direction * angles, math.tau)
+        remaining = np.mod(-phase, math.tau)
+        # A zero-degree point at the start of the revolution is one period old.
+        remaining[phase < 1e-9] = math.tau
+        period = scan.period_ns or 100_000_000
+        reference = self.scan_reference_ns(scan)
+        sample_t = np.asarray([row[0] - reference for row in pose_samples], dtype=float)
+        beam_t = -remaining * period / math.tau
+        if sample_t[0] > beam_t.min() or sample_t[-1] < -50_000_000:
+            return None
+        values = np.asarray([row[1:] for row in pose_samples])
+        values[:, 2] = np.unwrap(values[:, 2])
+        if sample_t[-1] < 0:
+            delta = sample_t[-1] - sample_t[-2]
+            if delta <= 0:
+                return None
+            values = np.vstack((values, values[-1] - sample_t[-1] * (values[-1] - values[-2]) / delta))
+            sample_t = np.append(sample_t, 0)
+        ref = tuple(float(np.interp(0, sample_t, values[:, k])) for k in range(3))
+        poses = np.column_stack([np.interp(beam_t, sample_t, values[:, k]) for k in range(3)])
+        rays = []
+        for (angle, distance, _), beam_pose in zip(points, poses):
+            dx, dy, yaw = _relative(ref, tuple(beam_pose))
+            c, s = math.cos(yaw), math.sin(yaw)
+            sx = dx + c * self.lidar_x_m - s * self.lidar_y_m
+            sy = dy + s * self.lidar_x_m + c * self.lidar_y_m
+            ray_yaw = yaw + self.lidar_yaw_rad + angle
+            rays.append((sx, sy, sx + distance * math.cos(ray_yaw), sy + distance * math.sin(ray_yaw)))
+        return tuple(rays)
 
     def _pose_at_point(self, pose: tuple[float, float, float], point_t_ns: int,
                        scan_t_ns: int, vx: float, vy: float, wz: float) -> tuple[float, float, float]:
@@ -255,7 +315,8 @@ class OccupancyMap:
         return hits / len(endpoints)
 
     def _match_grid(self, base: tuple[float, float, float], reach_m: float,
-                    reference_cells: set[tuple[int, int]]) -> tuple[np.ndarray, int, int] | None:
+                    reference_cells: set[tuple[int, int]], *, dilation: int = 1
+                    ) -> tuple[np.ndarray, int, int] | None:
         min_x, min_y = self.cell(base[0] - reach_m, base[1] - reach_m)
         max_x, max_y = self.cell(base[0] + reach_m, base[1] + reach_m)
         width, height = max_x - min_x + 3, max_y - min_y + 3
@@ -266,8 +327,8 @@ class OccupancyMap:
                     if min_x - 1 <= x <= max_x + 1 and min_y - 1 <= y <= max_y + 1]
         if occupied:
             xs, ys = np.asarray(occupied, dtype=np.intp).T
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
+            for dx in range(-dilation, dilation + 1):
+                for dy in range(-dilation, dilation + 1):
                     grid[ys + dy, xs + dx] = True
         return grid, min_x - 2, min_y - 2
 
@@ -284,19 +345,89 @@ class OccupancyMap:
         valid = (xs >= 0) & (xs < grid.shape[1]) & (ys >= 0) & (ys < grid.shape[0])
         return (grid[ys.clip(0, grid.shape[0] - 1), xs.clip(0, grid.shape[1] - 1)] & valid).mean(axis=1)
 
+    def _refine_pose(self, endpoints: np.ndarray, seed: tuple[float, float, float],
+                     prior: tuple[float, float, float], tile: tuple[np.ndarray, int, int]
+                     ) -> tuple[tuple[float, float, float], float]:
+        grid, min_x, min_y = tile
+        field = grid.astype(np.float32)
+        for axis in (0, 1):
+            padding = [(0, 0), (0, 0)]
+            padding[axis] = (2, 2)
+            padded = np.moveaxis(np.pad(field, padding), axis, 0)
+            n = field.shape[axis]
+            field = np.moveaxis(
+                (padded[:n] + 4*padded[1:n+1] + 6*padded[2:n+2]
+                 + 4*padded[3:n+3] + padded[4:n+4]) / 16, 0, axis,
+            )
+        peak = float(field.max())
+        if peak <= 0:
+            return seed, 0.0
+        field /= peak
+        ex, ey = endpoints.T
+        lever = max(1.0, float(np.median(np.hypot(ex, ey))))
+
+        def sample(p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            c, s = math.cos(p[2]), math.sin(p[2])
+            rx, ry = c * ex - s * ey, s * ex + c * ey
+            x = (p[0] + rx) / self.resolution_m - min_x - 0.5
+            y = (p[1] + ry) / self.resolution_m - min_y - 0.5
+            ix, iy = np.floor(x).astype(np.intp), np.floor(y).astype(np.intp)
+            tx, ty = x - ix, y - iy
+            valid = (ix >= 0) & (iy >= 0) & (ix < field.shape[1]-1) & (iy < field.shape[0]-1)
+            ix, iy = ix.clip(0, field.shape[1]-2), iy.clip(0, field.shape[0]-2)
+            a, b, c0, d = field[iy, ix], field[iy, ix+1], field[iy+1, ix], field[iy+1, ix+1]
+            value = ((a*(1-tx) + b*tx)*(1-ty) + (c0*(1-tx) + d*tx)*ty) * valid
+            gx = ((b-a)*(1-ty) + (d-c0)*ty) * valid / self.resolution_m
+            gy = ((c0-a)*(1-tx) + (d-b)*tx) * valid / self.resolution_m
+            return 1-value, np.column_stack((gx, gy, (-gx*ry + gy*rx)/lever))
+
+        pose = np.asarray(seed)
+        ratio = 0.0
+        for _ in range(4):
+            residual, jac = sample(pose)
+            eig, axes = np.linalg.eigh(jac.T @ jac)
+            if eig[-1] <= 1e-8:
+                break
+            ratio = max(0.0, float(eig[0] / eig[-1]))
+            observed = eig >= 0.025 * eig[-1]
+            delta = axes @ (np.where(observed, 1 / np.maximum(eig, 1e-8), 0) * (axes.T @ jac.T @ residual))
+            delta[2] /= lever
+            if np.linalg.norm(delta[:2]) > 0.06 or abs(delta[2]) > math.radians(3):
+                break
+            trial = pose + delta
+            if sample(trial)[0] @ sample(trial)[0] >= residual @ residual:
+                break
+            pose = trial
+        if ratio < 0.025:
+            _, jac = sample(pose)
+            eig, axes = np.linalg.eigh(jac.T @ jac)
+            observed = eig >= max(1e-8, 0.025 * eig[-1])
+            displacement = pose - np.asarray(prior)
+            displacement[2] = _wrap(displacement[2]) * lever
+            displacement = axes @ ((axes.T @ displacement) * observed)
+            displacement[2] /= lever
+            pose = np.asarray(prior) + displacement
+        return (float(pose[0]), float(pose[1]), _wrap(float(pose[2]))), ratio
+
     def _match(self, points: tuple[tuple[float, float, int], ...], base: tuple[float, float, float],
                scan_t_ns: int, vx: float, vy: float, wz: float, *, radius: float = 0.06,
                yaw_radius: float = math.radians(3.5),
                require_improvement: bool = True,
-               reference_cells: set[tuple[int, int]] | None = None) -> tuple[_MatchResult, tuple[float, float, float]]:
+               reference_cells: set[tuple[int, int]] | None = None,
+               loop_search: bool = False,
+               rays: tuple[tuple[float, float, float, float], ...] | None = None,
+               deadline_mono: float | None = None) -> tuple[_MatchResult, tuple[float, float, float]]:
         if not self.scan_matching_enabled:
             return self._match_result(False, "disabled"), base
         reference = self.occupied if reference_cells is None else reference_cells
         if len(reference) < 12 or len(points) < 16:
             return self._match_result(False, "insufficient_features", count=len(points)), base
         self.scan_match_attempts += 1
-        endpoints = self._local_endpoints(points, scan_t_ns, vx, vy, wz)
-        reach = max(math.hypot(x, y) for x, y in endpoints) + math.ceil(radius / 0.05) * 0.05 + 0.02
+        endpoints = (tuple((ray[2], ray[3]) for ray in rays) if rays is not None
+                     else self._local_endpoints(points, scan_t_ns, vx, vy, wz))
+        coarse_xy_step = 0.10 if loop_search else 0.05
+        coarse_yaw_step = math.radians(6.0 if loop_search else 3.0)
+        reach = max(math.hypot(x, y) for x, y in endpoints) + math.ceil(radius / coarse_xy_step) * coarse_xy_step + 0.02
         tile = self._match_grid(base, reach, reference)
         if tile is None:
             occupied_neighbourhood = {
@@ -315,10 +446,10 @@ class OccupancyMap:
         best = base
         base_score = float(scores([base])[0])
         best_score = base_score
-        loop_candidates = [(base, base_score)] if reference_cells is not None else []
+        loop_candidates = [(base, base_score)] if loop_search else []
         # Coarse-to-fine correlative scan matching, bounded around odometry.
         for step_xy, step_yaw, factor in (
-            (0.05, math.radians(3.0), 1.0),
+            (coarse_xy_step, coarse_yaw_step, 1.0),
             (0.02, math.radians(1.0), 0.5),
         ):
             center = best
@@ -331,19 +462,28 @@ class OccupancyMap:
             candidates = [(center[0] + ix * step_xy, center[1] + iy * step_xy,
                            _wrap(center[2] + it * step_yaw)) for ix, iy, it in offsets]
             for (ix, iy, it), candidate, score in zip(offsets, candidates, scores(candidates)):
-                if reference_cells is not None:
+                if loop_search:
                     loop_candidates.append((candidate, float(score)))
                 movement_penalty = 0.0005 * (ix * ix + iy * iy + it * it)
                 if score - movement_penalty > best_score:
                     best, best_score = candidate, float(score)
+            if deadline_mono is not None and time.monotonic() >= deadline_mono:
+                return self._match_result(False, "match_deadline", best_score, len(points)), base
+        observability = None
+        if not loop_search and best_score >= 0.45 and tile is not None:
+            raw_tile = self._match_grid(base, reach, reference, dilation=0)
+            refined, observability = self._refine_pose(np.asarray(endpoints), best, base, raw_tile)
+            refined_score = float(scores([refined])[0])
+            if refined_score >= max(0.45, best_score - 0.05):
+                best, best_score = refined, refined_score
+            elif observability < 0.025:
+                best, best_score = base, base_score
         correction = _relative(base, best)
         # The coarse grid uses ceil(radius / step), then the fine pass searches
         # around the coarse winner. Derive the admissible correction from that
         # actual search window; fixed 6 cm / 3 degree gates rejected valid grid
         # results (and made larger loop-closure corrections impossible).
-        coarse_xy_step = 0.05
         fine_xy_step = 0.02
-        coarse_yaw_step = math.radians(3.0)
         fine_yaw_step = math.radians(1.0)
         max_axis_correction = math.ceil(radius / coarse_xy_step) * coarse_xy_step + fine_xy_step
         max_translation_correction = math.sqrt(2.0) * max_axis_correction
@@ -354,14 +494,25 @@ class OccupancyMap:
         accepted = best_score >= 0.45 and (not require_improvement or best_score >= base_score + 0.015)
         if not accepted:
             if base_score >= 0.55:
-                return self._match_result(True, "aligned_odometry", base_score, len(points)), base
+                return replace(self._match_result(True, "aligned_odometry", base_score, len(points)),
+                               observability=observability), base
             return self._match_result(False, "weak_match", best_score, len(points), correction), base
+        if loop_search:
+            alternatives = [
+                (best[0] + 0.12 * math.cos(k * math.pi / 4),
+                 best[1] + 0.12 * math.sin(k * math.pi / 4), best[2])
+                for k in range(8)
+            ]
+            alternatives += [(best[0], best[1], _wrap(best[2] + math.radians(deg))) for deg in (-5, 5)]
+            if max(scores(alternatives)) >= best_score - self.LOOP_AMBIGUITY_MARGIN:
+                return self._match_result(False, "ambiguous_loop_match", best_score, len(points), correction), base
         if any(score >= best_score - self.LOOP_AMBIGUITY_MARGIN and
                (math.hypot(candidate[0] - best[0], candidate[1] - best[1]) >= 0.12 or
                 abs(_wrap(candidate[2] - best[2])) >= math.radians(5.0))
                for candidate, score in loop_candidates):
             return self._match_result(False, "ambiguous_loop_match", best_score, len(points), correction), base
-        return self._match_result(True, "matched", best_score, len(points), correction), best
+        return replace(self._match_result(True, "matched", best_score, len(points), correction),
+                       observability=observability), best
 
     def _apply_evidence(self, cell: tuple[int, int], evidence: float) -> None:
         score = max(self.LOG_ODDS_MIN, min(self.LOG_ODDS_MAX, self.log_odds.get(cell, 0.0) + evidence))
@@ -377,13 +528,19 @@ class OccupancyMap:
             self.free.discard(cell)
 
     def _integrate(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
-                   scan_t_ns: int, vx: float, vy: float, wz: float, *, clear_free: bool = True) -> None:
+                   scan_t_ns: int, vx: float, vy: float, wz: float, *, clear_free: bool = True,
+                   rays: tuple[tuple[float, float, float, float], ...] | None = None) -> None:
         pose_x, pose_y = pose[0] / self.resolution_m, pose[1] / self.resolution_m
         radius_sq = (self.robot_radius_m / self.resolution_m) ** 2
         hits: set[tuple[int, int]] = set()
         misses: set[tuple[int, int]] = set()
-        for point in points:
-            sx, sy, ex, ey = self._world_endpoint(point, pose, scan_t_ns, vx, vy, wz)
+        world_rays = (self._world_endpoint(point, pose, scan_t_ns, vx, vy, wz) for point in points)
+        if rays is not None:
+            x, y, yaw = pose
+            c, s = math.cos(yaw), math.sin(yaw)
+            world_rays = ((x + c*sx - s*sy, y + s*sx + c*sy, x + c*ex - s*ey, y + s*ex + c*ey)
+                          for sx, sy, ex, ey in rays)
+        for sx, sy, ex, ey in world_rays:
             end = self.cell(ex, ey)
             hits.add(end)
             if clear_free:
@@ -403,9 +560,10 @@ class OccupancyMap:
         self._pending_wall_clears = pending
 
     def _new_keyframe(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
-                      scan_t_ns: int, vx: float, vy: float, wz: float) -> bool:
+                      scan_t_ns: int, vx: float, vy: float, wz: float,
+                      rays: tuple[tuple[float, float, float, float], ...] | None = None) -> bool:
         if not self.keyframes:
-            self.keyframes.append(_Keyframe(pose, points, scan_t_ns, vx, vy, wz))
+            self.keyframes.append(_Keyframe(pose, points, scan_t_ns, vx, vy, wz, rays))
             return True
         previous = self.keyframes[-1]
         distance = math.hypot(pose[0] - previous.pose[0], pose[1] - previous.pose[1])
@@ -414,8 +572,38 @@ class OccupancyMap:
             return False
         index = len(self.keyframes)
         self.graph_edges.append((index - 1, index, _relative(previous.pose, pose), "odometry"))
-        self.keyframes.append(_Keyframe(pose, points, scan_t_ns, vx, vy, wz))
+        self.keyframes.append(_Keyframe(pose, points, scan_t_ns, vx, vy, wz, rays))
+        if len(self.keyframes) % self.SUBMAP_KEYFRAMES == 0:
+            end = len(self.keyframes)
+            start = end - self.SUBMAP_KEYFRAMES
+            anchor = self.keyframes[start].pose
+            hits = set()
+            for frame in self.keyframes[start:end]:
+                hits.update(self._keyframe_hits(frame, _relative(anchor, frame.pose)))
+            self.submaps.append(_FrozenSubmap(start, end, frozenset(hits)))
         return True
+
+    def _keyframe_hits(self, frame: _Keyframe, pose: tuple[float, float, float]) -> set[tuple[int, int]]:
+        endpoints = (self._local_endpoints(frame.scan, frame.t_ns, frame.vx, frame.vy, frame.wz)
+                     if frame.rays is None else tuple((ray[2], ray[3]) for ray in frame.rays))
+        c, s = math.cos(pose[2]), math.sin(pose[2])
+        return {self.cell(pose[0] + c*x - s*y, pose[1] + s*x + c*y) for x, y in endpoints}
+
+    def _submap_hits(self, submap: _FrozenSubmap) -> set[tuple[int, int]]:
+        px, py, yaw = self.keyframes[submap.anchor].pose
+        c, s = math.cos(yaw), math.sin(yaw)
+        res = self.resolution_m
+        return {self.cell(px + res*(c*(x+0.5) - s*(y+0.5)), py + res*(s*(x+0.5) + c*(y+0.5)))
+                for x, y in submap.hits}
+
+    def _active_reference(self) -> set[tuple[int, int]] | None:
+        if not self.submaps:
+            return None
+        previous = self.submaps[-1]
+        hits = self._submap_hits(previous)
+        for frame in self.keyframes[previous.end:]:
+            hits.update(self._keyframe_hits(frame, frame.pose))
+        return hits
 
     @staticmethod
     def _pack_scan(points: tuple[tuple[float, float, int], ...], scan_t_ns: int) -> array:
@@ -431,30 +619,39 @@ class OccupancyMap:
                      for i in range(0, len(data), 3))
 
     def _try_loop_closure(self, current_index: int, points: tuple[tuple[float, float, int], ...],
-                          current: _Keyframe) -> bool:
+                          current: _Keyframe, deadline_mono: float | None = None) -> bool:
         if current_index < self.LOOP_MIN_SEPARATION:
             self.last_loop_closure = {"accepted": False, "reason": "insufficient_keyframes"}
             return False
         candidates = []
-        for index, frame in enumerate(self.keyframes[:-self.LOOP_MIN_SEPARATION]):
-            distance = math.hypot(current.pose[0] - frame.pose[0], current.pose[1] - frame.pose[1])
-            if distance < 1.5:
-                candidates.append((distance, index, frame))
+        for submap in self.submaps:
+            if submap.end > current_index - self.LOOP_MIN_SEPARATION + 1:
+                continue
+            distance, index = min(
+                (math.hypot(current.pose[0] - self.keyframes[i].pose[0],
+                            current.pose[1] - self.keyframes[i].pose[1]), i)
+                for i in range(submap.anchor, submap.end)
+            )
+            if distance < 3.0:
+                candidates.append((distance, index, submap))
         if not candidates:
             self.last_loop_closure = {"accepted": False, "reason": "no_nearby_old_keyframe"}
             return False
         validated = []
         rejection = "no_consistent_scan_match"
-        for _, index, frame in sorted(candidates)[:3]:
-            # The historical scan is the only source of occupied cells for this
-            # constraint. The live grid may already include the query itself.
-            reference = set()
-            for point in frame.scan:
-                _, _, ex, ey = self._world_endpoint(point, frame.pose, frame.t_ns, frame.vx, frame.vy, frame.wz)
-                reference.add(self.cell(ex, ey))
+        for _, index, submap in sorted(candidates)[:3]:
+            if deadline_mono is not None and time.monotonic() >= deadline_mono:
+                self.last_loop_closure = {"accepted": False, "reason": "loop_search_budget"}
+                return False
+            frame = self.keyframes[index]
+            reference = self._submap_hits(submap)
             match, corrected = self._match(points, frame.pose, current.t_ns, current.vx, current.vy, current.wz,
                                            radius=self.LOOP_SEARCH_RADIUS_M, yaw_radius=self.LOOP_SEARCH_YAW_RAD,
-                                           require_improvement=False, reference_cells=reference)
+                                           require_improvement=False, reference_cells=reference, loop_search=True,
+                                           rays=current.rays, deadline_mono=deadline_mono)
+            if match.reason == "match_deadline":
+                self.last_loop_closure = {"accepted": False, "reason": "loop_search_budget"}
+                return False
             if match.accepted and match.score >= self.LOOP_MIN_SCORE and match.inliers >= self.LOOP_MIN_INLIERS:
                 validated.append((match.score, index, corrected))
             elif match.reason == "ambiguous_loop_match":
@@ -485,6 +682,51 @@ class OccupancyMap:
         if self.graph_optimization_pending:
             self._optimize_graph()
             self.graph_optimization_pending = False
+
+    def optimization_snapshot(self) -> OccupancyMap:
+        snapshot = copy(self)
+        snapshot.keyframes = self.keyframes.copy()
+        snapshot.graph_edges = self.graph_edges.copy()
+        snapshot.scan_frames = self.scan_frames.copy()
+        snapshot.submaps = self.submaps.copy()
+        snapshot.free = set()
+        snapshot.occupied = set()
+        snapshot.log_odds = {}
+        snapshot._pending_wall_clears = set()
+        return snapshot
+
+    def install_optimized_snapshot(self, snapshot: OccupancyMap) -> bool:
+        """Install a solved prefix and replay only the small tail that arrived during optimization."""
+        if snapshot.graph_optimizations != self.graph_optimizations + 1:
+            return False
+        prefix = len(snapshot.scan_frames)
+        tail = self.scan_frames[prefix:]
+        if not prefix or len(tail) > 5 or not snapshot.keyframes:
+            return False
+        last = len(snapshot.keyframes) - 1
+        old_anchor = self.keyframes[last].pose
+        new_anchor = snapshot.keyframes[last].pose
+        snapshot.keyframes.extend(
+            replace(frame, pose=_compose(new_anchor, _relative(old_anchor, frame.pose)))
+            for frame in self.keyframes[last + 1:]
+        )
+        previous = snapshot.scan_frames[-1].scan_index
+        for frame in tail:
+            if frame.scan_index != previous + 1:
+                snapshot._pending_wall_clears.clear()
+            previous = frame.scan_index
+            pose = _compose(snapshot.keyframes[frame.anchor].pose, frame.relative_pose)
+            snapshot._integrate(snapshot._unpack_scan(frame), pose, frame.t_ns, frame.vx, frame.vy, frame.wz,
+                                clear_free=frame.clear_free, rays=frame.rays)
+            snapshot.poses.append(pose)
+        self.keyframes = snapshot.keyframes
+        self.poses = snapshot.poses[-5000:]
+        self.free, self.occupied, self.log_odds = snapshot.free, snapshot.occupied, snapshot.log_odds
+        self._pending_wall_clears = snapshot._pending_wall_clears if previous == self.scans else set()
+        self.graph_optimizations = snapshot.graph_optimizations
+        self.graph_optimization_pending = self.loop_closures > snapshot.loop_closures
+        self.revision += 1
+        return True
 
     def _optimize_graph(self) -> None:
         if len(self.keyframes) < 3 or not self.graph_edges:
@@ -527,7 +769,7 @@ class OccupancyMap:
                                       "reason": "non_finite_solution"}
             return
         self.keyframes = [
-            _Keyframe(tuple(float(v) for v in optimized[i]), frame.scan, frame.t_ns, frame.vx, frame.vy, frame.wz)
+            replace(frame, pose=tuple(float(v) for v in optimized[i]))
             for i, frame in enumerate(self.keyframes)
         ]
         self.graph_optimizations += 1
@@ -552,16 +794,30 @@ class OccupancyMap:
             corrected_poses.append(pose)
             self._integrate(
                 self._unpack_scan(frame), pose, frame.t_ns, frame.vx, frame.vy, frame.wz,
-                clear_free=frame.clear_free,
+                clear_free=frame.clear_free, rays=frame.rays,
             )
         self.poses = corrected_poses[-5000:]
 
-    def update(self, scan: LidarScan, pose: Any, *, deadline_mono: float | None = None) -> bool:
+    def update(self, scan: LidarScan, pose: Any, *, deadline_mono: float | None = None,
+               pose_samples: tuple[tuple[int, float, float, float], ...] = ()) -> bool:
         started_mono = time.monotonic()
         points = self._scan_points(scan)
+        rays = self._deskew_rays(scan, points, pose_samples)
         base = pose.as_tuple()
+        dt = min(0.35, max(0.0, (scan.t_ns - self.history[-1]["t_ns"]) / 1e9)) if self.history else 0.0
+        radius = min(0.16, 0.06 + 0.25 * math.hypot(pose.last_vx_mps, pose.last_vy_mps) * dt)
+        yaw_radius = min(math.radians(10), math.radians(3.5) + 0.35 * abs(pose.last_yaw_rate_radps) * dt)
         match, corrected = self._match(points, base, scan.t_ns, pose.last_vx_mps,
-                                       pose.last_vy_mps, pose.last_yaw_rate_radps)
+                                       pose.last_vy_mps, pose.last_yaw_rate_radps, radius=radius,
+                                       yaw_radius=yaw_radius, rays=rays, deadline_mono=deadline_mono,
+                                       reference_cells=self._active_reference())
+        if self.submaps and match.score < self.MIN_MAP_MATCH_SCORE and (
+            deadline_mono is None or deadline_mono - time.monotonic() >= 0.04
+        ):
+            match, corrected = self._match(
+                points, base, scan.t_ns, pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps,
+                radius=radius, yaw_radius=yaw_radius, rays=rays, deadline_mono=deadline_mono,
+            )
         matched_mono = time.monotonic()
         if deadline_mono is not None and matched_mono >= deadline_mono:
             return False
@@ -578,10 +834,11 @@ class OccupancyMap:
         integrated = bool(points) and (reliable or bootstrap or not self.scan_matching_enabled)
         clear_free = integrated and (bootstrap or not self.scan_matching_enabled or
                                       (match.score >= self.MIN_CLEAR_MATCH_SCORE
+                                       and (match.observability is None or match.observability >= 0.025)
                                        and abs(pose.last_yaw_rate_radps) < 0.8))
         if integrated:
             self._integrate(points, current_pose, scan.t_ns, pose.last_vx_mps, pose.last_vy_mps,
-                            pose.last_yaw_rate_radps, clear_free=clear_free)
+                            pose.last_yaw_rate_radps, clear_free=clear_free, rays=rays)
         else:
             self._pending_wall_clears.clear()
         integrated_mono = time.monotonic()
@@ -589,14 +846,15 @@ class OccupancyMap:
         if integrated:
             self.points += len(points)
             added = self._new_keyframe(points, current_pose, scan.t_ns, pose.last_vx_mps,
-                                       pose.last_vy_mps, pose.last_yaw_rate_radps)
+                                       pose.last_vy_mps, pose.last_yaw_rate_radps, rays)
             anchor = len(self.keyframes) - 1
             self.scan_frames.append(_ScanFrame(anchor, _relative(self.keyframes[anchor].pose, current_pose),
                                               self._pack_scan(points, scan.t_ns), scan.t_ns,
                                               pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps,
-                                              self.scans, clear_free))
+                                              self.scans, clear_free, rays))
             if added:
-                if self._try_loop_closure(anchor, points, self.keyframes[anchor]):
+                loop_deadline = min(deadline_mono, time.monotonic() + 0.05) if deadline_mono is not None else None
+                if self._try_loop_closure(anchor, points, self.keyframes[anchor], loop_deadline):
                     pose.x_m, pose.y_m, pose.yaw_rad = self.keyframes[anchor].pose
                 elif anchor == 0:
                     self.last_loop_closure = {"accepted": False, "reason": "first_keyframe"}
@@ -612,6 +870,9 @@ class OccupancyMap:
             "predicted_pose": list(base),
             "matched_pose": list(corrected),
             "body_twist": [pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps],
+            "deskew": "angle_history" if rays is not None else "packet_twist",
+            "search_radius_m": radius,
+            "search_yaw_radius_rad": yaw_radius,
             "map_update": "full" if clear_free else "hits_only" if integrated else "held",
             "loop_closure": loop_closure,
             "occupied_cells": len(self.occupied),
@@ -623,6 +884,7 @@ class OccupancyMap:
             "scan_match": {"accepted": match.accepted, "score": round(match.score, 6),
                            "correction_m": round(match.correction_m, 6),
                            "correction_yaw_rad": round(match.correction_yaw_rad, 6),
+                           "observability": match.observability,
                            "reason": match.reason},
         })
         if len(self.history) > 5000:
@@ -672,12 +934,13 @@ class OccupancyMap:
                                   "last_score": self.last_scan_match.score,
                                   "last_reason": self.last_scan_match.reason},
                 "pose_graph": {"method": "sparse_se2_least_squares_huber", "edges": len(self.graph_edges),
+                               "frozen_submaps": len(self.submaps),
                                "loop_closures": self.loop_closures,
                                "optimizations": self.graph_optimizations,
                                "optimization_pending": self.graph_optimization_pending,
                                "last_loop_closure": self.last_loop_closure},
-                "deskew": {"method": "packet_timestamp_twist_interpolation",
-                           "limitation": "N10P does not expose per_beam acquisition timestamps"},
+                "deskew": {"method": "angle_history_with_packet_twist_fallback",
+                           "time_offset_ns": self.lidar_time_offset_ns},
                 "fusion": {"method": "log_odds_replay_from_all_optimized_scan_poses",
                            "free_threshold": self.FREE_THRESHOLD,
                            "occupied_threshold": self.OCCUPIED_THRESHOLD},

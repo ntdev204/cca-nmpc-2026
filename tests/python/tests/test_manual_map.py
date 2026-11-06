@@ -5,10 +5,12 @@ import json
 import math
 import random
 
+import numpy as np
 import pytest
 
 from app.backend.manual_map import OccupancyMap, Pose, RunFiles
 from hardware import LidarPoint, LidarScan
+from scripts.python.tools.calibrate_lidar_time_offset import evaluate
 
 
 def reference_scan() -> LidarScan:
@@ -151,7 +153,7 @@ def test_loop_closure_uses_historical_geometry(scenario: str, expected: bool) ->
     query = mapper._scan_points(make_scan(query_xy))
     origin = (0.0, 0.0, 0.0)
     mapper._new_keyframe(old, origin, 1, 0.0, 0.0, 0.0)
-    for i in range(mapper.LOOP_MIN_SEPARATION):
+    for i in range(mapper.LOOP_MIN_SEPARATION + mapper.SUBMAP_KEYFRAMES):
         mapper._new_keyframe(old, (3.0 + i, 0.0, 0.0), i + 2, 0.0, 0.0, 0.0)
     mapper._new_keyframe(query, origin, 50, 0.0, 0.0, 0.0)
     # Give the live map every query hit. This map must not validate its own scan.
@@ -162,3 +164,108 @@ def test_loop_closure_uses_historical_geometry(scenario: str, expected: bool) ->
     assert mapper.graph_optimization_pending is expected
     if scenario == "corridor":
         assert mapper.last_loop_closure["reason"] == "ambiguous_loop_match"
+
+
+@pytest.mark.parametrize("direction", [1, -1])
+def test_deskew_combined_motion_both_scan_directions(direction: int) -> None:
+    mapper = make_mapper()
+    mapper.lidar_time_offset_ns = 20_000_000
+    reference = 1_000_000_000
+    period = 100_000_000
+    points = []
+    for i in range(120):
+        dt = -0.1 + 0.1 * i / 120
+        x, y, yaw = 0.45 * dt, -0.20 * dt, 0.8 * dt
+        angle = (direction * i * math.tau / 120) % math.tau
+        dx, dy = math.cos(yaw + angle), math.sin(yaw + angle)
+        distance = min((math.copysign(2, dx) - x) / dx, (math.copysign(2, dy) - y) / dy)
+        points.append(LidarPoint(reference, angle, distance, 20, 0))
+    scan = LidarScan(reference + mapper.lidar_time_offset_ns, tuple(points), period)
+    samples = tuple((reference + i * 20_000_000, 0.45 * i * 0.02, -0.20 * i * 0.02, 0.8 * i * 0.02)
+                    for i in range(-6, 2))
+    rays = mapper._deskew_rays(scan, mapper._scan_points(scan), samples)
+    assert rays is not None
+    assert max(abs(max(abs(ex), abs(ey)) - 2) for _, _, ex, ey in rays) < 1e-8
+    assert mapper._deskew_rays(scan, mapper._scan_points(scan), samples[-2:]) is None
+
+
+def test_continuous_refinement_improves_subcell_alignment() -> None:
+    mapper = make_mapper()
+    res = mapper.resolution_m
+    cells = ({(40, y) for y in range(-31, 31)} |
+             {(x, 32) for x in range(45, 88)} |
+             {(x, -33) for x in range(40, 68)})
+    endpoints = np.asarray([((x+0.5)*res, (y+0.5)*res) for x, y in sorted(cells)])
+    tile = mapper._match_grid((0, 0, 0), 3, cells, dilation=0)
+    seed = (0.009, -0.006, math.radians(0.2))
+    result, observability = mapper._refine_pose(endpoints, seed, seed, tile)
+    assert observability >= 0.025
+    assert math.hypot(*result[:2]) < math.hypot(*seed[:2])
+    assert abs(result[2]) < abs(seed[2])
+
+
+def test_continuous_refinement_preserves_prior_along_unobservable_wall() -> None:
+    mapper = make_mapper()
+    res = mapper.resolution_m
+    cells = {(x, 40) for x in range(-95, 96)}
+    endpoints = np.asarray([((x+0.5)*res, 40.5*res) for x in range(-40, 41)])
+    tile = mapper._match_grid((0, 0, 0), 3, cells, dilation=0)
+    result, observability = mapper._refine_pose(endpoints, (0.08, 0.008, 0), (0, 0, 0), tile)
+    assert observability < 0.025
+    assert result[0] == pytest.approx(0, abs=1e-8)
+
+
+def test_graph_snapshot_install_keeps_new_scans() -> None:
+    mapper = make_mapper()
+    mapper.scan_matching_enabled = False
+    for i in range(3):
+        stamp = 1 + i * 200_000_000
+        mapper.update(make_scan(distinctive_points(), stamp), Pose(x_m=i * 0.2))
+    mapper.graph_edges.append((0, 2, (0.3, 0.0, 0.0), "loop_closure"))
+    mapper.loop_closures = 1
+    mapper.graph_optimization_pending = True
+    original = dict(mapper.log_odds)
+    snapshot = mapper.optimization_snapshot()
+    snapshot.optimize_pending_graph()
+    assert mapper.log_odds == original
+    mapper.update(make_scan(distinctive_points(), 600_000_001), Pose(x_m=0.6))
+    assert mapper.install_optimized_snapshot(snapshot)
+    assert len(mapper.poses) == len(mapper.scan_frames) == 4
+    assert mapper.poses[-1][0] == pytest.approx(mapper.poses[-2][0] + 0.2)
+    assert not mapper.graph_optimization_pending
+
+
+def test_calibration_recovers_synthetic_receive_delay(tmp_path) -> None:
+    root = tmp_path / "turn"
+    files = RunFiles(root)
+    delay_ns = 40_000_000
+    origin = 1_000_000_000
+
+    def yaw_at(dt: float) -> float:
+        return max(0.0, dt - 0.9) * 0.8
+
+    try:
+        for i in range(180):
+            dt = i * 0.02
+            files.write("robot_state.csv", {
+                "t_ns": origin + i * 20_000_000, "x_m": 0, "y_m": 0, "yaw_rad": yaw_at(dt),
+                "vx_mps": 0, "vy_mps": 0, "wz_radps": 0.8 if dt > 0.9 else 0,
+            })
+        for i in range(2, 34):
+            stamp = origin + i * 100_000_000 + delay_ns
+            points = []
+            for j in range(180):
+                angle = j * math.tau / 180
+                yaw = yaw_at(i * 0.1 - 0.1 + 0.1 * j / 180)
+                x, y = 0.1 * math.cos(yaw), 0.1 * math.sin(yaw)
+                dx, dy = math.cos(yaw + angle), math.sin(yaw + angle)
+                distance = min((math.copysign(2, d) - p) / d
+                               for d, p in ((dx, x), (dy, y)) if abs(d) > 1e-12)
+                points.append(LidarPoint(stamp, angle, distance, 20, 0))
+            scan = LidarScan(stamp, tuple(points), 100_000_000)
+            files.scan(scan)
+            files.write_map_history({"t_ns": stamp}, scan)
+    finally:
+        files.close()
+    scores = evaluate(root, [0, 40, 80])
+    assert min(scores, key=lambda row: row["mean_clipped_distance_m"])["offset_ms"] == 40
