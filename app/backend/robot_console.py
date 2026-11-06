@@ -805,6 +805,7 @@ class RobotService:
                     "slam_match_score": round(float(self.mapper.last_scan_match.score), 3) if self.mapper is not None else 0.0,
                     "slam_scans_dropped": self.map_scans_dropped,
                     "slam_scans_queued": self.map_scans_queued,
+                    "slam_scans_integrated": len(self.mapper.scan_frames) if self.mapper is not None else 0,
                     "slam_queue_depth": self.map_fusion_queue.qsize(),
                     "slam_scan_lag_s": round(self.map_scan_lag_s, 3),
                     "slam_scans_stale": self.map_scans_stale,
@@ -2271,7 +2272,7 @@ class RobotService:
                 }
                 if capture_files is not None:
                     capture_files.scan(scan)
-                    capture_files.write_map_history(history_record)
+                    capture_files.write_map_history(history_record, scan)
                     capture_files.context(scan.t_ns, mapping_pose, scan)
             except Exception as error:
                 now = time.monotonic()
@@ -3274,8 +3275,9 @@ def self_test() -> None:
         if direction_velocity(direction, 0.2, 0.6) != expected:
             raise AssertionError(f"direction mapping failed for {direction}")
 
-    mapper = OccupancyMap(0.05, lidar_x_m=0.10, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
+    mapper = OccupancyMap(0.05, lidar_x_m=0.10, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2, scan_matching=False)
     scan = LidarScan(1, (LidarPoint(1, 0.0, 1.0, 10, 0), LidarPoint(1, math.pi / 2.0, 0.5, 10, 0)))
+    mapper.update(scan, Pose())
     mapper.update(scan, Pose())
     payload = mapper.raw_payload()
     if payload["width"] < 3 or payload["height"] < 3 or 100 not in payload["occupancy"]:

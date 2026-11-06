@@ -68,8 +68,8 @@ class _ScanFrame:
     vx: float
     vy: float
     wz: float
+    scan_index: int
     clear_free: bool = True
-    occupied_evidence: float = 0.85
 
 
 @dataclass(frozen=True)
@@ -104,7 +104,12 @@ class OccupancyMap:
     LOOP_MIN_SEPARATION = 18
     LOOP_SEARCH_RADIUS_M = 0.45
     LOOP_SEARCH_YAW_RAD = math.radians(12.0)
-    LOOP_MIN_SCORE = 0.38
+    LOOP_MIN_SCORE = 0.65
+    LOOP_MIN_INLIERS = 24
+    LOOP_AMBIGUITY_MARGIN = 0.08
+    MIN_MAP_MATCH_SCORE = 0.55
+    MIN_CLEAR_MATCH_SCORE = 0.60
+    STRONG_OCCUPIED_THRESHOLD = 2.0
 
     def __init__(
         self,
@@ -141,6 +146,7 @@ class OccupancyMap:
         self.free: set[tuple[int, int]] = set()
         self.occupied: set[tuple[int, int]] = set()
         self.log_odds: dict[tuple[int, int], float] = {}
+        self._pending_wall_clears: set[tuple[int, int]] = set()
         self.poses: list[tuple[float, float, float]] = []
         self.history: list[dict[str, Any]] = []
         self.keyframes: list[_Keyframe] = []
@@ -230,7 +236,7 @@ class OccupancyMap:
         pose: tuple[float, float, float],
         occupied_neighbourhood: set[tuple[int, int]] | None = None,
     ) -> float:
-        if not endpoints or len(self.occupied) < 12:
+        if not endpoints:
             return 0.0
         if occupied_neighbourhood is None:
             occupied_neighbourhood = {
@@ -248,14 +254,15 @@ class OccupancyMap:
                 hits += 1
         return hits / len(endpoints)
 
-    def _match_grid(self, base: tuple[float, float, float], reach_m: float) -> tuple[np.ndarray, int, int] | None:
+    def _match_grid(self, base: tuple[float, float, float], reach_m: float,
+                    reference_cells: set[tuple[int, int]]) -> tuple[np.ndarray, int, int] | None:
         min_x, min_y = self.cell(base[0] - reach_m, base[1] - reach_m)
         max_x, max_y = self.cell(base[0] + reach_m, base[1] + reach_m)
         width, height = max_x - min_x + 3, max_y - min_y + 3
         if width * height > 2_000_000:
             return None
         grid = np.zeros((height + 2, width + 2), dtype=np.bool_)
-        occupied = [(x - min_x + 2, y - min_y + 2) for x, y in self.occupied
+        occupied = [(x - min_x + 2, y - min_y + 2) for x, y in reference_cells
                     if min_x - 1 <= x <= max_x + 1 and min_y - 1 <= y <= max_y + 1]
         if occupied:
             xs, ys = np.asarray(occupied, dtype=np.intp).T
@@ -280,18 +287,20 @@ class OccupancyMap:
     def _match(self, points: tuple[tuple[float, float, int], ...], base: tuple[float, float, float],
                scan_t_ns: int, vx: float, vy: float, wz: float, *, radius: float = 0.06,
                yaw_radius: float = math.radians(3.5),
-               require_improvement: bool = True) -> tuple[_MatchResult, tuple[float, float, float]]:
+               require_improvement: bool = True,
+               reference_cells: set[tuple[int, int]] | None = None) -> tuple[_MatchResult, tuple[float, float, float]]:
         if not self.scan_matching_enabled:
             return self._match_result(False, "disabled"), base
-        if len(self.occupied) < 12 or len(points) < 16:
+        reference = self.occupied if reference_cells is None else reference_cells
+        if len(reference) < 12 or len(points) < 16:
             return self._match_result(False, "insufficient_features", count=len(points)), base
         self.scan_match_attempts += 1
         endpoints = self._local_endpoints(points, scan_t_ns, vx, vy, wz)
         reach = max(math.hypot(x, y) for x, y in endpoints) + math.ceil(radius / 0.05) * 0.05 + 0.02
-        tile = self._match_grid(base, reach)
+        tile = self._match_grid(base, reach, reference)
         if tile is None:
             occupied_neighbourhood = {
-                (x + dx, y + dy) for x, y in self.occupied
+                (x + dx, y + dy) for x, y in reference
                 for dx in (-1, 0, 1) for dy in (-1, 0, 1)
             }
 
@@ -306,6 +315,7 @@ class OccupancyMap:
         best = base
         base_score = float(scores([base])[0])
         best_score = base_score
+        loop_candidates = [(base, base_score)] if reference_cells is not None else []
         # Coarse-to-fine correlative scan matching, bounded around odometry.
         for step_xy, step_yaw, factor in (
             (0.05, math.radians(3.0), 1.0),
@@ -321,6 +331,8 @@ class OccupancyMap:
             candidates = [(center[0] + ix * step_xy, center[1] + iy * step_xy,
                            _wrap(center[2] + it * step_yaw)) for ix, iy, it in offsets]
             for (ix, iy, it), candidate, score in zip(offsets, candidates, scores(candidates)):
+                if reference_cells is not None:
+                    loop_candidates.append((candidate, float(score)))
                 movement_penalty = 0.0005 * (ix * ix + iy * iy + it * it)
                 if score - movement_penalty > best_score:
                     best, best_score = candidate, float(score)
@@ -344,6 +356,11 @@ class OccupancyMap:
             if base_score >= 0.55:
                 return self._match_result(True, "aligned_odometry", base_score, len(points)), base
             return self._match_result(False, "weak_match", best_score, len(points), correction), base
+        if any(score >= best_score - self.LOOP_AMBIGUITY_MARGIN and
+               (math.hypot(candidate[0] - best[0], candidate[1] - best[1]) >= 0.12 or
+                abs(_wrap(candidate[2] - best[2])) >= math.radians(5.0))
+               for candidate, score in loop_candidates):
+            return self._match_result(False, "ambiguous_loop_match", best_score, len(points), correction), base
         return self._match_result(True, "matched", best_score, len(points), correction), best
 
     def _apply_evidence(self, cell: tuple[int, int], evidence: float) -> None:
@@ -360,19 +377,30 @@ class OccupancyMap:
             self.free.discard(cell)
 
     def _integrate(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
-                   scan_t_ns: int, vx: float, vy: float, wz: float, *, clear_free: bool = True,
-                   occupied_evidence: float = OCCUPIED_EVIDENCE) -> None:
+                   scan_t_ns: int, vx: float, vy: float, wz: float, *, clear_free: bool = True) -> None:
         pose_x, pose_y = pose[0] / self.resolution_m, pose[1] / self.resolution_m
         radius_sq = (self.robot_radius_m / self.resolution_m) ** 2
+        hits: set[tuple[int, int]] = set()
+        misses: set[tuple[int, int]] = set()
         for point in points:
             sx, sy, ex, ey = self._world_endpoint(point, pose, scan_t_ns, vx, vy, wz)
             end = self.cell(ex, ey)
+            hits.add(end)
             if clear_free:
                 for cell in bresenham(self.cell(sx, sy), end)[:-1]:
                     dx, dy = cell[0] + 0.5 - pose_x, cell[1] + 0.5 - pose_y
                     if dx * dx + dy * dy > radius_sq:
-                        self._apply_evidence(cell, self.FREE_EVIDENCE)
-            self._apply_evidence(end, occupied_evidence)
+                        misses.add(cell)
+        pending = set()
+        for cell in misses - hits:
+            if self.log_odds.get(cell, 0.0) > self.STRONG_OCCUPIED_THRESHOLD:
+                pending.add(cell)
+                if cell not in self._pending_wall_clears:
+                    continue
+            self._apply_evidence(cell, self.FREE_EVIDENCE)
+        for end in hits:
+            self._apply_evidence(end, self.OCCUPIED_EVIDENCE)
+        self._pending_wall_clears = pending
 
     def _new_keyframe(self, points: tuple[tuple[float, float, int], ...], pose: tuple[float, float, float],
                       scan_t_ns: int, vx: float, vy: float, wz: float) -> bool:
@@ -415,23 +443,43 @@ class OccupancyMap:
         if not candidates:
             self.last_loop_closure = {"accepted": False, "reason": "no_nearby_old_keyframe"}
             return False
+        validated = []
+        rejection = "no_consistent_scan_match"
         for _, index, frame in sorted(candidates)[:3]:
+            # The historical scan is the only source of occupied cells for this
+            # constraint. The live grid may already include the query itself.
+            reference = set()
+            for point in frame.scan:
+                _, _, ex, ey = self._world_endpoint(point, frame.pose, frame.t_ns, frame.vx, frame.vy, frame.wz)
+                reference.add(self.cell(ex, ey))
             match, corrected = self._match(points, frame.pose, current.t_ns, current.vx, current.vy, current.wz,
                                            radius=self.LOOP_SEARCH_RADIUS_M, yaw_radius=self.LOOP_SEARCH_YAW_RAD,
-                                           require_improvement=False)
-            if match.accepted and match.score >= self.LOOP_MIN_SCORE:
-                measurement = _relative(frame.pose, corrected)
-                self.graph_edges.append((index, current_index, measurement, "loop_closure"))
-                self.loop_closures += 1
-                self.last_loop_closure = {"accepted": True, "from_keyframe": index,
-                                          "to_keyframe": current_index, "score": match.score}
-                if self.defer_graph_optimization:
-                    self.graph_optimization_pending = True
-                    return False
-                self._optimize_graph()
-                return True
-        self.last_loop_closure = {"accepted": False, "reason": "no_consistent_scan_match"}
-        return False
+                                           require_improvement=False, reference_cells=reference)
+            if match.accepted and match.score >= self.LOOP_MIN_SCORE and match.inliers >= self.LOOP_MIN_INLIERS:
+                validated.append((match.score, index, corrected))
+            elif match.reason == "ambiguous_loop_match":
+                rejection = match.reason
+        if not validated:
+            self.last_loop_closure = {"accepted": False, "reason": rejection}
+            return False
+        validated.sort(reverse=True)
+        score, index, corrected = validated[0]
+        for other_score, _, other_pose in validated[1:]:
+            dx, dy, dyaw = _relative(corrected, other_pose)
+            if (other_score >= score - self.LOOP_AMBIGUITY_MARGIN
+                    and (math.hypot(dx, dy) >= 0.12 or abs(dyaw) >= math.radians(5))):
+                self.last_loop_closure = {"accepted": False, "reason": "competing_loop_matches"}
+                return False
+        measurement = _relative(self.keyframes[index].pose, corrected)
+        self.graph_edges.append((index, current_index, measurement, "loop_closure"))
+        self.loop_closures += 1
+        self.last_loop_closure = {"accepted": True, "from_keyframe": index,
+                                  "to_keyframe": current_index, "score": score}
+        if self.defer_graph_optimization:
+            self.graph_optimization_pending = True
+            return False
+        self._optimize_graph()
+        return True
 
     def optimize_pending_graph(self) -> None:
         if self.graph_optimization_pending:
@@ -492,14 +540,19 @@ class OccupancyMap:
         self.free.clear()
         self.occupied.clear()
         self.log_odds.clear()
+        self._pending_wall_clears.clear()
         corrected_poses = []
+        previous_index = 0
         for frame in self.scan_frames:
+            if frame.scan_index != previous_index + 1:
+                self._pending_wall_clears.clear()
+            previous_index = frame.scan_index
             anchor_pose = self.keyframes[frame.anchor].pose
             pose = _compose(anchor_pose, frame.relative_pose)
             corrected_poses.append(pose)
             self._integrate(
                 self._unpack_scan(frame), pose, frame.t_ns, frame.vx, frame.vy, frame.wz,
-                clear_free=frame.clear_free, occupied_evidence=frame.occupied_evidence,
+                clear_free=frame.clear_free,
             )
         self.poses = corrected_poses[-5000:]
 
@@ -513,44 +566,54 @@ class OccupancyMap:
         if deadline_mono is not None and matched_mono >= deadline_mono:
             return False
         self.last_scan_match = match
+        reliable = (match.accepted and match.score >= self.MIN_MAP_MATCH_SCORE
+                    and match.correction_m <= 0.15 and abs(match.correction_yaw_rad) <= math.radians(7))
         if match.accepted:
             self.scan_match_accepted += 1
+        if reliable:
             pose.x_m, pose.y_m, pose.yaw_rad = corrected
         current_pose = pose.as_tuple()
-        reliable = match.accepted and match.score >= 0.55
-        clear_free = reliable or self.scans == 0
-        occupied_evidence = self.OCCUPIED_EVIDENCE if clear_free else 0.30
-        self._integrate(
-            points, current_pose, scan.t_ns, pose.last_vx_mps,
-            pose.last_vy_mps, pose.last_yaw_rate_radps,
-            clear_free=clear_free, occupied_evidence=occupied_evidence,
-        )
-        integrated_mono = time.monotonic()
         self.scans += 1
-        self.points += len(points)
-        added = self._new_keyframe(points, current_pose, scan.t_ns, pose.last_vx_mps,
-                                   pose.last_vy_mps, pose.last_yaw_rate_radps)
-        anchor = len(self.keyframes) - 1
-        anchor_pose = self.keyframes[anchor].pose
-        self.scan_frames.append(_ScanFrame(anchor, _relative(anchor_pose, current_pose),
-                                          self._pack_scan(points, scan.t_ns), scan.t_ns,
-                                          pose.last_vx_mps, pose.last_vy_mps,
-                                          pose.last_yaw_rate_radps, clear_free, occupied_evidence))
-        if added:
-            index = len(self.keyframes) - 1
-            closed = self._try_loop_closure(index, points, self.keyframes[index])
-            if not closed and index == 0:
-                self.last_loop_closure = {"accepted": False, "reason": "first_keyframe"}
-            if closed:
-                pose.x_m, pose.y_m, pose.yaw_rad = self.keyframes[index].pose
-        self.revision += 1
-        self.poses.append(pose.as_tuple())
-        if len(self.poses) > 5000:
-            del self.poses[:-5000]
+        bootstrap = not self.scan_frames and len(points) >= 16
+        integrated = bool(points) and (reliable or bootstrap or not self.scan_matching_enabled)
+        clear_free = integrated and (bootstrap or not self.scan_matching_enabled or
+                                      (match.score >= self.MIN_CLEAR_MATCH_SCORE
+                                       and abs(pose.last_yaw_rate_radps) < 0.8))
+        if integrated:
+            self._integrate(points, current_pose, scan.t_ns, pose.last_vx_mps, pose.last_vy_mps,
+                            pose.last_yaw_rate_radps, clear_free=clear_free)
+        else:
+            self._pending_wall_clears.clear()
+        integrated_mono = time.monotonic()
+        loop_closure = None
+        if integrated:
+            self.points += len(points)
+            added = self._new_keyframe(points, current_pose, scan.t_ns, pose.last_vx_mps,
+                                       pose.last_vy_mps, pose.last_yaw_rate_radps)
+            anchor = len(self.keyframes) - 1
+            self.scan_frames.append(_ScanFrame(anchor, _relative(self.keyframes[anchor].pose, current_pose),
+                                              self._pack_scan(points, scan.t_ns), scan.t_ns,
+                                              pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps,
+                                              self.scans, clear_free))
+            if added:
+                if self._try_loop_closure(anchor, points, self.keyframes[anchor]):
+                    pose.x_m, pose.y_m, pose.yaw_rad = self.keyframes[anchor].pose
+                elif anchor == 0:
+                    self.last_loop_closure = {"accepted": False, "reason": "first_keyframe"}
+                loop_closure = dict(self.last_loop_closure)
+            self.revision += 1
+            self.poses.append(pose.as_tuple())
+            if len(self.poses) > 5000:
+                del self.poses[:-5000]
         self.history.append({
             "scan_index": self.scans,
             "t_ns": scan.t_ns,
             "pose": [round(v, 6) for v in pose.as_tuple()],
+            "predicted_pose": list(base),
+            "matched_pose": list(corrected),
+            "body_twist": [pose.last_vx_mps, pose.last_vy_mps, pose.last_yaw_rate_radps],
+            "map_update": "full" if clear_free else "hits_only" if integrated else "held",
+            "loop_closure": loop_closure,
             "occupied_cells": len(self.occupied),
             "free_cells": len(self.free),
             "keyframes": len(self.keyframes),

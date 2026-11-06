@@ -429,7 +429,9 @@ class RunFiles:
             if not self.closed:
                 self.writers[name].writerow(row)
 
-    def write_map_history(self, record: dict[str, Any]) -> None:
+    def write_map_history(self, record: dict[str, Any], scan: LidarScan | None = None) -> None:
+        if scan is not None:
+            record = {**record, "lidar_point_offsets_ns": [point.t_ns - scan.t_ns for point in scan.points]}
         with self.io_lock:
             if not self.closed:
                 self.history_stream.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
@@ -626,7 +628,7 @@ def write_manifest(root: Path, args: argparse.Namespace, mapper: OccupancyMap, t
 
 
 def self_test() -> None:
-    mapper = OccupancyMap(DEFAULT_MAP_RESOLUTION_M, lidar_x_m=0.1, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2)
+    mapper = OccupancyMap(DEFAULT_MAP_RESOLUTION_M, lidar_x_m=0.1, lidar_y_m=0.0, lidar_yaw_rad=0.0, min_range_m=0.05, max_range_m=8.0, padding_cells=2, scan_matching=False)
     scan = LidarScan(1, (LidarPoint(1, 0.0, 1.0, 10, 0), LidarPoint(1, math.pi / 2, 0.5, 10, 0)))
     for _ in range(3):
         mapper.update(scan, Pose())
@@ -764,7 +766,7 @@ def main() -> int:
                                               dt_s=pose.last_dt_s,
                                               source="six_state_ekf_encoder_imu_lidar")
                     files.scan(scan)
-                    files.write_map_history(mapper.history[-1])
+                    files.write_map_history(mapper.history[-1], scan)
                     files.context(scan.t_ns, pose, scan)
                     last_scan_ns = scan.t_ns
                 if now >= next_send:
