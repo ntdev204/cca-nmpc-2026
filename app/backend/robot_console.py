@@ -50,6 +50,7 @@ SENSOR_PERIOD_S = 0.05
 # rate; map payload generation is a full-grid operation.
 MAP_PERIOD_S = 0.5
 LIDAR_TARGET_HZ = 10.0
+LIDAR_STALE_AFTER_S = 1.5
 MAP_RESOLUTION_M = 0.025
 SAVED_MAP_CACHE_PERIOD_S = 10.0
 STM_TELEMETRY_MAX_AGE_S = 1.0
@@ -627,6 +628,7 @@ class RobotService:
         self.last_map_mono = 0.0
         self.last_broadcast_map_signature = ""
         self.latest_lidar: list[list[float]] = []
+        self.last_lidar_stale_broadcast_ns = 0
         self.latest_camera_bytes: bytes | None = None
         self.latest_camera_color: Any = None
         self.camera_condition = threading.Condition()
@@ -721,13 +723,29 @@ class RobotService:
             with self.camera_count_lock:
                 camera_frames_saved = self.camera_frames_saved
             lidar_rate_hz = 0.0
+            lidar_scan_age_s: float | None = None
+            lidar_reconnects = 0
+            lidar_error = ""
             if self.lidar is not None:
                 try:
-                    lidar_rate_hz = float(self.lidar.scan_rate_hz)
+                    lidar_scan_age_s = float(self.lidar.scan_age_s)
+                    lidar_reconnects = int(self.lidar.reconnect_count)
+                    lidar_error = str(self.lidar.last_error)
+                    if lidar_scan_age_s <= LIDAR_STALE_AFTER_S:
+                        lidar_rate_hz = float(self.lidar.scan_rate_hz)
                 except (AttributeError, TypeError, ValueError):
                     lidar_rate_hz = 0.0
+            lidar_fresh = lidar_scan_age_s is not None and lidar_scan_age_s <= LIDAR_STALE_AFTER_S
+            lidar_status = self.status.get("lidar", "offline")
+            if lidar_status == "online" and not lidar_fresh:
+                lidar_status = "stale"
             return {
                 **self.status,
+                "lidar": lidar_status,
+                "lidar_fresh": lidar_fresh,
+                "lidar_scan_age_s": None if lidar_scan_age_s is None else round(lidar_scan_age_s, 2),
+                "lidar_reconnects": lidar_reconnects,
+                "lidar_error": lidar_error,
                 "armed": self.armed,
                 "stm_telemetry_age_s": (
                     round(max(0.0, time.monotonic() - self.last_telemetry_mono), 3)
@@ -1184,6 +1202,9 @@ class RobotService:
             if self.stm is None or self.lidar is None:
                 self.broadcast({"type": "event", "event": "error", "message": "STM32 and N10P must be online before scanning"})
                 return
+            if self.lidar.latest is None or self.lidar.scan_age_s > LIDAR_STALE_AFTER_S:
+                self.broadcast({"type": "event", "event": "error", "message": "N10P has no fresh scans yet; wait for LiDAR reconnect before starting a map"})
+                return
             self.scan_starting = True
             self.status["scan"] = "starting"
 
@@ -1210,6 +1231,12 @@ class RobotService:
                 return
             if self.stm is None or self.lidar is None:
                 self.broadcast({"type": "event", "event": "error", "message": "STM32 and N10P must be online before scanning"})
+                return
+            if self.lidar.latest is None or self.lidar.scan_age_s > LIDAR_STALE_AFTER_S:
+                self.scan_starting = False
+                self.scan_start_thread = None
+                self.status["scan"] = "idle"
+                self.broadcast({"type": "event", "event": "error", "message": "N10P scans became stale before mapping started"})
                 return
             run_id = time.strftime("console-map-%Y%m%d-%H%M%S")
             root = PROJECT_ROOT / "experiments" / "runs" / run_id
@@ -2028,9 +2055,20 @@ class RobotService:
                 scans = (latest,) if latest is not None else ()
             scans = tuple(scan for scan in scans if scan.t_ns > self.last_scan_ns)
             if not scans:
+                scan_age_s = float(getattr(self.lidar, "scan_age_s", 0.0))
+                latest = getattr(self.lidar, "latest", None)
+                if (
+                    scan_age_s > LIDAR_STALE_AFTER_S
+                    and latest is not None
+                    and self.last_lidar_stale_broadcast_ns != latest.t_ns
+                ):
+                    self.latest_lidar = []
+                    self.last_lidar_stale_broadcast_ns = latest.t_ns
+                    return {"type": "lidar", "t_ns": latest.t_ns, "points": [], "stale": True}
                 return None
             scan = scans[-1]
             self.last_scan_ns = scan.t_ns
+            self.last_lidar_stale_broadcast_ns = 0
             self.latest_lidar = compact_points(scan.points)
             work = []
             if self.scan_active and self.mapper is not None and self.pose is not None:

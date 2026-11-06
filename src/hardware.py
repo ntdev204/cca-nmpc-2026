@@ -653,6 +653,10 @@ class N10PSerialSource:
         self._scans: deque[LidarScan] = deque(maxlen=self.SCAN_QUEUE_SIZE)
         self._scan_queue_dropped = 0
         self._last_scan_t_ns = 0
+        self._started_mono = 0.0
+        self._last_scan_mono = 0.0
+        self._reconnect_count = 0
+        self._last_error = ""
         self._decoder = N10PDecoder(self.protocol_profile)
         self._scan_times = deque(maxlen=24)
 
@@ -681,6 +685,22 @@ class N10PSerialSource:
             elapsed = self._scan_times[-1] - self._scan_times[0]
             return (len(self._scan_times) - 1) / elapsed if elapsed > 0.0 else 0.0
 
+    @property
+    def scan_age_s(self) -> float:
+        with self._lock:
+            reference = self._last_scan_mono or self._started_mono
+        return max(0.0, time.monotonic() - reference) if reference > 0.0 else math.inf
+
+    @property
+    def reconnect_count(self) -> int:
+        with self._lock:
+            return self._reconnect_count
+
+    @property
+    def last_error(self) -> str:
+        with self._lock:
+            return self._last_error
+
     def start(self) -> None:
         try:
             import serial
@@ -694,6 +714,10 @@ class N10PSerialSource:
             self._scan_queue_dropped = 0
             self._last_scan_t_ns = 0
             self._scan_times.clear()
+            self._started_mono = time.monotonic()
+            self._last_scan_mono = 0.0
+            self._reconnect_count = 0
+            self._last_error = ""
         try:
             self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
             self._serial.write(self.start_command())
@@ -734,34 +758,83 @@ class N10PSerialSource:
         return bytes(command)
 
     def _run(self) -> None:
+        import serial
+
         last_angle: float | None = None
         points: list[LidarPoint] = []
+        last_valid_scan_mono = time.monotonic()
+        reconnect_delay_s = 0.5
         while not self._stop.is_set():
-            waiting = int(getattr(self._serial, "in_waiting", 0) or 0)
-            payload = self._serial.read(max(256, min(waiting, 4096)))
-            if not payload:
-                continue
-            timestamp = utc_ns()
-            for decoded in self._decoder.feed_all(payload, timestamp):
-                for point in decoded:
-                    angle = math.degrees(point.angle_rad)
-                    wrapped = last_angle is not None and (
-                        (last_angle > 355.0 and angle < 5.0)
-                        or (last_angle < 5.0 and angle > 355.0)
-                    )
-                    if wrapped and points:
+            try:
+                if self._serial is None or not getattr(self._serial, "is_open", True):
+                    raise serial.SerialException("N10P serial port is closed")
+                waiting = int(getattr(self._serial, "in_waiting", 0) or 0)
+                payload = self._serial.read(max(256, min(waiting, 4096)))
+                if payload:
+                    timestamp = utc_ns()
+                    for decoded in self._decoder.feed_all(payload, timestamp):
+                        for point in decoded:
+                            angle = math.degrees(point.angle_rad)
+                            wrapped = last_angle is not None and (
+                                (last_angle > 355.0 and angle < 5.0)
+                                or (last_angle < 5.0 and angle > 355.0)
+                            )
+                            if wrapped and points:
+                                scan_mono = time.monotonic()
+                                with self._lock:
+                                    scan_t_ns = max(utc_ns(), self._last_scan_t_ns + 1)
+                                    self._last_scan_t_ns = scan_t_ns
+                                    scan = LidarScan(scan_t_ns, tuple(points))
+                                    self._latest = scan
+                                    self._last_scan_mono = scan_mono
+                                    self._last_error = ""
+                                    if len(self._scans) == self._scans.maxlen:
+                                        self._scan_queue_dropped += 1
+                                    self._scans.append(scan)
+                                    self._scan_times.append(scan_mono)
+                                last_valid_scan_mono = scan_mono
+                                reconnect_delay_s = 0.5
+                                points = []
+                            points.append(point)
+                            last_angle = angle
+                if time.monotonic() - last_valid_scan_mono > 1.5:
+                    raise serial.SerialException("no valid N10P scan received for 1.5 seconds")
+            except Exception as error:
+                if self._stop.is_set():
+                    break
+                with self._lock:
+                    self._last_error = str(error) or error.__class__.__name__
+                points = []
+                last_angle = None
+                try:
+                    if self._serial is not None:
+                        self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
+                self._decoder = N10PDecoder(self.protocol_profile)
+                while not self._stop.is_set():
+                    candidate = None
+                    try:
+                        candidate = serial.Serial(self.port, self.baudrate, timeout=self.timeout_s)
+                        candidate.write(self.start_command())
+                        self._serial = candidate
+                        last_valid_scan_mono = time.monotonic()
                         with self._lock:
-                            scan_t_ns = max(utc_ns(), self._last_scan_t_ns + 1)
-                            self._last_scan_t_ns = scan_t_ns
-                            scan = LidarScan(scan_t_ns, tuple(points))
-                            self._latest = scan
-                            if len(self._scans) == self._scans.maxlen:
-                                self._scan_queue_dropped += 1
-                            self._scans.append(scan)
-                            self._scan_times.append(time.monotonic())
-                        points = []
-                    points.append(point)
-                    last_angle = angle
+                            self._scans.clear()
+                            self._reconnect_count += 1
+                        break
+                    except Exception as reconnect_error:
+                        with self._lock:
+                            self._last_error = str(reconnect_error) or reconnect_error.__class__.__name__
+                        try:
+                            if candidate is not None:
+                                candidate.close()
+                        except Exception:
+                            pass
+                        if self._stop.wait(reconnect_delay_s):
+                            break
+                        reconnect_delay_s = min(5.0, reconnect_delay_s * 2.0)
 
 
 @dataclass

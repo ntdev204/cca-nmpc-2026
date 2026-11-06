@@ -589,7 +589,7 @@ export default function Home() {
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Live status</p>
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between"><span>Backend</span><span className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${online ? "bg-emerald-500" : "bg-red-500"}`} />{online ? "online" : "offline"}</span></div>
-              <div className="flex items-center justify-between"><span>LiDAR</span><span className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${status.lidar === "online" ? "bg-emerald-500" : "bg-red-500"}`} />{String(status.lidar ?? "offline")}</span></div>
+              <div className="flex items-center justify-between"><span>LiDAR</span><span title={String(status.lidar_error ?? "")} className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${status.lidar === "online" ? "bg-emerald-500" : "bg-red-500"}`} />{String(status.lidar ?? "offline")}{status.lidar === "stale" && ` · ${asNumber(status.lidar_scan_age_s).toFixed(1)}s`}</span></div>
               <div className="flex items-center justify-between"><span>Astra-S</span><span className="flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${status.camera === "online" ? "bg-emerald-500" : "bg-red-500"}`} />{String(status.camera ?? "offline")}</span></div>
               <div className="flex items-center justify-between"><span>Motion</span><span className={armed ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>{armed ? "armed" : "disarmed"}</span></div>
             </div>
