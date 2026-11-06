@@ -679,8 +679,10 @@ export default function Home() {
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 py-3">
             <div><CardTitle className="flex items-center gap-2"><MapPinned className="size-4 text-primary" />Map &amp; camera monitor</CardTitle><CardDescription>Fixed viewport · {asNumber(mapData?.resolution_m, asNumber(status.map_resolution_m, 0.025)) * 1000} mm cells · pose age {dataAge(markerState?.pose_sample_t_ns)} · map age {dataAge(snapshot.map?.capture_t_ns)}</CardDescription></div>
             <div className="flex flex-wrap items-center gap-1.5">
-              {Boolean(dataset.active) && dataset.slam_localization === "unconfirmed" &&
-                <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">Map paused · low scan match</Badge>}
+              {Boolean(dataset.active) && (dataset.slam_localization === "unconfirmed" || dataset.slam_localization === "ambiguous") &&
+                <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900">
+                  {dataset.slam_localization === "ambiguous" ? "Map paused · ambiguous corner" : "Map paused · low scan match"}
+                </Badge>}
               <MapToggle checked={showLaser} label="Laser" onChange={setLaserPreference} />
               <MapToggle checked={showTrace} label="Trace" onChange={setShowTrace} />
               <MapToggle checked={showPath} label="Path" onChange={setShowPath} />

@@ -92,6 +92,7 @@ class _MatchResult:
     correction_yaw_rad: float
     reason: str
     observability: float | None = None
+    competing_poses: tuple[tuple[tuple[float, float, float], float], ...] = ()
 
 
 class OccupancyMap:
@@ -119,6 +120,8 @@ class OccupancyMap:
     LOOP_MIN_SCORE = 0.65
     LOOP_MIN_INLIERS = 24
     LOOP_AMBIGUITY_MARGIN = 0.08
+    LOCAL_AMBIGUITY_MARGIN = 0.05
+    LOCAL_AMBIGUITY_TURN_RADPS = 0.20
     MIN_MAP_MATCH_SCORE = 0.55
     MIN_CLEAR_MATCH_SCORE = 0.60
     STRONG_OCCUPIED_THRESHOLD = 2.0
@@ -179,6 +182,8 @@ class OccupancyMap:
         self.last_scan_match = self._match_result(False, "not_run")
         self._held_streak = 0
         self._recovery_candidate: tuple[int, tuple[float, float, float], tuple[float, float, float]] | None = None
+        self._corner_ambiguous = False
+        self._corner_candidate: tuple[int, tuple[float, float, float], tuple[float, float, float]] | None = None
         self.last_loop_closure: dict[str, Any] = {"accepted": False, "reason": "not_run"}
 
     @staticmethod
@@ -338,6 +343,12 @@ class OccupancyMap:
         self, endpoints: np.ndarray, candidates: list[tuple[float, float, float]],
         tile: tuple[np.ndarray, int, int],
     ) -> np.ndarray:
+        return self._candidate_hits(endpoints, candidates, tile).mean(axis=1)
+
+    def _candidate_hits(
+        self, endpoints: np.ndarray, candidates: list[tuple[float, float, float]],
+        tile: tuple[np.ndarray, int, int],
+    ) -> np.ndarray:
         grid, min_x, min_y = tile
         x, y, yaw = np.asarray(candidates).T[:, :, None]
         ex, ey = endpoints.T
@@ -345,7 +356,7 @@ class OccupancyMap:
         xs = np.floor((x + c * ex - s * ey) / self.resolution_m).astype(np.intp) - min_x
         ys = np.floor((y + s * ex + c * ey) / self.resolution_m).astype(np.intp) - min_y
         valid = (xs >= 0) & (xs < grid.shape[1]) & (ys >= 0) & (ys < grid.shape[0])
-        return (grid[ys.clip(0, grid.shape[0] - 1), xs.clip(0, grid.shape[1] - 1)] & valid).mean(axis=1)
+        return grid[ys.clip(0, grid.shape[0] - 1), xs.clip(0, grid.shape[1] - 1)] & valid
 
     def _refine_pose(self, endpoints: np.ndarray, seed: tuple[float, float, float],
                      prior: tuple[float, float, float], tile: tuple[np.ndarray, int, int]
@@ -449,6 +460,8 @@ class OccupancyMap:
         base_score = float(scores([base])[0])
         best_score = base_score
         loop_candidates = [(base, base_score)] if loop_search else []
+        check_corner = not loop_search and (abs(wz) >= self.LOCAL_AMBIGUITY_TURN_RADPS or self._corner_ambiguous)
+        local_candidates = [(base, base_score)] if check_corner else []
         # Coarse-to-fine correlative scan matching, bounded around odometry.
         for step_xy, step_yaw, factor in (
             (coarse_xy_step, coarse_yaw_step, 1.0),
@@ -466,6 +479,8 @@ class OccupancyMap:
             for (ix, iy, it), candidate, score in zip(offsets, candidates, scores(candidates)):
                 if loop_search:
                     loop_candidates.append((candidate, float(score)))
+                if check_corner:
+                    local_candidates.append((candidate, float(score)))
                 movement_penalty = 0.0005 * (ix * ix + iy * iy + it * it)
                 if score - movement_penalty > best_score:
                     best, best_score = candidate, float(score)
@@ -480,6 +495,28 @@ class OccupancyMap:
                 best, best_score = refined, refined_score
             elif observability < 0.025:
                 best, best_score = base, base_score
+        if check_corner and best_score >= self.MIN_MAP_MATCH_SCORE:
+            # Compare distinct poses before the odometry-aligned fallback.
+            rivals = [
+                (candidate, score) for candidate, score in local_candidates
+                if (math.hypot(candidate[0] - best[0], candidate[1] - best[1]) >= 0.075
+                    or abs(_wrap(candidate[2] - best[2])) >= math.radians(4.5))
+            ]
+            rival = max(rivals, key=lambda item: item[1], default=None)
+            ambiguous = rival is not None and rival[1] >= best_score - self.LOCAL_AMBIGUITY_MARGIN
+            if rival is not None and not ambiguous and tile is not None and rival[1] >= best_score - 0.10:
+                # Give each sufficiently observed direction one vote, so a
+                # long wall cannot mask evidence from an opening or side wall.
+                hits = self._candidate_hits(np.asarray(endpoints), [best, rival[0]], tile)
+                sectors = np.floor(np.mod([point[0] for point in points], math.tau) / (math.tau / 8)).astype(int)
+                votes = [hits[:, sectors == k].mean(axis=1) for k in range(8)
+                         if np.count_nonzero(sectors == k) >= 5]
+                if len(votes) >= 3:
+                    sector_scores = np.mean(votes, axis=0)
+                    ambiguous = bool(sector_scores[1] >= sector_scores[0] - self.LOCAL_AMBIGUITY_MARGIN)
+            if ambiguous and rival is not None:
+                result = self._match_result(False, "ambiguous_local_match", best_score, len(points), _relative(base, best))
+                return replace(result, competing_poses=((best, best_score), rival)), base
         correction = _relative(base, best)
         # The coarse grid uses ceil(radius / step), then the fine pass searches
         # around the coarse winner. Derive the admissible correction from that
@@ -825,6 +862,20 @@ class OccupancyMap:
         self._recovery_candidate = None
         return replace(match, reason="relocalized"), corrected
 
+    def _confirm_corner_match(self, stamp: int, base: tuple[float, float, float],
+                              corrected: tuple[float, float, float]) -> bool:
+        prior = self._corner_candidate
+        self._corner_candidate = (stamp, base, corrected)
+        if prior is None or not 0 < stamp - prior[0] <= 1_500_000_000:
+            return False
+        expected = _compose(prior[2], _relative(prior[1], base))
+        dx, dy, dyaw = _relative(expected, corrected)
+        if math.hypot(dx, dy) > 0.06 or abs(dyaw) > math.radians(3):
+            return False
+        self._corner_candidate = None
+        self._corner_ambiguous = False
+        return True
+
     def update(self, scan: LidarScan, pose: Any, *, deadline_mono: float | None = None,
                pose_samples: tuple[tuple[int, float, float, float], ...] = ()) -> bool:
         started_mono = time.monotonic()
@@ -838,7 +889,7 @@ class OccupancyMap:
                                        pose.last_vy_mps, pose.last_yaw_rate_radps, radius=radius,
                                        yaw_radius=yaw_radius, rays=rays, deadline_mono=deadline_mono,
                                        reference_cells=self._active_reference())
-        if self.submaps and match.score < self.MIN_MAP_MATCH_SCORE and (
+        if self.submaps and match.reason != "ambiguous_local_match" and match.score < self.MIN_MAP_MATCH_SCORE and (
             deadline_mono is None or deadline_mono - time.monotonic() >= 0.04
         ):
             match, corrected = self._match(
@@ -848,13 +899,25 @@ class OccupancyMap:
         matched_mono = time.monotonic()
         if deadline_mono is not None and matched_mono >= deadline_mono:
             return False
-        self.last_scan_match = match
         reliable = (match.accepted and match.score >= self.MIN_MAP_MATCH_SCORE
                     and match.correction_m <= 0.15 and abs(match.correction_yaw_rad) <= math.radians(7))
+        if match.reason == "ambiguous_local_match":
+            self._corner_ambiguous = True
+            self._corner_candidate = None
+            self._recovery_candidate = None
+        elif self._corner_ambiguous:
+            if not reliable:
+                self._corner_candidate = None
+            elif not self._confirm_corner_match(scan.t_ns, base, corrected):
+                match = replace(match, accepted=False, reason="confirming_local_match")
+                reliable = False
+        self.last_scan_match = match
         self._held_streak = 0 if reliable or not self.scan_frames else self._held_streak + 1
         if reliable:
             self._recovery_candidate = None
-        recovered = None if reliable else self._recover_pose(points, scan, pose, base, rays, deadline_mono)
+        recovered = None
+        if not reliable and match.reason not in {"ambiguous_local_match", "confirming_local_match"}:
+            recovered = self._recover_pose(points, scan, pose, base, rays, deadline_mono)
         matched_mono = time.monotonic()
         if deadline_mono is not None and matched_mono >= deadline_mono:
             return False
@@ -862,6 +925,8 @@ class OccupancyMap:
             match, corrected = recovered
             self.last_scan_match = match
             self._held_streak = 0
+            self._corner_ambiguous = False
+            self._corner_candidate = None
         if match.accepted:
             self.scan_match_accepted += 1
         if reliable or recovered is not None:
@@ -912,7 +977,10 @@ class OccupancyMap:
             "search_radius_m": radius,
             "search_yaw_radius_rad": yaw_radius,
             "map_update": "full" if clear_free else "hits_only" if integrated else "held",
-            "localization": "relocalized" if recovered is not None else "tracking" if reliable else "unconfirmed",
+            "localization": (
+                "relocalized" if recovered is not None else "tracking" if reliable
+                else "ambiguous" if self._corner_ambiguous else "unconfirmed"
+            ),
             "loop_closure": loop_closure,
             "occupied_cells": len(self.occupied),
             "free_cells": len(self.free),
@@ -924,6 +992,11 @@ class OccupancyMap:
                            "correction_m": round(match.correction_m, 6),
                            "correction_yaw_rad": round(match.correction_yaw_rad, 6),
                            "observability": match.observability,
+                           "competing_poses": [
+                               {"pose": list(candidate), "score": round(score, 6),
+                                "yaw_delta_from_prediction_rad": round(_wrap(candidate[2] - base[2]), 6)}
+                               for candidate, score in match.competing_poses
+                           ],
                            "reason": match.reason},
         })
         if len(self.history) > 5000:

@@ -297,3 +297,29 @@ def test_relocalization_requires_two_consistent_matches_before_pose_change() -> 
     assert mapper.log_odds == previous_grid
     mapper.update(make_scan(geometry, 1_800_000_001), Pose())
     assert len(mapper.scan_frames) == 2
+
+
+def test_turn_with_competing_wall_matches_holds_map_until_confirmed() -> None:
+    mapper = make_mapper()
+    geometry = distinctive_points()
+    mapper.update(make_scan(geometry), Pose())
+    original_occupied = mapper.occupied.copy()
+    mapper.occupied.update(mapper.cell(x + 0.10, y) for x, y in geometry)
+    before = dict(mapper.log_odds)
+    turning = Pose(x_m=0.05, last_yaw_rate_radps=0.35)
+
+    mapper.update(make_scan(geometry, 200_000_001), turning)
+
+    assert mapper.last_scan_match.reason == "ambiguous_local_match"
+    assert len(mapper.history[-1]["scan_match"]["competing_poses"]) == 2
+    assert mapper.history[-1]["map_update"] == "held"
+    assert turning.x_m == pytest.approx(0.05)
+    assert mapper.log_odds == before
+
+    mapper.occupied = original_occupied
+    mapper.update(make_scan(geometry, 400_000_001), Pose())
+    assert mapper.last_scan_match.reason == "confirming_local_match"
+    assert mapper.history[-1]["map_update"] == "held"
+    mapper.update(make_scan(geometry, 600_000_001), Pose())
+    assert mapper.history[-1]["localization"] == "tracking"
+    assert len(mapper.scan_frames) == 2
