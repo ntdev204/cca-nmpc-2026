@@ -125,6 +125,7 @@ class OccupancyMap:
     MIN_MAP_MATCH_SCORE = 0.55
     MIN_CLEAR_MATCH_SCORE = 0.60
     STRONG_OCCUPIED_THRESHOLD = 2.0
+    OCCLUSION_MIN_SEPARATION_M = 0.075
 
     def __init__(
         self,
@@ -163,6 +164,7 @@ class OccupancyMap:
         self.occupied: set[tuple[int, int]] = set()
         self.log_odds: dict[tuple[int, int], float] = {}
         self._pending_wall_clears: set[tuple[int, int]] = set()
+        self.last_blocked_returns = 0
         self.poses: list[tuple[float, float, float]] = []
         self.history: list[dict[str, Any]] = []
         self.keyframes: list[_Keyframe] = []
@@ -463,7 +465,7 @@ class OccupancyMap:
         best_score = base_score
         loop_candidates = [(base, base_score)] if loop_search else []
         check_corner = not loop_search and (abs(wz) >= self.LOCAL_AMBIGUITY_TURN_RADPS or self._corner_ambiguous)
-        local_candidates = [(base, base_score)] if check_corner else []
+        local_candidates = [] if loop_search else [(base, base_score)]
         # Coarse-to-fine correlative scan matching, bounded around odometry.
         for step_xy, step_yaw, factor in (
             (coarse_xy_step, coarse_yaw_step, 1.0),
@@ -481,7 +483,7 @@ class OccupancyMap:
             for (ix, iy, it), candidate, score in zip(offsets, candidates, scores(candidates)):
                 if loop_search:
                     loop_candidates.append((candidate, float(score)))
-                if check_corner:
+                if not loop_search:
                     local_candidates.append((candidate, float(score)))
                 movement_penalty = 0.0005 * (ix * ix + iy * iy + it * it)
                 if score - movement_penalty > best_score:
@@ -497,7 +499,8 @@ class OccupancyMap:
                 best, best_score = refined, refined_score
             elif observability < 0.025:
                 best, best_score = base, base_score
-        if check_corner and best_score >= self.MIN_MAP_MATCH_SCORE:
+        large_shift = math.hypot(best[0] - base[0], best[1] - base[1]) >= 0.08
+        if not loop_search and (check_corner or large_shift) and best_score >= self.MIN_MAP_MATCH_SCORE:
             # Compare distinct poses before the odometry-aligned fallback.
             rivals = [
                 (candidate, score) for candidate, score in local_candidates
@@ -574,6 +577,8 @@ class OccupancyMap:
                    deadline_mono: float | None = None) -> bool:
         pose_x, pose_y = pose[0] / self.resolution_m, pose[1] / self.resolution_m
         radius_sq = (self.robot_radius_m / self.resolution_m) ** 2
+        separation_cells = max(1, math.ceil(self.OCCLUSION_MIN_SEPARATION_M / self.resolution_m))
+        blocked_returns = 0
         hits: set[tuple[int, int]] = set()
         misses: set[tuple[int, int]] = set()
         world_rays = (self._world_endpoint(point, pose, scan_t_ns, vx, vy, wz) for point in points)
@@ -584,12 +589,24 @@ class OccupancyMap:
                           for sx, sy, ex, ey in rays)
         for sx, sy, ex, ey in world_rays:
             end = self.cell(ex, ey)
-            hits.add(end)
-            if clear_free:
+            occluded = False
+            if clear_free or self.occupied:
                 for cell in bresenham(self.cell(sx, sy), end)[:-1]:
                     dx, dy = cell[0] + 0.5 - pose_x, cell[1] + 0.5 - pose_y
-                    if dx * dx + dy * dy > radius_sq:
+                    if dx * dx + dy * dy <= radius_sq:
+                        continue
+                    if clear_free:
                         misses.add(cell)
+                    if (cell in self.occupied and
+                            max(abs(cell[0] - end[0]), abs(cell[1] - end[1])) >= separation_cells):
+                        # A return behind a mapped wall conflicts with the old
+                        # geometry. Collect clearing evidence at the wall first.
+                        occluded = True
+                        break
+            if not occluded:
+                hits.add(end)
+            else:
+                blocked_returns += 1
         pending = set()
         free_votes = misses - hits
         if deadline_mono is not None and time.monotonic() >= deadline_mono:
@@ -603,16 +620,18 @@ class OccupancyMap:
         for end in hits:
             self._apply_evidence(end, self.OCCUPIED_EVIDENCE)
         self._pending_wall_clears = pending
+        self.last_blocked_returns = blocked_returns
         return True
 
     def _corner_write_reason(self, stamp: int, yaw_rate: float, match: _MatchResult, reliable: bool) -> str | None:
         turning = abs(yaw_rate) >= self.LOCAL_AMBIGUITY_TURN_RADPS
         small_correction = match.correction_m <= 0.06 and abs(match.correction_yaw_rad) <= math.radians(2.5)
-        risky = reliable and turning and (abs(yaw_rate) >= 0.8 or not small_correction)
+        large_correction = match.correction_m >= 0.08 or abs(match.correction_yaw_rad) > math.radians(4)
+        risky = reliable and (large_correction or (turning and (abs(yaw_rate) >= 0.8 or not small_correction)))
         if risky:
             self._map_write_needs_confirmation = True
             self._last_stable_map_stamp = None
-            return "turn_pose_change"
+            return "turn_pose_change" if turning else "large_pose_change"
         if self._map_write_needs_confirmation:
             prior = self._last_stable_map_stamp
             stable = reliable and small_correction
@@ -978,6 +997,8 @@ class OccupancyMap:
         if not integrated:
             self._pending_wall_clears.clear()
         integrated_mono = time.monotonic()
+        map_blocked_returns = self.last_blocked_returns if integrated else None
+        map_write_age_s = round((time.time_ns() - scan.t_ns) / 1e9, 4) if integrated and deadline_mono else None
         loop_closure = None
         if integrated:
             self.points += len(points)
@@ -1011,6 +1032,8 @@ class OccupancyMap:
             "search_yaw_radius_rad": yaw_radius,
             "map_update": "full" if clear_free else "hits_only" if integrated else "held",
             "map_write_reason": map_write_reason,
+            "map_blocked_returns": map_blocked_returns,
+            "map_write_age_s": map_write_age_s,
             "localization": (
                 "relocalized" if recovered is not None else "tracking" if reliable
                 else "ambiguous" if self._corner_ambiguous else "unconfirmed"

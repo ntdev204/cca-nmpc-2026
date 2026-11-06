@@ -358,3 +358,37 @@ def test_expired_map_votes_do_not_change_grid() -> None:
     assert not mapper._integrate(((0.0, 3.0, 1),), (0, 0, 0), 1, 0, 0, 0, deadline_mono=0)
     assert mapper.log_odds == grid
     assert mapper._pending_wall_clears == pending
+
+
+def test_occluded_return_does_not_paint_second_wall_before_first_is_cleared() -> None:
+    mapper = make_mapper()
+    old_wall = mapper.cell(1.0, 0.0)
+    new_wall = mapper.cell(1.20, 0.0)
+    mapper._apply_evidence(old_wall, 2.4)
+    pose = (0.0, 0.0, 0.0)
+    ray = ((0.0, 1.20, 1),)
+    mapper._integrate(ray, pose, 1, 0, 0, 0, clear_free=False)
+    assert new_wall not in mapper.occupied and mapper.last_blocked_returns == 1
+    assert mapper.log_odds[old_wall] == pytest.approx(2.4)
+
+    for stamp in range(2, 8):
+        mapper._integrate(ray, pose, stamp, 0, 0, 0)
+        assert new_wall not in mapper.occupied
+    assert old_wall not in mapper.occupied
+    mapper._integrate(ray, pose, 8, 0, 0, 0)
+    assert new_wall in mapper.occupied
+    assert old_wall not in mapper.occupied
+
+
+def test_unoccluded_return_can_map_a_separate_wall() -> None:
+    mapper = make_mapper()
+    mapper._apply_evidence(mapper.cell(1.0, 0.0), 3.0)
+    mapper._integrate(((math.pi / 4, math.sqrt(2)*1.213, 1),), (0, 0, 0), 1, 0, 0, 0)
+    assert mapper.cell(1.0, 0.0) in mapper.occupied
+    assert mapper.cell(1.213, 1.213) in mapper.occupied
+
+
+def test_large_translation_holds_map_even_when_driving_straight() -> None:
+    mapper = make_mapper()
+    result = mapper._match_result(True, "matched", 0.9, 120, (0.10, 0, 0))
+    assert mapper._corner_write_reason(1, 0.0, result, True) == "large_pose_change"
